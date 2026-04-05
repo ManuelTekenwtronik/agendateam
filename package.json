@@ -1,0 +1,8 @@
+{
+  "name": "agendateam",
+  "version": "1.0.0",
+  "description": "AgendaTeam - Gestión de tareas",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

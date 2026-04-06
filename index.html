@@ -16,7 +16,6 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;font-family:'Sora',sans-serif;font-size:15px;color:#1a1d2e;background:#f0f2f7;overflow:hidden;}
@@ -168,35 +167,38 @@ try{
       });
     }
     db=firebase.firestore();
-    storage=firebase.storage();
   }
 }catch(e){console.warn("Firebase init:",e);}
 
 var VAPID_KEY="BAmQh9W30ycVNv075wYZKEIArPB7V6r7mLIFRJtaHPn_-7l04BHfhgsKV2OvenT80kbnKED69ow4_7h1eMqG7Fo";
 var fcmMessaging=null;
-var storage=null;
+var CLOUDINARY_CLOUD="dzwm1f3o8";
+var CLOUDINARY_PRESET="AgendaTeam";
 var _evidenceFiles=[];
 
 function uploadEvidence(taskId,files,onProgress,onDone,onError){
-  if(!storage){onError("Firebase Storage no disponible");return;}
   var urls=[],total=files.length,done=0;
   if(!total){onDone([]);return;}
-  Array.from(files).forEach(function(file,i){
-    var ext=file.name.split('.').pop();
-    var path="evidence/"+taskId+"/"+Date.now()+"_"+i+"."+ext;
-    var ref=storage.ref(path);
-    var task=ref.put(file);
-    task.on("state_changed",
-      function(snap){onProgress&&onProgress(Math.round((snap.bytesTransferred/snap.totalBytes)*100));},
-      function(err){onError(err.message);},
-      function(){
-        task.snapshot.ref.getDownloadURL().then(function(url){
-          urls.push({url:url,name:file.name,type:file.type,size:file.size});
-          done++;
-          if(done===total)onDone(urls);
-        });
-      }
-    );
+  Array.from(files).forEach(function(file){
+    var isImg=file.type.indexOf("image")>=0||file.type.indexOf("video")>=0;
+    var resource=isImg?(file.type.indexOf("video")>=0?"video":"image"):"raw";
+    var fd=new FormData();
+    fd.append("file",file);
+    fd.append("upload_preset",CLOUDINARY_PRESET);
+    fd.append("folder","agendateam/evidence/"+taskId);
+    var xhr=new XMLHttpRequest();
+    xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
+    xhr.upload.onprogress=function(e){if(e.lengthComputable)onProgress&&onProgress(Math.round(e.loaded/e.total*100));};
+    xhr.onload=function(){
+      var res=JSON.parse(xhr.responseText);
+      if(res.secure_url){
+        urls.push({url:res.secure_url,name:file.name,type:file.type,size:file.size,public_id:res.public_id});
+        done++;
+        if(done===total)onDone(urls);
+      }else{onError(res.error&&res.error.message||"Error Cloudinary");}
+    };
+    xhr.onerror=function(){onError("Error de red al subir "+file.name);};
+    xhr.send(fd);
   });
 }
 

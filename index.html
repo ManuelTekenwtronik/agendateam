@@ -695,7 +695,8 @@ function taskHTML(t){
       }).join("");
   }else{
     statBtns=Object.keys(SC).filter(function(s){return s!=="pendiente_validacion";}).map(function(s){
-      return'<button class="task-act-btn" onclick="updStat(\''+t.id+'\',\''+s+'\')" style="background:'+(t.status===s?"#1a1d2e":"#f0f2f7")+';color:'+(t.status===s?"#fff":"#666")+'">'+SC[s].l+'</button>';
+      var lbl=(s==="completada"&&!isBoss&&t.criteria&&t.criteria.trim())?"📋 Enviar reporte":SC[s].l;
+      return'<button class="task-act-btn" onclick="updStat(\''+t.id+'\',\''+s+'\')" style="background:'+(t.status===s?"#1a1d2e":"#f0f2f7")+';color:'+(t.status===s?"#fff":"#666")+'">'+lbl+'</button>';
     }).join("");
   }
   var dateInfo="";
@@ -764,28 +765,29 @@ function updStat(id,status){
 function showCompletionReport(taskId){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
+  // Limpiar sheet previo si existe
+  var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
   _evidenceFiles=[];
   var sh=document.createElement("div");
   sh.id="completion-sheet";
   sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;overflow-y:auto;";
+  // Botones de archivo con input superpuesto (compatible con móvil iOS/Android)
+  function fileBtn(bg,icon,label,accept,capture){
+    return'<label style="flex:1;background:'+bg+';color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;position:relative;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
+      '<span style="font-size:22px;pointer-events:none;">'+icon+'</span>'+
+      '<span style="pointer-events:none;">'+label+'</span>'+
+      '<input type="file" accept="'+accept+'"'+(capture?' capture="'+capture+'"':'')+' multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="addEvidenceFiles(this.files)">'+
+    '</label>';
+  }
   sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
     '<div style="font-weight:800;font-size:17px;margin-bottom:6px;">✅ Reportar completado</div>'+
     '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b> y adjunta soportes de cumplimiento.</div>'+
-    '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;"></textarea>'+
+    '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;box-sizing:border-box;"></textarea>'+
     '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
-      '<label style="flex:1;background:#1a1d2e;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
-        '<span style="font-size:22px;">📷</span>Cámara'+
-        '<input type="file" accept="image/*" capture="environment" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
-      '</label>'+
-      '<label style="flex:1;background:#5a8fe0;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
-        '<span style="font-size:22px;">🖼️</span>Galería'+
-        '<input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
-      '</label>'+
-      '<label style="flex:1;background:#27ae60;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
-        '<span style="font-size:22px;">📄</span>Documento'+
-        '<input type="file" accept="*/*" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
-      '</label>'+
+      fileBtn('#1a1d2e','📷','Cámara','image/*','environment')+
+      fileBtn('#5a8fe0','🖼️','Galería','image/*,video/*','')+
+      fileBtn('#27ae60','📄','Documento','*/*','')+
     '</div>'+
     '<div id="evidence-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>'+
     '<div id="upload-progress" style="display:none;font-size:13px;color:#9b59b6;margin-bottom:10px;text-align:center;">⏳ Subiendo archivos…</div>'+

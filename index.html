@@ -732,7 +732,7 @@ function updStat(id,status){
   var prevStatus=t.status;
   // Si el colaborador marca completada y la tarea tiene criterios → pedir reporte
   var isBoss=currentUser&&currentUser.type==="boss";
-  if(status==="completada"&&!isBoss&&t.criteria&&t.criteria.trim()&&prevStatus!=="completada"&&prevStatus!=="pendiente_validacion"){
+  if(status==="completada"&&!isBoss&&t.criteria&&t.criteria.trim()&&prevStatus!=="completada"){
     showCompletionReport(id);
     return;
   }
@@ -884,7 +884,7 @@ function validateTaskCompletion(taskId,report,attachments){
   if(!t)return;
   var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
   var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
-  if(!ck)return;
+  if(!ck){t.status="en-progreso";delete t.pendingReport;delete t.pendingAttachments;saveLocal();render();toast("Error: canal de chat no encontrado","error");return;}
   var attInfo=attachments.length>0?"\nSoportes adjuntados: "+attachments.map(function(a){return a.name;}).join(", "):"\nNo se adjuntaron soportes.";
   var criteriaLines=t.criteria.split(/\n|\./).filter(function(s){return s.trim();}).map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
   var sys="Eres el validador de tareas de AgendaTeam. Verifica si la tarea fue completada según los criterios del jefe Manuel.\n\nTarea: \""+t.title+"\"\n\nCriterios numerados:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+"\n\nInstrucciones:\n- Evalúa cada criterio numerado individualmente\n- Si alguno no se cumple, indica el NÚMERO y TEXTO exacto del criterio incumplido\n- Sé específico y directo\n- Responde ÚNICAMENTE en JSON sin texto adicional:\n{\"aprobada\":true,\"razon\":\"Todos los criterios cumplidos. [resumen breve]\"}\no\n{\"aprobada\":false,\"razon\":\"Criterio(s) incumplido(s):\",\"pendiente\":\"1. [criterio exacto]: [qué falta]\\n2. [otro si aplica]\"}";

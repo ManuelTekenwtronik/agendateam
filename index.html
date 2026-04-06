@@ -163,13 +163,18 @@ var fcmMessaging=null;
 
 function initFCM(){
   if(typeof firebase==="undefined"||!db)return;
-  try{
-    fcmMessaging=firebase.messaging();
-    fcmMessaging.onMessage(function(payload){
-      var n=payload.notification||{};
-      showPushBanner(n.title||"AgendaTeam",n.body||"");
-    });
-  }catch(e){console.warn("FCM init:",e);}
+  if(!("serviceWorker" in navigator)){console.warn("Service Worker no soportado");return;}
+  navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function(reg){
+    try{
+      fcmMessaging=firebase.messaging();
+      fcmMessaging.useServiceWorker(reg);
+      fcmMessaging.onMessage(function(payload){
+        var n=payload.notification||{};
+        showPushBanner(n.title||"AgendaTeam",n.body||"");
+      });
+      console.log("FCM listo");
+    }catch(e){console.warn("FCM init:",e);}
+  }).catch(function(e){console.warn("SW register:",e);});
 }
 
 function showPushBanner(title,body){
@@ -181,7 +186,8 @@ function showPushBanner(title,body){
 }
 
 function requestNotifPermission(){
-  if(!fcmMessaging){toast("Notificaciones no disponibles","error");return;}
+  if(!("Notification" in window)){toast("Notificaciones no soportadas en este navegador","error");return;}
+  if(!fcmMessaging){toast("Inicializando... intenta de nuevo en 2 segundos","error");console.warn("fcmMessaging es null");return;}
   Notification.requestPermission().then(function(perm){
     if(perm!=="granted"){toast("Permiso de notificaciones denegado","error");return;}
     fcmMessaging.getToken({vapidKey:VAPID_KEY}).then(function(token){
@@ -191,7 +197,7 @@ function requestNotifPermission(){
       db.collection("fcm_tokens").doc(userKey).set({token:token,ts:Date.now()})
         .then(function(){toast("Notificaciones activadas ✓");})
         .catch(function(e){console.warn("Token save:",e);});
-    }).catch(function(e){console.warn("FCM token:",e);});
+    }).catch(function(e){console.warn("FCM token:",e);toast("Error FCM: "+e.message,"error");});
   });
 }
 

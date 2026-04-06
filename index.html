@@ -16,6 +16,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 html,body{height:100%;font-family:'Sora',sans-serif;font-size:15px;color:#1a1d2e;background:#f0f2f7;overflow:hidden;}
@@ -167,11 +168,53 @@ try{
       });
     }
     db=firebase.firestore();
+    storage=firebase.storage();
   }
 }catch(e){console.warn("Firebase init:",e);}
 
 var VAPID_KEY="BAmQh9W30ycVNv075wYZKEIArPB7V6r7mLIFRJtaHPn_-7l04BHfhgsKV2OvenT80kbnKED69ow4_7h1eMqG7Fo";
 var fcmMessaging=null;
+var storage=null;
+var _evidenceFiles=[];
+
+function uploadEvidence(taskId,files,onProgress,onDone,onError){
+  if(!storage){onError("Firebase Storage no disponible");return;}
+  var urls=[],total=files.length,done=0;
+  if(!total){onDone([]);return;}
+  Array.from(files).forEach(function(file,i){
+    var ext=file.name.split('.').pop();
+    var path="evidence/"+taskId+"/"+Date.now()+"_"+i+"."+ext;
+    var ref=storage.ref(path);
+    var task=ref.put(file);
+    task.on("state_changed",
+      function(snap){onProgress&&onProgress(Math.round((snap.bytesTransferred/snap.totalBytes)*100));},
+      function(err){onError(err.message);},
+      function(){
+        task.snapshot.ref.getDownloadURL().then(function(url){
+          urls.push({url:url,name:file.name,type:file.type,size:file.size});
+          done++;
+          if(done===total)onDone(urls);
+        });
+      }
+    );
+  });
+}
+
+function getFileIcon(type,name){
+  if(!type&&name){var ext=(name.split('.').pop()||"").toLowerCase();
+    if(["jpg","jpeg","png","gif","webp"].indexOf(ext)>=0)type="image/";
+    else if(ext==="pdf")type="application/pdf";
+    else if(["xls","xlsx"].indexOf(ext)>=0)type="excel";
+    else if(["doc","docx"].indexOf(ext)>=0)type="word";
+  }
+  if((type||"").indexOf("image")>=0)return"🖼️";
+  if((type||"").indexOf("pdf")>=0)return"📄";
+  if((type||"").indexOf("excel")>=0||(type||"").indexOf("spreadsheet")>=0)return"📊";
+  if((type||"").indexOf("word")>=0||(type||"").indexOf("document")>=0)return"📝";
+  if((type||"").indexOf("video")>=0)return"🎥";
+  if((type||"").indexOf("audio")>=0)return"🎵";
+  return"📎";
+}
 
 function initFCM(){
   if(typeof firebase==="undefined"||!db)return;
@@ -715,45 +758,115 @@ function updStat(id,status){
 function showCompletionReport(taskId){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
+  _evidenceFiles=[];
   var sh=document.createElement("div");
-  sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;";
+  sh.id="completion-sheet";
+  sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;overflow-y:auto;";
   sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
-    '<div style="font-weight:800;font-size:16px;margin-bottom:8px;">✅ Reportar completado</div>'+
-    '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b>. La IA verificará que se cumplan los criterios.</div>'+
-    '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:100px;outline:none;font-family:inherit;resize:none;"></textarea>'+
-    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+    '<div style="font-weight:800;font-size:17px;margin-bottom:6px;">✅ Reportar completado</div>'+
+    '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b> y adjunta soportes de cumplimiento.</div>'+
+    '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;"></textarea>'+
+    '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes</div>'+
+    '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
+      '<label style="flex:1;background:#1a1d2e;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
+        '<span style="font-size:22px;">📷</span>Cámara'+
+        '<input type="file" accept="image/*" capture="environment" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
+      '</label>'+
+      '<label style="flex:1;background:#5a8fe0;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
+        '<span style="font-size:22px;">🖼️</span>Galería'+
+        '<input type="file" accept="image/*,video/*" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
+      '</label>'+
+      '<label style="flex:1;background:#27ae60;color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;">'+
+        '<span style="font-size:22px;">📄</span>Documento'+
+        '<input type="file" accept="*/*" multiple style="display:none;" onchange="addEvidenceFiles(this.files)">'+
+      '</label>'+
+    '</div>'+
+    '<div id="evidence-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>'+
+    '<div id="upload-progress" style="display:none;font-size:13px;color:#9b59b6;margin-bottom:10px;text-align:center;">⏳ Subiendo archivos…</div>'+
+    '<div style="display:flex;gap:10px;">'+
     '<button onclick="submitCompletionReport(\''+taskId+'\')" style="flex:1;background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Enviar para validación</button>'+
-    '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="flex:1;background:#f0f2f7;color:#666;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Cancelar</button>'+
+    '<button onclick="document.getElementById(\'completion-sheet\').remove()" style="flex:1;background:#f0f2f7;color:#666;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Cancelar</button>'+
     '</div></div>';
   document.body.appendChild(sh);
   setTimeout(function(){var ta=document.getElementById("completion-report");if(ta)ta.focus();},100);
+}
+
+function addEvidenceFiles(files){
+  Array.from(files).forEach(function(f){_evidenceFiles.push(f);});
+  renderEvidencePreview();
+}
+
+function renderEvidencePreview(){
+  var el=document.getElementById("evidence-preview");
+  if(!el)return;
+  el.innerHTML=_evidenceFiles.map(function(f,i){
+    var isImg=f.type.indexOf("image")>=0;
+    var icon=getFileIcon(f.type,f.name);
+    var preview=isImg?'<img src="'+URL.createObjectURL(f)+'" style="width:60px;height:60px;object-fit:cover;border-radius:8px;">':'<div style="width:60px;height:60px;background:#f0f2f7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;">'+icon+'</div>';
+    return'<div style="position:relative;cursor:pointer;" onclick="removeEvidence('+i+')">'+preview+
+      '<div style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">✕</div>'+
+      '<div style="font-size:10px;color:#888;text-align:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escH(f.name)+'</div></div>';
+  }).join("");
+}
+
+function removeEvidence(i){_evidenceFiles.splice(i,1);renderEvidencePreview();}
+
+function attachmentsHTML(atts){
+  if(!atts||!atts.length)return"";
+  return'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">'+atts.map(function(a){
+    var isImg=a.type&&a.type.indexOf("image")>=0;
+    if(isImg)return'<a href="'+a.url+'" target="_blank" style="display:block;"><img src="'+a.url+'" style="max-width:120px;max-height:100px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,.2);"></a>';
+    return'<a href="'+a.url+'" target="_blank" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:12px;">'+getFileIcon(a.type,a.name)+' '+escH(a.name)+'</a>';
+  }).join("")+'</div>';
 }
 
 function submitCompletionReport(taskId){
   var report=(document.getElementById("completion-report")||{}).value||"";
   report=report.trim();
   if(!report){toast("Describe qué hiciste para completar la tarea","error");return;}
-  var sh=document.querySelector("div[style*='position:fixed'][style*='inset:0']");
-  if(sh)sh.remove();
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  if(_evidenceFiles.length>0){
+    var prog=document.getElementById("upload-progress");
+    if(prog)prog.style.display="block";
+    uploadEvidence(taskId,_evidenceFiles,
+      function(pct){var p=document.getElementById("upload-progress");if(p)p.textContent="⏳ Subiendo… "+pct+"%";},
+      function(urls){
+        var sh=document.getElementById("completion-sheet");if(sh)sh.remove();
+        _finishSubmit(taskId,report,urls);
+      },
+      function(err){toast("Error al subir archivos: "+err,"error");}
+    );
+  }else{
+    var sh=document.getElementById("completion-sheet");if(sh)sh.remove();
+    _finishSubmit(taskId,report,[]);
+  }
+}
+
+function _finishSubmit(taskId,report,attachments){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
   t.status="pendiente_validacion";
   t.pendingReport=report;
+  t.pendingAttachments=attachments;
   saveLocal();render();
   toast("Enviado para validación IA 🤖");
-  validateTaskCompletion(taskId,report);
+  validateTaskCompletion(taskId,report,attachments);
 }
 
-function validateTaskCompletion(taskId,report){
+function validateTaskCompletion(taskId,report,attachments){
+  attachments=attachments||[];
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
   var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
   var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
   if(!ck)return;
-  var sys="Eres el validador de tareas de AgendaTeam. Tu función es verificar si una tarea fue completada correctamente según los criterios definidos por el jefe Manuel.\n\nTarea: \""+t.title+"\"\nCriterios de éxito definidos por Manuel:\n"+t.criteria+"\n\nEl colaborador reporta:\n\""+report+"\"\n\nEvalúa si el reporte cumple TODOS los criterios. Responde ÚNICAMENTE en este formato JSON (sin texto adicional):\n{\"aprobada\":true,\"razon\":\"...\"}\no\n{\"aprobada\":false,\"razon\":\"...\",\"pendiente\":\"qué falta exactamente\"}";
+  var attInfo=attachments.length>0?"\nSoportes adjuntados: "+attachments.map(function(a){return a.name;}).join(", "):"";
+  var sys="Eres el validador de tareas de AgendaTeam. Tu función es verificar si una tarea fue completada correctamente según los criterios definidos por el jefe Manuel.\n\nTarea: \""+t.title+"\"\nCriterios de éxito definidos por Manuel:\n"+t.criteria+"\n\nEl colaborador reporta:\n\""+report+"\""+attInfo+"\n\nEvalúa si el reporte cumple TODOS los criterios. Si se adjuntaron soportes, considéralo positivamente. Responde ÚNICAMENTE en este formato JSON (sin texto adicional):\n{\"aprobada\":true,\"razon\":\"...\"}\no\n{\"aprobada\":false,\"razon\":\"...\",\"pendiente\":\"qué falta exactamente\"}";
   if(!state.messages[ck])state.messages[ck]=[];
+  var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
-    text:"🤖 Validando completado de \""+t.title+"\"…"});
+    text:"🤖 Validando completado de \""+t.title+"\"…"+attMsg,attachments:attachments});
   saveLocal();
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:[{role:"user",content:"Valida el reporte."}]})
@@ -771,11 +884,12 @@ function validateTaskCompletion(taskId,report){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,attachments:attachments});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon,ts:Date.now()});
+      var attLinks=attachments.length>0?"\n\n📎 Soportes:\n"+attachments.map(function(a){return getFileIcon(a.type,a.name)+" "+a.name;}).join("\n"):"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon+attLinks,ts:Date.now(),attachments:attachments});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
       // Rechazar → seguimiento
@@ -787,12 +901,12 @@ function validateTaskCompletion(taskId,report){
       // Seguimiento programado
       setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
     }
-    delete t.pendingReport;
+    delete t.pendingReport;delete t.pendingAttachments;
     saveLocal();render();
   }).catch(function(e){
     t.status="en-progreso";
     state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
-    delete t.pendingReport;
+    delete t.pendingReport;delete t.pendingAttachments;
     saveLocal();render();
   });
 }
@@ -1149,7 +1263,7 @@ function renderChat(){
       var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.from==="system"?"system":"ai")));
       var avEl=isMe?"":(memberCol?avHTML(memberCol,32):'<div class="msg-avatar" style="background:'+(isBossMsg?"#1a1d2e":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(isBossMsg?"👔":m.from==="system"?"⚠️":"🤖")+'</div>');
       var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
-      return'<div class="msg-row'+(isMe?" me":"")+'">'+avEl+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
+      return'<div class="msg-row'+(isMe?" me":"")+'">'+avEl+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+attachmentsHTML(m.attachments)+'<div class="msg-time">'+tstr+'</div></div></div>';
     }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">👥</div>Chat grupal</div>';
     var gnames=gcols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     document.getElementById("content").innerHTML=
@@ -1210,7 +1324,7 @@ function renderChat(){
     var avIcon=isBossMsg?"👔":m.flag?"🚩":m.from==="system"?"⚠️":"🤖";
     var av=isMe?"":('<div class="msg-avatar" style="background:'+avBg+';">'+avIcon+'</div>');
     var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
-    return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
+    return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+attachmentsHTML(m.attachments)+'<div class="msg-time">'+tstr+'</div></div></div>';
   }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">💬</div>Escribe un mensaje</div>';
   document.getElementById("content").innerHTML=
     '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 230px);">'+

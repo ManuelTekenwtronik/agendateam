@@ -165,6 +165,8 @@ function initFCM(){
   if(typeof firebase==="undefined"||!db)return;
   if(!("serviceWorker" in navigator)){console.warn("Service Worker no soportado");return;}
   navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function(){
+    return navigator.serviceWorker.ready;
+  }).then(function(){
     try{
       fcmMessaging=firebase.messaging();
       fcmMessaging.onMessage(function(payload){

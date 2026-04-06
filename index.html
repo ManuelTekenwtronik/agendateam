@@ -825,7 +825,13 @@ function saveC(){
     if(c)Object.assign(c,{name:name,role:role,phone:phone.trim(),email:email.trim(),photo:tempPhoto,pin:pin});
     toast("Colaborador actualizado ✓");
   }else{
-    state.collaborators.push({id:Date.now(),name:name,role:role,phone:phone.trim(),email:email.trim(),photo:tempPhoto,pin:pin,color:CL[state.collaborators.length%CL.length]});
+    var newId=Date.now();
+    state.collaborators.push({id:newId,name:name,role:role,phone:phone.trim(),email:email.trim(),photo:tempPhoto,pin:pin,color:CL[state.collaborators.length%CL.length]});
+    var ck=collabCK(newId);
+    if(!state.messages[ck])state.messages[ck]=[];
+    var firstName=name.split(" ")[0];
+    state.messages[ck].push({id:Date.now()+1,from:"system",type:"welcome",ts:Date.now(),
+      text:"👋 ¡Bienvenido/a "+firstName+" a AgendaTeam!\n\nAquí recibirás tus tareas asignadas, podrás comunicarte con tu jefe y la IA te ayudará a gestionar tus compromisos.\n\n🔔 *Activa las notificaciones* para no perderte nada:\n1. Toca el ícono 🔔 en la parte superior\n2. Acepta el permiso que aparece\n3. ¡Listo! Recibirás alertas de tareas y mensajes en tiempo real."});
     toast("Colaborador agregado ✓");
   }
   saveLocal();closeSheet();render();
@@ -893,7 +899,15 @@ function xlStep2(){
 function xlP(input,i){var f=input.files[0];if(!f)return;compressImg(f,function(b64){xlRows[i].photo=b64;var p=document.getElementById("xp"+i);if(p)p.innerHTML='<img src="'+b64+'" style="width:100%;height:100%;object-fit:cover;">';});}
 function importXL(){
   var len=state.collaborators.length;
-  xlRows.forEach(function(r,i){state.collaborators.push(Object.assign({},r,{id:Date.now()+i,color:CL[(len+i)%CL.length]}));});
+  xlRows.forEach(function(r,i){
+    var newId=Date.now()+i;
+    state.collaborators.push(Object.assign({},r,{id:newId,color:CL[(len+i)%CL.length]}));
+    var ck=collabCK(newId);
+    if(!state.messages[ck])state.messages[ck]=[];
+    var firstName=(r.name||"").split(" ")[0];
+    state.messages[ck].push({id:Date.now()+i+1,from:"system",type:"welcome",ts:Date.now(),
+      text:"👋 ¡Bienvenido/a "+firstName+" a AgendaTeam!\n\nAquí recibirás tus tareas asignadas, podrás comunicarte con tu jefe y la IA te ayudará a gestionar tus compromisos.\n\n🔔 *Activa las notificaciones* para no perderte nada:\n1. Toca el ícono 🔔 en la parte superior\n2. Acepta el permiso que aparece\n3. ¡Listo! Recibirás alertas de tareas y mensajes en tiempo real."});
+  });
   saveLocal();closeSheet();render();toast(xlRows.length+" importados ✓");
 }
 

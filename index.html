@@ -134,6 +134,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
   <div id="tabs">
     <button class="tab-btn active" onclick="switchTab('tareas')">📋 Tareas</button>
     <button class="tab-btn" onclick="switchTab('chat')" id="chat-tab-btn">💬 Chat</button>
+    <button class="tab-btn" onclick="switchTab('base')" id="base-tab-btn" style="display:none;">📚 Base</button>
   </div>
   <div id="stats"></div>
   <div id="content" class="scroll"></div>
@@ -274,7 +275,7 @@ function saveCloud(){
   if(!db)return;
   var fc={
     collaborators:state.collaborators.map(function(c){return Object.assign({},c,{photo:""});}),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[]
   };
   db.collection("at").doc("data").set(fc).catch(function(e){console.warn("save:",e);});
 }
@@ -286,7 +287,7 @@ function startSync(){
     var d=snap.data();
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[]},d);
+    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},d);
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:pm[c.id]||""});});
     saveLocal();
     if(currentUser)render();
@@ -308,7 +309,7 @@ var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
-var state={collaborators:[],tasks:[],messages:{},alerts:[]};
+var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var confirmCallback=null,aiLoading=false;
@@ -316,7 +317,7 @@ var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
 var pinTarget=null,pinBuffer="";
 
-function loadLocal(){try{var r=localStorage.getItem(SK);return r?Object.assign({collaborators:[],tasks:[],messages:{},alerts:[]},JSON.parse(r)):{collaborators:[],tasks:[],messages:{},alerts:[]};}catch(e){return{collaborators:[],tasks:[],messages:{},alerts:[]};}}
+function loadLocal(){try{var r=localStorage.getItem(SK);return r?Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},JSON.parse(r)):{collaborators:[],tasks:[],messages:{},alerts:[],references:[]};}catch(e){return{collaborators:[],tasks:[],messages:{},alerts:[],references:[]};}}
 function saveLocal(){
   try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
   if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(saveCloud,1500);}
@@ -602,9 +603,12 @@ function renderHeader(){
 function renderTabs(){
   var btns=document.querySelectorAll(".tab-btn");
   var flags=state.alerts.filter(function(a){return a.type==="escalated";}).length;
+  var isBoss=currentUser&&currentUser.type==="boss";
   btns[0].className="tab-btn"+(currentTab==="tareas"?" active":"");
   btns[1].className="tab-btn"+(currentTab==="chat"?" active":"");
-  btns[1].innerHTML="💬 Chat"+(flags>0&&currentUser&&currentUser.type==="boss"?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-left:4px;vertical-align:middle;"></span>':"");
+  btns[1].innerHTML="💬 Chat"+(flags>0&&isBoss?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-left:4px;vertical-align:middle;"></span>':"");
+  var bb=document.getElementById("base-tab-btn");
+  if(bb){bb.style.display=isBoss?"":"none";bb.className="tab-btn"+(currentTab==="base"?" active":"");}
 }
 
 function switchTab(t){currentTab=t;renderContent();renderTabs();}
@@ -621,6 +625,7 @@ function renderStats(){
 
 function renderContent(){
   if(currentTab==="tareas")renderTasks();
+  else if(currentTab==="base")renderBase();
   else renderChat();
 }
 
@@ -772,22 +777,32 @@ function showCompletionReport(taskId){
   sh.id="completion-sheet";
   sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;overflow-y:auto;";
   // Botones de archivo con input superpuesto (compatible con móvil iOS/Android)
-  function fileBtn(bg,icon,label,accept,capture){
-    return'<label style="flex:1;background:'+bg+';color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;position:relative;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
-      '<span style="font-size:22px;pointer-events:none;">'+icon+'</span>'+
-      '<span style="pointer-events:none;">'+label+'</span>'+
-      '<input type="file" accept="'+accept+'"'+(capture?' capture="'+capture+'"':'')+' multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="addEvidenceFiles(this.files)">'+
-    '</label>';
+  var req=t.requiredEvidence||{};
+  var anyReq=req.photo||req.image||req.document;
+  function fileBtn(bg,bgDis,icon,label,accept,capture,enabled){
+    if(enabled){
+      return'<label style="flex:1;background:'+bg+';color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;position:relative;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
+        '<span style="font-size:22px;pointer-events:none;">'+icon+'</span>'+
+        '<span style="pointer-events:none;">'+label+'</span>'+
+        '<input type="file" accept="'+accept+'"'+(capture?' capture="'+capture+'"':'')+' multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="addEvidenceFiles(this.files)">'+
+      '</label>';
+    }else{
+      return'<div style="flex:1;background:#e8e8ee;color:#bbb;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
+        '<span style="font-size:22px;">'+icon+'</span>'+
+        '<span>'+label+'</span>'+
+        '<span style="font-size:10px;">No requerido</span>'+
+      '</div>';
+    }
   }
   sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
     '<div style="font-weight:800;font-size:17px;margin-bottom:6px;">✅ Reportar completado</div>'+
     '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b> y adjunta soportes de cumplimiento.</div>'+
     '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;box-sizing:border-box;"></textarea>'+
-    '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes</div>'+
+    '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes'+(anyReq?'<span style="font-size:11px;font-weight:400;color:#9b59b6;margin-left:8px;">Solo los requeridos están habilitados</span>':'')+'</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
-      fileBtn('#1a1d2e','📷','Cámara','image/*','environment')+
-      fileBtn('#5a8fe0','🖼️','Galería','image/*,video/*','')+
-      fileBtn('#27ae60','📄','Documento','*/*','')+
+      fileBtn('#1a1d2e','','📷','Cámara','image/*','environment',!anyReq||req.photo)+
+      fileBtn('#5a8fe0','','🖼️','Galería','image/*,video/*','',!anyReq||req.image)+
+      fileBtn('#27ae60','','📄','Documento','*/*','',!anyReq||req.document)+
     '</div>'+
     '<div id="evidence-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>'+
     '<div id="upload-progress" style="display:none;font-size:13px;color:#9b59b6;margin-bottom:10px;text-align:center;">⏳ Subiendo archivos…</div>'+
@@ -895,14 +910,46 @@ function validateTaskCompletion(taskId,report,attachments){
   var criteriaLines=t.criteria.split(/\n/).filter(function(s){return s.trim();});
   if(criteriaLines.length<=1)criteriaLines=t.criteria.split(/\./).filter(function(s){return s.trim();});
   criteriaLines=criteriaLines.map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
-  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. Si hay imágenes adjuntas, describe lo que se ve vs lo que se requiere según los criterios (ej: 'Se observa camisa ✓, pantalón ✓, pero no se aprecia gorra ✗ ni zapatos ✗').\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra:\n{\"aprobada\":true,\"razon\":\"✅ Todo cumplido.\\n\\n[desglose detallado criterio por criterio]\"}\no\n{\"aprobada\":false,\"razon\":\"❌ Hay criterios incumplidos:\",\"pendiente\":\"[Desglose detallado: para cada criterio indica su número, qué está ✓ presente y qué está ✗ faltando, con el máximo detalle posible]\"}";
+  // Buscar referencias en la base de datos que coincidan con la tarea
+  var refs=state.references||[];
+  var criteriaLow=(t.criteria+" "+t.title).toLowerCase();
+  var matchedRefs=refs.filter(function(r){
+    return criteriaLow.indexOf(r.name.toLowerCase())>=0||
+      (r.category&&criteriaLow.indexOf(r.category.toLowerCase())>=0);
+  });
+  var refContext="";
+  var refImageBlocks=[];
+  if(matchedRefs.length>0){
+    refContext="\n\nBASE DE DATOS DE REFERENCIA (estándar oficial):\n"+
+      matchedRefs.map(function(r){
+        return"📌 "+r.name+(r.category?" ["+r.category+"]":"")+"\n"+r.description;
+      }).join("\n\n");
+    matchedRefs.forEach(function(r){
+      (r.imageUrls||[]).slice(0,2).forEach(function(img){
+        if(img.url)refImageBlocks.push({type:"image",source:{type:"url",url:img.url}});
+      });
+    });
+  }
+  // Imágenes de los soportes enviados
+  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,4).map(function(a){return{type:"image",source:{type:"url",url:a.url}};});
+  var refCount=refImageBlocks.length,evCount=evImageBlocks.length;
+  var imgNote="";
+  if(refCount>0||evCount>0){
+    imgNote="\n\nIMÁGENES ADJUNTAS:"+(refCount>0?"\n- Primeras "+refCount+" imágen(es): ESTÁNDAR DE REFERENCIA oficial (cómo debe verse).":"")+
+      (evCount>0?"\n- Siguientes "+evCount+" imágen(es): SOPORTES enviados por el colaborador. Compara con el estándar.":"");
+  }
+  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra:\n{\"aprobada\":true,\"razon\":\"✅ Todo cumplido.\\n\\n[desglose detallado criterio por criterio]\"}\no\n{\"aprobada\":false,\"razon\":\"❌ Hay criterios incumplidos:\",\"pendiente\":\"[Desglose detallado: número de criterio, qué está ✓ presente y qué está ✗ faltando, con máximo detalle]\"}";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
+  if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
   state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
     text:"🤖 Validando completado de \""+t.title+"\"…"+attMsg,attachments:attachments});
   saveLocal();
+  // Construir content con imágenes de referencia + soportes si existen
+  var allImgBlocks=refImageBlocks.concat(evImageBlocks);
+  var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,system:sys,messages:[{role:"user",content:"Valida el reporte."}]})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){return r.json();}).then(function(d){
     var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
     var result={};
@@ -978,6 +1025,129 @@ function saveCollabNote(id){
 }
 
 function delT(id){state.tasks=state.tasks.filter(function(t){return t.id!=id;});saveLocal();render();toast("Tarea eliminada","error");}
+
+// ── BASE DE DATOS DE REFERENCIA ──
+var _refFiles=[];
+var _editingRefId=null;
+var _existingRefImgs=[];
+
+function renderBase(){
+  if(!state.references)state.references=[];
+  var refs=state.references;
+  var html='<div style="padding:16px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'+
+    '<div style="font-weight:800;font-size:17px;">📚 Base de Datos de Referencia</div>'+
+    '<button onclick="openAddRef()" style="background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;">+ Nuevo artículo</button>'+
+    '</div>'+
+    (refs.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;font-size:14px;">📂 Sin artículos de referencia.<br>Crea uno para que la IA lo use al validar tareas.</div>':
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">'+
+    refs.map(function(r){
+      var thumb=r.imageUrls&&r.imageUrls.length>0?'<img src="'+r.imageUrls[0].url+'" style="width:100%;height:140px;object-fit:cover;border-radius:10px;margin-bottom:10px;">':'<div style="width:100%;height:80px;background:#f0f2f7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:10px;">📋</div>';
+      return'<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 6px rgba(0,0,0,.08);">'+
+        thumb+
+        (r.category?'<span style="font-size:11px;font-weight:700;color:#9b59b6;background:#f5eeff;padding:2px 8px;border-radius:20px;">'+escH(r.category)+'</span>':'')+
+        '<div style="font-weight:800;font-size:15px;margin:6px 0 4px;">'+escH(r.name)+'</div>'+
+        '<div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5;max-height:60px;overflow:hidden;">'+escH(r.description||"")+'</div>'+
+        (r.imageUrls&&r.imageUrls.length>1?'<div style="font-size:11px;color:#aaa;margin-bottom:10px;">🖼️ '+r.imageUrls.length+' imágenes de referencia</div>':'')+
+        '<div style="display:flex;gap:8px;">'+
+        '<button onclick="openEditRef('+r.id+')" style="flex:1;background:#f0f2f7;border:none;border-radius:10px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;">✏️ Editar</button>'+
+        '<button onclick="delRef('+r.id+')" style="background:#fff0f0;border:none;border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;">🗑️</button>'+
+        '</div></div>';
+    }).join("")+
+    '</div>')+
+    '</div>';
+  document.getElementById("content").innerHTML=html;
+}
+
+function openAddRef(){
+  _editingRefId=null;_refFiles=[];_existingRefImgs=[];
+  showSheet("Nuevo artículo de referencia",refFormHTML(null));
+}
+
+function openEditRef(id){
+  var r=(state.references||[]).find(function(x){return x.id==id;});
+  if(!r)return;
+  _editingRefId=id;_refFiles=[];_existingRefImgs=(r.imageUrls||[]).slice();
+  showSheet("Editar artículo de referencia",refFormHTML(r));
+}
+
+function refFormHTML(r){
+  var v=r||{name:"",category:"",description:"",imageUrls:[]};
+  return'<div class="field"><label>Nombre del artículo *</label><input id="rf-name" value="'+escH(v.name)+'" placeholder="Ej: EPP completo, Uniforme operativo, Herramienta X" style="width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;"></div>'+
+    '<div class="field"><label>Categoría / Etiqueta</label><input id="rf-cat" value="'+escH(v.category||"")+'" placeholder="Ej: seguridad, uniforme, herramientas" style="width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;"></div>'+
+    '<div class="field"><label>Descripción detallada (qué debe tener / cómo debe verse)</label>'+
+    '<textarea id="rf-desc" placeholder="Describe cada componente que debe estar presente, cómo debe verse el estándar correcto, qué es inaceptable, etc." style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:120px;outline:none;font-family:inherit;resize:none;">'+escH(v.description||"")+'</textarea></div>'+
+    '<div class="field"><label>📷 Imágenes de referencia</label>'+
+    '<label style="display:flex;align-items:center;gap:10px;background:#f0f2f7;border-radius:12px;padding:12px 16px;cursor:pointer;font-weight:700;font-size:14px;position:relative;">'+
+      '🖼️ Seleccionar imágenes de referencia'+
+      '<input type="file" accept="image/*" multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="addRefFiles(this.files)">'+
+    '</label>'+
+    '<div id="ref-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">'+
+    (v.imageUrls||[]).map(function(img,i){return'<div style="position:relative;"><img src="'+img.url+'" style="width:72px;height:72px;object-fit:cover;border-radius:8px;">'+
+      '<div onclick="removeExistingRefImg('+i+')" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;cursor:pointer;">✕</div></div>';}).join("")+
+    '</div></div>'+
+    '<div id="ref-upload-progress" style="display:none;font-size:13px;color:#9b59b6;margin-bottom:10px;text-align:center;">⏳ Subiendo imágenes…</div>'+
+    '<button onclick="saveRef()" style="width:100%;background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;">Guardar artículo</button>';
+}
+
+function addRefFiles(files){Array.from(files).forEach(function(f){_refFiles.push(f);});renderRefPreview();}
+function removeRefFile(i){_refFiles.splice(i,1);renderRefPreview();}
+function removeExistingRefImg(i){_existingRefImgs.splice(i,1);renderRefPreview();}
+
+function renderRefPreview(){
+  var el=document.getElementById("ref-preview");if(!el)return;
+  var html=_existingRefImgs.map(function(img,i){
+    return'<div style="position:relative;"><img src="'+img.url+'" style="width:72px;height:72px;object-fit:cover;border-radius:8px;">'+
+      '<div onclick="removeExistingRefImg('+i+')" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;cursor:pointer;">✕</div></div>';
+  }).join("");
+  html+=_refFiles.map(function(f,i){
+    return'<div style="position:relative;"><img src="'+URL.createObjectURL(f)+'" style="width:72px;height:72px;object-fit:cover;border-radius:8px;">'+
+      '<div onclick="removeRefFile('+i+')" style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;cursor:pointer;">✕</div></div>';
+  }).join("");
+  el.innerHTML=html;
+}
+
+function saveRef(){
+  var name=(document.getElementById("rf-name")||{}).value||"";
+  var cat=(document.getElementById("rf-cat")||{}).value||"";
+  var desc=(document.getElementById("rf-desc")||{}).value||"";
+  name=name.trim();
+  if(!name){toast("El nombre es obligatorio","error");return;}
+  var prog=document.getElementById("ref-upload-progress");
+  function finish(newUrls){
+    var allImgs=_existingRefImgs.concat(newUrls);
+    if(_editingRefId){
+      var r=(state.references||[]).find(function(x){return x.id==_editingRefId;});
+      if(r){Object.assign(r,{name:name,category:cat,description:desc,imageUrls:allImgs});}
+    }else{
+      if(!state.references)state.references=[];
+      state.references.push({id:Date.now(),name:name,category:cat,description:desc,imageUrls:allImgs});
+    }
+    saveLocal();render();closeSheet();toast("Artículo guardado ✓");
+  }
+  if(_refFiles.length>0){
+    if(prog)prog.style.display="block";
+    var done=[],total=_refFiles.length;
+    _refFiles.forEach(function(f,idx){
+      var fd=new FormData();
+      fd.append("file",f);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam_refs");
+      var xhr=new XMLHttpRequest();
+      xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/image/upload");
+      xhr.onload=function(){
+        try{var r2=JSON.parse(xhr.responseText);done.push({url:r2.secure_url,name:f.name,type:f.type});}catch(e){done.push({url:"",name:f.name,type:f.type});}
+        if(done.length===total)finish(done);
+      };
+      xhr.onerror=function(){done.push({url:"",name:f.name,type:f.type});if(done.length===total)finish(done);};
+      xhr.send(fd);
+    });
+  }else{finish([]);}
+}
+
+function delRef(id){
+  if(!confirm("¿Eliminar este artículo de referencia?"))return;
+  state.references=(state.references||[]).filter(function(r){return r.id!=id;});
+  saveLocal();render();toast("Artículo eliminado","error");
+}
 
 // ── TASK FORM (boss only) ──
 function taskFormHTML(t){

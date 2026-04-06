@@ -388,7 +388,7 @@ function showMainLogin(){
     '<div style="font-size:48px;margin-bottom:10px;">📋</div>'+
     '<h1 style="font-weight:800;font-size:26px;letter-spacing:-.5px;">AgendaTeam</h1>'+
     '<p style="color:#999;font-size:14px;margin-top:4px;">Selecciona tu perfil</p></div>'+
-    '<button class="btn btn-dark btn-block" onclick="showPinLogin(\'boss\')" style="border-radius:14px;font-size:16px;margin-bottom:16px;">👔 Entrar como Jefe/a</button>'+
+    '<button class="btn btn-dark btn-block" onclick="showPinLogin(\'boss\')" style="border-radius:14px;font-size:16px;margin-bottom:16px;">👔 Entrar como Manuel</button>'+
     (state.collaborators.length?
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><div style="flex:1;height:1px;background:#eee;"></div><span style="color:#bbb;font-size:12px;font-weight:600;">colaboradores</span><div style="flex:1;height:1px;background:#eee;"></div></div>'+
       '<div style="display:flex;flex-direction:column;gap:8px;">'+
@@ -402,7 +402,7 @@ function showMainLogin(){
           (c.phone?'<div style="font-size:12px;color:#bbb;">📞 '+escH(c.phone)+'</div>':'')+
           '</div><div style="font-size:13px;color:#bbb;background:#f0f2f7;padding:4px 12px;border-radius:99px;font-weight:700;">'+pending+' tareas</div></button>';
       }).join("")+'</div>':
-      '<p style="text-align:center;color:#ccc;font-size:13px;margin-top:4px;">Entra como Jefe/a para agregar tu equipo</p>')+
+      '<p style="text-align:center;color:#ccc;font-size:13px;margin-top:4px;">Entra como Manuel para agregar tu equipo</p>')+
   '</div>';
 }
 
@@ -416,7 +416,7 @@ function showPinLogin(target){
     '<button onclick="showMainLogin();pinBuffer=\'\';" style="background:none;border:none;cursor:pointer;color:#5a8fe0;font-weight:700;font-size:14px;margin-bottom:16px;display:flex;align-items:center;gap:6px;">← Volver</button>'+
     (isCollab&&c?'<div style="display:flex;justify-content:center;margin-bottom:16px;">'+avHTML(c,60)+'</div>':
     '<div style="text-align:center;font-size:40px;margin-bottom:12px;">🔐</div>')+
-    pinPadHTML(isCollab&&c?c.name:"Jefe/a",subtitle)+
+    pinPadHTML(isCollab&&c?c.name:"Manuel",subtitle)+
   '</div>';
 }
 
@@ -928,7 +928,7 @@ function renderChat(){
       return'<button onclick="openChat('+c.id+')" style="background:'+(fl?"#fff5f5":"#fff")+';border:1.5px solid '+(fl?"#ffcccc":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
         '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">🚩</div>':'')+'</div>'+
         '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(fl?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Incumplimiento</span>':'')+'</div>'+
-        '<div style="font-size:12px;color:#aaa;margin-top:2px;">👔 Jefe · 👤 Colaborador · 🤖 IA</div>'+
+        '<div style="font-size:12px;color:#aaa;margin-top:2px;">👔 Manuel · 👤 Colaborador · 🤖 IA</div>'+
         '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Sin mensajes")+'</div></div>'+
         '<span style="font-size:22px;color:#ccc;">›</span></button>';
     }).join("")||(state.collaborators.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;">Agrega colaboradores primero</div>':"");
@@ -956,7 +956,7 @@ function renderChat(){
     (isBoss?'<button onclick="currentChatCollab=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>':'')+
     avHTML(cc,40)+
     '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(cc.name)+(fl?' 🚩':'')+'</div>'+
-    '<div style="font-size:12px;color:#999;">👔 Jefe · 👤 Colaborador · 🤖 IA</div></div>'+
+    '<div style="font-size:12px;color:#999;">👔 Manuel · 👤 Colaborador · 🤖 IA</div></div>'+
     '</div>'+
     '<div id="chat-msgs" class="scroll" style="flex:1;">'+msgsHTML+'</div>'+
     '<div class="chat-input-row">'+
@@ -982,7 +982,7 @@ function sendMsg(){
   if(!isBoss&&/\d[\/\-]\d/.test(text))
     state.alerts.forEach(function(a){if(a.collabId===currentUser.id&&a.type==="first"&&!a.responded){a.responded=true;a.newDate=text;}});
   // Notificar al otro participante
-  if(isBoss){sendNotif("collab_"+cc.id,"💬 Mensaje del jefe",text.slice(0,80));}
+  if(isBoss){sendNotif("collab_"+cc.id,"💬 Mensaje de Manuel",text.slice(0,80));}
   else{sendNotif("boss","💬 Mensaje de "+cc.name,text.slice(0,80));}
   saveLocal();renderChat();
   aiLoading=true;
@@ -1000,7 +1000,7 @@ function sendMsg(){
     return{role:isHuman?"user":"assistant",content:m.text};
   });
   var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
-  var prev=clean.concat([{role:"user",content:(isBoss?"[Jefe]: ":"["+cc.name+"]: ")+text}]);
+  var prev=clean.concat([{role:"user",content:(isBoss?"[Manuel]: ":"["+cc.name+"]: ")+text}]);
   fetch("/.netlify/functions/claude",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev})

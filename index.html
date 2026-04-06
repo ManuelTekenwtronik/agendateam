@@ -6,6 +6,10 @@
 <meta name="theme-color" content="#1a1d2e"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="AgendaTeam"/>
+<link rel="manifest" href="/manifest.json"/>
+<link rel="apple-touch-icon" href="/icon.svg"/>
 <title>AgendaTeam</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -963,6 +967,9 @@ function sendMsg(){
   state.messages[ck].push({id:Date.now(),from:isBoss?"boss":currentUser.id,text:text,ts:Date.now()});
   if(!isBoss&&/\d[\/\-]\d/.test(text))
     state.alerts.forEach(function(a){if(a.collabId===currentUser.id&&a.type==="first"&&!a.responded){a.responded=true;a.newDate=text;}});
+  // Notificar al otro participante
+  if(isBoss){sendNotif("collab_"+cc.id,"💬 Mensaje del jefe",text.slice(0,80));}
+  else{sendNotif("boss","💬 Mensaje de "+cc.name,text.slice(0,80));}
   saveLocal();renderChat();
   aiLoading=true;
   var ct=state.tasks.filter(function(t){return t.assignedTo===cc.id;});
@@ -972,8 +979,8 @@ function sendMsg(){
   var os=over.map(function(t){return'"'+t.title+'"';}).join(",")||"ninguna";
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
   var sys=isEsc
-    ?"Eres mediador de AgendaTeam. Hay un incumplimiento activo con "+cc.name+". Tareas vencidas: "+os+". El jefe y el colaborador están en este chat contigo. Facilita el acuerdo de compromisos concretos. Responde en español, máximo 4 oraciones."
-    :"Eres asistente de AgendaTeam. Estás en un chat grupal con el jefe y el colaborador "+cc.name+" ("+escH(cc.role||"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones.";
+    ?"Eres el asistente de seguimiento de AgendaTeam. Hay un incumplimiento activo de "+cc.name+". Tareas vencidas: "+os+". El jefe y el colaborador están en este chat. Tu rol es presionar al colaborador para que dé una fecha y hora CONCRETA y realista de cumplimiento, recordarle las consecuencias del incumplimiento, y asegurarte de que el jefe quede conforme. No aceptes respuestas vagas. Si la fecha propuesta supera el margen permitido, señálalo. Responde en español, directo, máximo 4 oraciones."
+    :"Eres el asistente de AgendaTeam en un chat grupal con el jefe y "+cc.name+" ("+escH(cc.role||"")+"). Tareas pendientes: "+ps+". Vencidas: "+os+". Tu rol es mantener al colaborador enfocado en los plazos, hacer preguntas directas sobre avances cuando hay tareas pendientes o vencidas, y presionar amablemente pero con firmeza para que cumpla los compromisos en los tiempos previstos. No seas condescendiente pero sí exigente. Responde en español, máximo 3 oraciones.";
   var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
     var isHuman=m.from==="boss"||typeof m.from==="number";
     return{role:isHuman?"user":"assistant",content:m.text};

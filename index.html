@@ -862,17 +862,21 @@ function sendMsg(){
   var os=over.map(function(t){return'"'+t.title+'"';}).join(",")||"ninguna";
   var sys=isBoss?"Eres asistente de AgendaTeam para el jefe. Colaborador: "+(cc?cc.name:"")+" ("+(cc?cc.role:"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones."
     :"Eres asistente de AgendaTeam para "+(cc?cc.name:"")+". Pendientes: "+ps+". Vencidas: "+os+". Responde en español, amigable, max 3 oraciones.";
-  var prev=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-6).map(function(m){return{role:(m.from==="boss"||m.from===currentUser.id)?"user":"assistant",content:m.text};});
+  // Build history excluding the message just pushed (to avoid duplicates), then add it as the final "user" turn
+  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){return{role:(m.from==="boss"||m.from===currentUser.id)?"user":"assistant",content:m.text};});
+  // Ensure strict role alternation (no consecutive same-role messages)
+  var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
+  var prev=clean.concat([{role:"user",content:text}]);
   fetch("/.netlify/functions/claude",{
     method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev.concat([{role:"user",content:text}])})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev})
   }).then(function(r){return r.json();})
   .then(function(d){
-    var txt=(d.content&&d.content[0]&&d.content[0].text)||"Sin respuesta.";
+    var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
     state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
     aiLoading=false;saveLocal();renderChat();
-  }).catch(function(){
-    state.messages[ck].push({id:Date.now(),from:"ai",text:"Chat IA no disponible aún.",ts:Date.now()});
+  }).catch(function(e){
+    state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error de conexión: "+(e&&e.message||"Sin red"),ts:Date.now()});
     aiLoading=false;saveLocal();renderChat();
   });
 }

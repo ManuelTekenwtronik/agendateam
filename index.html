@@ -113,6 +113,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
     <div class="logo"><div class="logo-dot"></div>AgendaTeam</div>
     <div style="display:flex;align-items:center;gap:10px;">
       <div id="flag-badge" class="hidden" style="background:#e74c3c;color:#fff;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700;"></div>
+      <button id="notif-btn" onclick="requestNotifPermission()" title="Activar notificaciones" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">🔔</button>
       <div id="user-av" class="hidden"></div>
       <button class="btn btn-sm" style="background:#2d3561;color:#fff;" onclick="logout()">Salir</button>
     </div>
@@ -155,6 +156,54 @@ try{
     db=firebase.firestore();
   }
 }catch(e){console.warn("Firebase init:",e);}
+
+var VAPID_KEY="IIjmiA7_WxH1HgspHet40ygA_Rgv2y8lPvLXoMgITBo";
+var fcmMessaging=null;
+
+function initFCM(){
+  if(typeof firebase==="undefined"||!db)return;
+  try{
+    fcmMessaging=firebase.messaging();
+    fcmMessaging.onMessage(function(payload){
+      var n=payload.notification||{};
+      showPushBanner(n.title||"AgendaTeam",n.body||"");
+    });
+  }catch(e){console.warn("FCM init:",e);}
+}
+
+function showPushBanner(title,body){
+  var el=document.createElement("div");
+  el.style.cssText="position:fixed;top:16px;left:50%;transform:translateX(-50%);background:#1a1d2e;color:#fff;padding:14px 20px;border-radius:14px;z-index:9999;max-width:320px;box-shadow:0 4px 20px rgba(0,0,0,0.3);font-family:inherit;font-size:14px;";
+  el.innerHTML='<div style="font-weight:700;margin-bottom:4px;">🔔 '+title+'</div><div style="color:#ccc;">'+body+'</div>';
+  document.body.appendChild(el);
+  setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},5000);
+}
+
+function requestNotifPermission(){
+  if(!fcmMessaging){toast("Notificaciones no disponibles","error");return;}
+  Notification.requestPermission().then(function(perm){
+    if(perm!=="granted"){toast("Permiso de notificaciones denegado","error");return;}
+    fcmMessaging.getToken({vapidKey:VAPID_KEY}).then(function(token){
+      if(!token){toast("No se pudo obtener token FCM","error");return;}
+      if(!db)return;
+      var userKey=currentUser&&currentUser.type==="boss"?"boss":"collab_"+currentUser.id;
+      db.collection("fcm_tokens").doc(userKey).set({token:token,ts:Date.now()})
+        .then(function(){toast("Notificaciones activadas ✓");})
+        .catch(function(e){console.warn("Token save:",e);});
+    }).catch(function(e){console.warn("FCM token:",e);});
+  });
+}
+
+function sendNotif(userKey,title,body){
+  if(!db)return;
+  db.collection("fcm_tokens").doc(userKey).get().then(function(doc){
+    if(!doc.exists)return;
+    fetch("/.netlify/functions/notify",{
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({token:doc.data().token,title:title,body:body})
+    }).catch(function(e){console.warn("notify:",e);});
+  });
+}
 
 function saveCloud(){
   if(!db)return;
@@ -212,6 +261,7 @@ function init(){
   state=loadLocal();
   document.getElementById("login-screen").classList.remove("hidden");
   setInterval(runAlerts,30000);
+  initFCM();
   if(db){
     var done=false;
     var t=setTimeout(function(){if(!done){done=true;showMainLogin();startSync();}},5000);
@@ -438,6 +488,8 @@ function runAlerts(){
         state.alerts.push({id:eid,taskId:task.id,collabId:task.assignedTo,type:"escalated",ts:now});
         var sys2="Eres mediador en AgendaTeam. Hay un incumplimiento de la tarea \""+task.title+"\" asignada a "+col.name+". El jefe y el colaborador están en este mismo chat contigo. Resume la situación y pídeles que acuerden un nuevo compromiso concreto de fecha y hora. Responde en español, máximo 4 oraciones.";
         aiNotify(ck,sys2,"Inicio de mediación por incumplimiento.");
+        sendNotif("boss","🚩 Incumplimiento","\""+task.title+"\" — "+col.name+" requiere atención.");
+        sendNotif("collab_"+task.assignedTo,"🚩 Chat de seguimiento","El jefe ha sido agregado al chat por incumplimiento.");
         changed=true;
       }
     }
@@ -705,6 +757,7 @@ function saveT(){
       if(!state.messages[ck])state.messages[ck]=[];
       state.messages[ck].push({id:Date.now()+Math.random(),from:"system",type:"task_assigned",ts:Date.now(),
         text:"📋 Hola "+col.name.split(" ")[0]+", se te asignó una nueva tarea:\n\n*\""+title+"\"*\nFrecuencia: "+FC[freq].l+"\nPrioridad: "+PC[prio].l+(ti?"\n🕐 Hora: "+ti:"")+(sd?"\n📅 Inicio: "+sd:"")+(indef?"\n♾️ Sin fecha fin":(ed?"\n⏰ Fin: "+ed+(et?" "+et:""):""))+(notes?"\nNotas: "+notes:"")});
+      sendNotif("collab_"+assignedTo,"📋 Nueva tarea asignada","\""+title+"\" — "+FC[freq].l);
     }
     toast("Tarea creada ✓");
   }

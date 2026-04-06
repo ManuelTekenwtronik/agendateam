@@ -258,7 +258,7 @@ function cycleStart(t){
   var n=Math.floor((now-ref)/dur);
   return ref+n*dur;
 }
-var SC={pendiente:{l:"Pendiente",c:"#f5a623",bg:"#fff8ec"},"en-progreso":{l:"En progreso",c:"#4a90d9",bg:"#eef5fd"},completada:{l:"Completada",c:"#27ae60",bg:"#eafaf1"}};
+var SC={pendiente:{l:"Pendiente",c:"#f5a623",bg:"#fff8ec"},"en-progreso":{l:"En progreso",c:"#4a90d9",bg:"#eef5fd"},"pendiente_validacion":{l:"Validación IA",c:"#9b59b6",bg:"#f5eeff"},completada:{l:"Completada",c:"#27ae60",bg:"#eafaf1"}};
 var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"Mensual",i:"🗓️"}};
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
@@ -640,8 +640,14 @@ function taskHTML(t){
   var isBoss=currentUser&&currentUser.type==="boss";
   var canEdit=isBoss;
   // Status buttons - collab can change status and add notes
-  var statBtns=Object.keys(SC).map(function(s){
-    return'<button class="task-act-btn" style="background:'+(t.status===s?"#1a1d2e":"#f0f2f7")+';color:'+(t.status===s?"#fff":"#666")+'" onclick="updStat(\''+t.id+'\',\''+s+'\')">'+SC[s].l+'</button>';
+  var validating=t.status==="pendiente_validacion";
+  var statBtns=Object.keys(SC).filter(function(s){
+    if(s==="pendiente_validacion")return false; // no mostrar como botón
+    if(!isBoss&&s==="completada"&&t.criteria&&t.criteria.trim())return true; // collab puede intentar
+    return true;
+  }).map(function(s){
+    var disabled=validating&&!isBoss;
+    return'<button class="task-act-btn" '+(disabled?'disabled style="opacity:.4;cursor:not-allowed;background:#f0f2f7;color:#999;"':'style="background:'+(t.status===s?"#1a1d2e":"#f0f2f7")+';color:'+(t.status===s?"#fff":"#666")+'"')+(!disabled?' onclick="updStat(\''+t.id+'\',\''+s+'\')"':'')+'>'+SC[s].l+'</button>';
   }).join("");
   var dateInfo="";
   if(t.time)dateInfo+='<span class="badge" style="background:#f0f7ff;color:#4a90d9;">🕐 '+escH(t.time)+'</span>';
@@ -662,7 +668,9 @@ function taskHTML(t){
     '<span class="badge" style="background:'+sc.bg+';color:'+sc.c+'">● '+sc.l+'</span>'+
     '<span class="badge" style="background:#f7f8fc;color:#666;">'+fc.i+' '+fc.l+'</span>'+
     '<span class="badge" style="background:#fff3f3;color:'+pc.c+'">'+pc.l+'</span>'+
-    (isGroupTask?'<span class="badge" style="background:#eef3ff;color:#4a6cf7;cursor:pointer;" onclick="openGroupChat(\''+t.id+'\')">👥 Grupal — Chat</span>':""+'')+
+    (isGroupTask?'<span class="badge" style="background:#eef3ff;color:#4a6cf7;cursor:pointer;" onclick="openGroupChat(\''+t.id+'\')">👥 Grupal — Chat</span>':"")+
+    (t.criteria?'<span class="badge" style="background:#f5eeff;color:#9b59b6;">✅ Validación IA</span>':"")+
+    (t.status==="pendiente_validacion"?'<span class="badge" style="background:#f5eeff;color:#9b59b6;font-weight:800;">🤖 Validando…</span>':"")+
     dateInfo+'</div>'+
     (t.notes?'<div style="font-size:13px;color:#888;background:#f9f9fb;padding:7px 10px;border-radius:10px;margin-bottom:10px;">'+escH(t.notes)+'</div>':"")+
     (!isBoss?'<div style="margin-bottom:10px;"><textarea id="note-'+t.id+'" placeholder="Agregar nota…" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;resize:none;height:60px;font-family:inherit;"></textarea></div>':"")+
@@ -677,7 +685,13 @@ function updStat(id,status){
   var t=state.tasks.find(function(x){return x.id==id;});
   if(!t)return;
   var prevStatus=t.status;
-  // Cycle validation: only one completion per cycle
+  // Si el colaborador marca completada y la tarea tiene criterios → pedir reporte
+  var isBoss=currentUser&&currentUser.type==="boss";
+  if(status==="completada"&&!isBoss&&t.criteria&&t.criteria.trim()&&prevStatus!=="completada"&&prevStatus!=="pendiente_validacion"){
+    showCompletionReport(id);
+    return;
+  }
+  // Cycle validation
   if(status==="completada"&&prevStatus!=="completada"){
     var cs=cycleStart(t);
     var alreadyDone=(t.history||[]).some(function(h){return h.ts>=cs;});
@@ -698,6 +712,115 @@ function updStat(id,status){
   saveLocal();render();toast("Estado actualizado ✓");
 }
 
+function showCompletionReport(taskId){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  var sh=document.createElement("div");
+  sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;";
+  sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
+    '<div style="font-weight:800;font-size:16px;margin-bottom:8px;">✅ Reportar completado</div>'+
+    '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b>. La IA verificará que se cumplan los criterios.</div>'+
+    '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:100px;outline:none;font-family:inherit;resize:none;"></textarea>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+    '<button onclick="submitCompletionReport(\''+taskId+'\')" style="flex:1;background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Enviar para validación</button>'+
+    '<button onclick="this.closest(\'div[style*=fixed]\').remove()" style="flex:1;background:#f0f2f7;color:#666;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Cancelar</button>'+
+    '</div></div>';
+  document.body.appendChild(sh);
+  setTimeout(function(){var ta=document.getElementById("completion-report");if(ta)ta.focus();},100);
+}
+
+function submitCompletionReport(taskId){
+  var report=(document.getElementById("completion-report")||{}).value||"";
+  report=report.trim();
+  if(!report){toast("Describe qué hiciste para completar la tarea","error");return;}
+  var sh=document.querySelector("div[style*='position:fixed'][style*='inset:0']");
+  if(sh)sh.remove();
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  t.status="pendiente_validacion";
+  t.pendingReport=report;
+  saveLocal();render();
+  toast("Enviado para validación IA 🤖");
+  validateTaskCompletion(taskId,report);
+}
+
+function validateTaskCompletion(taskId,report){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
+  var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
+  if(!ck)return;
+  var sys="Eres el validador de tareas de AgendaTeam. Tu función es verificar si una tarea fue completada correctamente según los criterios definidos por el jefe Manuel.\n\nTarea: \""+t.title+"\"\nCriterios de éxito definidos por Manuel:\n"+t.criteria+"\n\nEl colaborador reporta:\n\""+report+"\"\n\nEvalúa si el reporte cumple TODOS los criterios. Responde ÚNICAMENTE en este formato JSON (sin texto adicional):\n{\"aprobada\":true,\"razon\":\"...\"}\no\n{\"aprobada\":false,\"razon\":\"...\",\"pendiente\":\"qué falta exactamente\"}";
+  if(!state.messages[ck])state.messages[ck]=[];
+  state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
+    text:"🤖 Validando completado de \""+t.title+"\"…"});
+  saveLocal();
+  fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:[{role:"user",content:"Valida el reporte."}]})
+  }).then(function(r){return r.json();}).then(function(d){
+    var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
+    var result={};
+    try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){}
+    var approved=result.aprobada===true;
+    if(approved){
+      // Aprobar
+      var cs=cycleStart(t);
+      var alreadyDone=(t.history||[]).some(function(h){return h.ts>=cs;});
+      if(!alreadyDone){
+        if(!t.history)t.history=[];
+        var now2=new Date();
+        var res2="green";
+        if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2});
+        if(t.history.length>20)t.history=t.history.slice(-20);
+      }
+      t.status="completada";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon,ts:Date.now()});
+      sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
+    }else{
+      // Rechazar → seguimiento
+      t.status="en-progreso";
+      var pendiente=result.pendiente||"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+(pendiente?"\n\n⚠️ Pendiente: "+pendiente:"")+"\n\nPor favor completa los puntos faltantes y vuelve a reportar.",ts:Date.now()});
+      sendNotif("boss","⚠️ Validación rechazada","\""+t.title+"\""+(col?" — "+col.name:"")+" no cumple los criterios.");
+      if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+result.razon.slice(0,80));
+      // Seguimiento programado
+      setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
+    }
+    delete t.pendingReport;
+    saveLocal();render();
+  }).catch(function(e){
+    t.status="en-progreso";
+    state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
+    delete t.pendingReport;
+    saveLocal();render();
+  });
+}
+
+function aiFollowUp(taskId){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t||t.status==="completada")return;
+  var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
+  var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
+  if(!ck)return;
+  var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now();
+  if(ov){
+    // Incumplimiento inevitable → notificar a Manuel
+    state.messages[ck].push({id:Date.now(),from:"system",flag:true,ts:Date.now(),
+      text:"🚩 La tarea \""+t.title+"\" presenta un incumplimiento inevitable. Se ha notificado a Manuel para que dicte medidas correctivas o de sanción."});
+    sendNotif("boss","🚩 Incumplimiento inevitable","\""+t.title+"\""+(col?" — "+col.name:"")+" requiere tu decisión sobre medidas correctivas.");
+    // Pedir a Manuel que dicte medidas en el chat
+    var sys3="Eres el asistente de AgendaTeam. La tarea \""+t.title+"\" asignada a "+(col?col.name:"el colaborador")+" no se pudo completar a tiempo y no cumple los criterios de validación. Notifica a Manuel que debe dictar medidas correctivas o de sanción, y pídele que las especifique en este chat. Sé directo y profesional. Máximo 3 oraciones.";
+    aiNotify(ck,sys3,"Incumplimiento inevitable — solicitar medidas a Manuel.");
+  }else{
+    var sys4="Eres el asistente de seguimiento de AgendaTeam. La tarea \""+t.title+"\" de "+(col?col.name:"el colaborador")+" fue rechazada en validación y aún no está completa. Pregunta por el avance, recuérdales los criterios pendientes y presiona para que se tome acción inmediata. Máximo 3 oraciones. En español.";
+    aiNotify(ck,sys4,"Seguimiento de tarea rechazada.");
+    if(col)sendNotif("collab_"+col.id,"🔔 Seguimiento pendiente","\""+t.title+"\": aún requiere tu atención.");
+    setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
+  }
+  saveLocal();
+}
+
 function saveCollabNote(id){
   var inp=document.getElementById("note-"+id);
   if(!inp||!inp.value.trim())return;
@@ -711,7 +834,7 @@ function delT(id){state.tasks=state.tasks.filter(function(t){return t.id!=id;});
 
 // ── TASK FORM (boss only) ──
 function taskFormHTML(t){
-  var v=t||{title:"",assignedTo:"",frequency:"diaria",priority:"media",startDate:"",time:"",endDate:"",endTime:"",indefinite:false,notes:"",status:"pendiente",isGroup:false};
+  var v=t||{title:"",assignedTo:"",frequency:"diaria",priority:"media",startDate:"",time:"",endDate:"",endTime:"",indefinite:false,notes:"",status:"pendiente",isGroup:false,criteria:""};
   var assignedArr=Array.isArray(v.assignedTo)?v.assignedTo:(v.assignedTo?[v.assignedTo]:[]);
   var isGroup=v.isGroup||false;
   var collabChecks=state.collaborators.map(function(c){
@@ -751,6 +874,10 @@ function taskFormHTML(t){
     '<div><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
     '</div></div></div>'+
     '<div class="field"><label>Notas</label><textarea id="tf-notes" placeholder="Instrucciones adicionales…">'+escH(v.notes||"")+'</textarea></div>'+
+    '<div class="field" style="background:#f5eeff;border-radius:14px;padding:12px;">'+
+    '<label style="color:#9b59b6;font-weight:800;">✅ Criterios de validación IA</label>'+
+    '<div style="font-size:12px;color:#9b59b6;margin-bottom:8px;">La IA verificará estos criterios antes de aprobar la tarea como completada.</div>'+
+    '<textarea id="tf-criteria" placeholder="Ej: El reporte debe incluir ventas del mes, estar firmado y enviado al correo indicado. Las cifras deben cuadrar con el sistema…" style="min-height:80px;">'+escH(v.criteria||"")+'</textarea></div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>';
 }
@@ -826,10 +953,11 @@ function saveT(){
   var ed=indef?"":(document.getElementById("tf-ed")||{}).value||"";
   var et=indef?"":(document.getElementById("tf-et")||{}).value||"";
   var notes=(document.getElementById("tf-notes")||{}).value||"";
+  var criteria=(document.getElementById("tf-criteria")||{}).value||"";
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});
-    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes});
+    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria});
     toast("Tarea actualizada ✓");
   }else if(isGroup){
     // Tarea grupal: una sola tarea con todos los miembros y chat grupal
@@ -838,7 +966,7 @@ function saveT(){
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     var nt={id:taskId,history:[],title:title,assignedTo:members,isGroup:true,groupKey:groupKey,
-      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes};
+      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria};
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -850,7 +978,7 @@ function saveT(){
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
       var nt={id:Date.now()+i,history:[],title:title,assignedTo:assignedTo,isGroup:false,
-        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes};
+        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria};
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);

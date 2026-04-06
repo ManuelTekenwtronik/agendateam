@@ -726,6 +726,9 @@ function taskHTML(t){
     (isGroupTask?'<span class="badge" style="background:#eef3ff;color:#4a6cf7;cursor:pointer;" onclick="openGroupChat(\''+t.id+'\')">👥 Grupal — Chat</span>':"")+
     (t.criteria?'<span class="badge" style="background:#f5eeff;color:#9b59b6;">✅ Validación IA</span>':"")+
     (t.status==="pendiente_validacion"?'<span class="badge" style="background:#f5eeff;color:#9b59b6;font-weight:800;">🤖 Validando…</span>':"")+
+    (t.requiredEvidence&&t.requiredEvidence.photo?'<span class="badge" style="background:#1a1d2e;color:#fff;">📷 Foto</span>':"")+
+    (t.requiredEvidence&&t.requiredEvidence.image?'<span class="badge" style="background:#5a8fe0;color:#fff;">🖼️ Imagen</span>':"")+
+    (t.requiredEvidence&&t.requiredEvidence.document?'<span class="badge" style="background:#27ae60;color:#fff;">📄 Documento</span>':"")+
     dateInfo+'</div>'+
     (t.notes?'<div style="font-size:13px;color:#888;background:#f9f9fb;padding:7px 10px;border-radius:10px;margin-bottom:10px;">'+escH(t.notes)+'</div>':"")+
     (!isBoss?'<div style="margin-bottom:10px;"><textarea id="note-'+t.id+'" placeholder="Agregar nota…" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;resize:none;height:60px;font-family:inherit;"></textarea></div>':"")+

@@ -164,10 +164,9 @@ var fcmMessaging=null;
 function initFCM(){
   if(typeof firebase==="undefined"||!db)return;
   if(!("serviceWorker" in navigator)){console.warn("Service Worker no soportado");return;}
-  navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function(reg){
+  navigator.serviceWorker.register("/firebase-messaging-sw.js").then(function(){
     try{
       fcmMessaging=firebase.messaging();
-      fcmMessaging.useServiceWorker(reg);
       fcmMessaging.onMessage(function(payload){
         var n=payload.notification||{};
         showPushBanner(n.title||"AgendaTeam",n.body||"");

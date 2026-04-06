@@ -99,6 +99,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 .msg-bubble.ai,.msg-bubble.other{background:#f0f2f7;color:#1a1d2e;}
 .msg-bubble.system{background:#fff8ec;color:#1a1d2e;}
 .msg-bubble.flag{background:#fff0f0;color:#c0392b;border:1.5px solid #ffcccc;}
+.msg-bubble.boss_msg{background:#e8eaf6;color:#1a1d2e;}
 .msg-time{font-size:10px;opacity:.5;margin-top:4px;text-align:right;}
 .chat-input-row{display:flex;gap:8px;padding-top:8px;border-top:1px solid #f0f2f7;flex-shrink:0;}
 .chat-input{flex:1;padding:12px 16px;border-radius:99px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;font-family:inherit;}
@@ -178,13 +179,23 @@ function startSync(){
   },function(e){console.warn("sync:",e);});
 }
 var OT={diaria:2.4*3600000,semanal:.7*86400000,mensual:3*86400000};
+var CD={diaria:86400000,semanal:7*86400000,mensual:30*86400000};
+function taskDue(t){return t.endTime?new Date(t.endDate+'T'+t.endTime).getTime():new Date(t.endDate).getTime()+23*3600000;}
+function cycleStart(t){
+  var ref=t.startDate?new Date(t.startDate).getTime():taskDue(t);
+  var now=Date.now();
+  if(t.frequency==="mensual"){var d=new Date();return new Date(d.getFullYear(),d.getMonth(),1).getTime();}
+  var dur=t.frequency==="semanal"?CD.semanal:CD.diaria;
+  var n=Math.floor((now-ref)/dur);
+  return ref+n*dur;
+}
 var SC={pendiente:{l:"Pendiente",c:"#f5a623",bg:"#fff8ec"},"en-progreso":{l:"En progreso",c:"#4a90d9",bg:"#eef5fd"},completada:{l:"Completada",c:"#27ae60",bg:"#eafaf1"}};
 var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"Mensual",i:"🗓️"}};
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
 var state={collaborators:[],tasks:[],messages:{},alerts:[]};
-var currentUser=null,currentTab="tareas",currentChatCollab=null;
+var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var confirmCallback=null,aiLoading=false;
 var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
@@ -377,34 +388,58 @@ function logout(){
 }
 
 // ── ALERTS ──
+function aiNotify(ck,sys,userText){
+  if(!state.messages[ck])state.messages[ck]=[];
+  fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:200,system:sys,messages:[{role:"user",content:userText}]})
+  }).then(function(r){return r.json();}).then(function(d){
+    var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
+    state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
+    saveLocal();
+  }).catch(function(){});
+}
+
 function runAlerts(){
   var now=Date.now(),changed=false;
   state.tasks.forEach(function(task){
     if(task.status==="completada"||task.indefinite||!task.endDate)return;
-    var due=new Date(task.endDate).getTime()+23*3600000;
+    var due=taskDue(task);
+    var thresh=OT[task.frequency]||OT.diaria;
+    var col=state.collaborators.find(function(c){return c.id===task.assignedTo;});
+    if(!col)return;
+    var wid="w_"+task.id,aid="a_"+task.id,eid="e_"+task.id;
+    // Pre-warning: 2h before due, while not yet overdue
+    if(now>=due-2*3600000&&now<due&&!state.alerts.find(function(a){return a.id===wid;})){
+      var ck="chat_"+task.assignedTo;
+      state.alerts.push({id:wid,taskId:task.id,collabId:task.assignedTo,type:"pre_warn",ts:now});
+      var sys="Eres el asistente de AgendaTeam. La tarea \""+task.title+"\" de "+col.name+" vence en menos de 2 horas. Pregúntale amablemente por qué aún no ha completado la tarea y pídele que confirme una nueva fecha y hora de culminación si no podrá completarla a tiempo. Responde en español, máximo 3 oraciones.";
+      aiNotify(ck,sys,"Alerta pre-vencimiento de tarea.");
+      changed=true;
+    }
     if(now<due)return;
-    var over=now-due,thresh=OT[task.frequency]||OT.diaria;
-    var aid="a_"+task.id,eid="e_"+task.id;
+    var over=now-due;
+    // First alert: task just overdue
     if(!state.alerts.find(function(a){return a.id===aid;})){
-      var col=state.collaborators.find(function(c){return c.id===task.assignedTo;});
-      if(!col)return;
       var ck="chat_"+task.assignedTo;
       if(!state.messages[ck])state.messages[ck]=[];
       state.messages[ck].push({id:Date.now()+Math.random(),from:"system",type:"alert_request",ts:now,
-        text:"⚠️ Hola "+col.name.split(" ")[0]+", la tarea *\""+task.title+"\"* venció el "+task.endDate+".\n\n¿Puedes confirmar una nueva fecha para completarla?"});
+        text:"⚠️ Hola "+col.name.split(" ")[0]+", la tarea *\""+task.title+"\"* venció el "+task.endDate+(task.endTime?" "+task.endTime:"")+".\n\n¿Puedes confirmar una nueva fecha y hora para completarla?"});
       state.alerts.push({id:aid,taskId:task.id,collabId:task.assignedTo,type:"first",ts:now,responded:false,newDate:null});
       changed=true;
     }
+    // Escalation: overdue > threshold → shared 3-way chat
     var fa=state.alerts.find(function(a){return a.id===aid;});
     if(fa&&!state.alerts.find(function(a){return a.id===eid;})){
       var overThresh=over>thresh,badDate=fa.newDate&&(new Date(fa.newDate).getTime()-due)>thresh;
       if(overThresh||badDate){
-        var col2=state.collaborators.find(function(c){return c.id===task.assignedTo;});
-        var bk="boss_"+task.assignedTo;
-        if(!state.messages[bk])state.messages[bk]=[];
-        state.messages[bk].push({id:Date.now()+Math.random(),from:"system",flag:true,type:"boss_flag",ts:now,
-          text:"🚩 ALERTA DE INCUMPLIMIENTO\n\nColaborador: "+(col2?col2.name:"")+"\nTarea: \""+task.title+"\"\nFrecuencia: "+task.frequency+"\nFecha fin: "+task.endDate+"\n\n"+(badDate?"La nueva fecha propuesta supera el margen.":"Sin respuesta en el tiempo permitido.")+"\n\nRequiere tu atención."});
-        state.alerts.push({id:eid,taskId:task.id,collabId:task.assignedTo,type:"escalated",ts:now});
+        var sk="shared_"+task.id;
+        if(!state.messages[sk])state.messages[sk]=[];
+        var reason=badDate?"La nueva fecha propuesta supera el margen permitido.":"Sin respuesta en el tiempo permitido.";
+        state.messages[sk].push({id:Date.now()+Math.random(),from:"system",flag:true,type:"escalated",ts:now,
+          text:"🚩 INCUMPLIMIENTO — \""+task.title+"\"\nColaborador: "+col.name+"\nFrecuencia: "+task.frequency+"\n"+reason+"\n\nEl jefe ha sido agregado a este chat para coordinar el cumplimiento."});
+        state.alerts.push({id:eid,taskId:task.id,collabId:task.assignedTo,type:"escalated",ts:now,sharedKey:sk});
+        var sys2="Eres mediador en AgendaTeam. Hay un incumplimiento de la tarea \""+task.title+"\" asignada a "+col.name+". Están presentes el jefe y el colaborador. Resume la situación brevemente y pídeles que acuerden un nuevo compromiso concreto de fecha y hora. Responde en español, máximo 4 oraciones.";
+        aiNotify(sk,sys2,"Inicio de chat de incumplimiento.");
         changed=true;
       }
     }
@@ -443,7 +478,7 @@ function timelineHTML(task){
 function render(){renderHeader();renderTabs();renderStats();renderContent();}
 
 function renderHeader(){
-  var flags=state.collaborators.filter(function(c){return(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});}).length;
+  var flags=state.alerts.filter(function(a){return a.type==="escalated";}).length;
   var fb=document.getElementById("flag-badge");
   if(flags>0&&currentUser&&currentUser.type==="boss"){fb.textContent="🚩 "+flags;fb.classList.remove("hidden");}
   else fb.classList.add("hidden");
@@ -451,7 +486,7 @@ function renderHeader(){
 
 function renderTabs(){
   var btns=document.querySelectorAll(".tab-btn");
-  var flags=state.collaborators.filter(function(c){return(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});}).length;
+  var flags=state.alerts.filter(function(a){return a.type==="escalated";}).length;
   btns[0].className="tab-btn"+(currentTab==="tareas"?" active":"");
   btns[1].className="tab-btn"+(currentTab==="chat"?" active":"");
   btns[1].innerHTML="💬 Chat"+(flags>0&&currentUser&&currentUser.type==="boss"?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-left:4px;vertical-align:middle;"></span>':"");
@@ -525,7 +560,7 @@ function setFC(v){filterCollab=filterCollab===v?"todas":v;renderTasks();}
 function taskHTML(t){
   var col=state.collaborators.find(function(c){return c.id===t.assignedTo;});
   var sc=SC[t.status]||SC.pendiente,fc=FC[t.frequency]||FC.diaria,pc=PC[t.priority]||PC.media;
-  var ov=!t.indefinite&&t.endDate&&new Date(t.endDate)<new Date()&&t.status!=="completada";
+  var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";
   var isBoss=currentUser&&currentUser.type==="boss";
   var canEdit=isBoss;
   // Status buttons - collab can change status and add notes
@@ -564,14 +599,16 @@ function updStat(id,status){
   var t=state.tasks.find(function(x){return x.id==id;});
   if(!t)return;
   var prevStatus=t.status;
-  t.status=status;
-  // Record timeline entry when marking as completed
+  // Cycle validation: only one completion per cycle
   if(status==="completada"&&prevStatus!=="completada"){
+    var cs=cycleStart(t);
+    var alreadyDone=(t.history||[]).some(function(h){return h.ts>=cs;});
+    if(alreadyDone){toast("Ya se registró un ciclo completado en este período","error");return;}
     if(!t.history)t.history=[];
     var now=new Date();
     var result="green";
     if(t.endDate){
-      var due=new Date(t.endDate).getTime()+23*3600000;
+      var due=taskDue(t);
       var diff=now.getTime()-due;
       if(diff>0&&diff<=OT[t.frequency||"diaria"])result="yellow";
       else if(diff>OT[t.frequency||"diaria"])result="red";
@@ -579,6 +616,7 @@ function updStat(id,status){
     t.history.push({date:now.toLocaleDateString("es"),ts:now.getTime(),result:result});
     if(t.history.length>20)t.history=t.history.slice(-20);
   }
+  t.status=status;
   saveLocal();render();toast("Estado actualizado ✓");
 }
 
@@ -797,39 +835,83 @@ function importXL(){
 }
 
 // ── CHAT ──
+function sharedKeysForCollab(collabId){
+  return state.alerts.filter(function(a){return a.type==="escalated"&&a.collabId===collabId&&a.sharedKey;}).map(function(a){return a.sharedKey;});
+}
+function sharedKeysForMe(){
+  if(!currentUser||currentUser.type==="boss")return[];
+  return sharedKeysForCollab(currentUser.id);
+}
+
 function renderChat(){
   var isBoss=currentUser&&currentUser.type==="boss";
-  if(isBoss&&!currentChatCollab){
+  if(!currentChatKey&&!currentChatCollab){
+    // List view
     var items=state.collaborators.map(function(c){
-      var fl=(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});
-      var lm=(state.messages["boss_"+c.id]||[]).slice(-1)[0];
+      var sks=sharedKeysForCollab(c.id);
+      var hasShared=sks.length>0;
+      var fl=hasShared||(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});
+      var allMsgs=[];
+      if(hasShared)sks.forEach(function(sk){allMsgs=allMsgs.concat(state.messages[sk]||[]);});
+      else allMsgs=state.messages["boss_"+c.id]||[];
+      allMsgs.sort(function(a,b){return a.ts-b.ts;});
+      var lm=allMsgs.slice(-1)[0];
+      if(!isBoss&&c.id!==currentUser.id)return"";
       return'<button onclick="openChat('+c.id+')" style="background:'+(fl?"#fff5f5":"#fff")+';border:1.5px solid '+(fl?"#ffcccc":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
-        '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">🚩</div>':'')+'</div>'+
-        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(fl?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Atención</span>':'')+'</div>'+
+        '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">'+(hasShared?"🚩":"🔴")+'</div>':'')+'</div>'+
+        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(hasShared?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Incumplimiento</span>':'')+'</div>'+
         '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Sin mensajes")+'</div></div>'+
         '<span style="font-size:22px;color:#ccc;">›</span></button>';
     }).join("")||(state.collaborators.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;">Agrega colaboradores primero</div>':"");
+    // Collab: show their own chats
+    if(!isBoss){
+      var myShared=sharedKeysForMe();
+      var myItems='';
+      myShared.forEach(function(sk){
+        var al=state.alerts.find(function(a){return a.sharedKey===sk;});
+        var task=al?state.tasks.find(function(t){return t.id===al.taskId;}):null;
+        var lm=(state.messages[sk]||[]).slice(-1)[0];
+        myItems+='<button onclick="openSharedChat(\''+sk+'\')" style="background:#fff5f5;border:1.5px solid #ffcccc;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
+          '<div style="font-size:32px;">🚩</div>'+
+          '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">Incumplimiento'+(task?' — '+escH(task.title):'')+'</div>'+
+          '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Chat activo")+'</div></div>'+
+          '<span style="font-size:22px;color:#ccc;">›</span></button>';
+      });
+      var regLm=(state.messages["chat_"+currentUser.id]||[]).slice(-1)[0];
+      myItems+='<button onclick="openRegularChat()" style="background:#fff;border:1.5px solid #eee;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
+        '<div style="font-size:32px;">💬</div>'+
+        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">Chat con asistente</div>'+
+        '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(regLm?escH(regLm.text.replace(/\n/g," ").slice(0,46))+"...":"Escribe un mensaje")+'</div></div>'+
+        '<span style="font-size:22px;color:#ccc;">›</span></button>';
+      document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Mis chats</div>'+myItems+'</div>';
+      return;
+    }
     document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Chat con equipo</div>'+items+'</div>';
     return;
   }
-  var cc=isBoss?currentChatCollab:currentUser;
-  var ck=isBoss?"boss_"+cc.id:"chat_"+currentUser.id;
+  // Conversation view
+  var ck=currentChatKey;
+  var isShared=ck&&ck.indexOf("shared_")===0;
+  var cc=currentChatCollab;
+  if(!ck)ck=isBoss?(cc?"boss_"+cc.id:null):"chat_"+currentUser.id;
   var msgs=(state.messages[ck]||[]);
   var msgsHTML=msgs.map(function(m){
     var isMe=(isBoss&&m.from==="boss")||(!isBoss&&m.from===currentUser.id);
-    var fl=m.flag,bub=isMe?"me":(fl?"flag":(m.from==="system"?"system":"ai"));
-    var av=isMe?"":('<div class="msg-avatar" style="background:'+(fl?"#e74c3c":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(fl?"🚩":m.from==="system"?"⚠️":"🤖")+'</div>');
+    var isBossMsg=m.from==="boss"&&!isBoss;
+    var fl=m.flag,bub=isMe?"me":(isBossMsg?"boss_msg":(fl?"flag":(m.from==="system"?"system":"ai")));
+    var av=isMe?"":('<div class="msg-avatar" style="background:'+(isBossMsg?"#1a1d2e":fl?"#e74c3c":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(isBossMsg?"👔":fl?"🚩":m.from==="system"?"⚠️":"🤖")+'</div>');
     var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
     return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bub+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
   }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">💬</div>Escribe un mensaje</div>';
-  var backBtn=isBoss?'<button onclick="currentChatCollab=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>':'';
+  var backBtn='<button onclick="currentChatCollab=null;currentChatKey=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>';
+  var headerName=isShared?("🚩 Incumplimiento"+(cc?" — "+cc.name:"")):(cc?cc.name:"Chat");
+  var headerSub=isShared?"Jefe · Colaborador · Asistente IA":(cc?escH(cc.role):"");
   document.getElementById("content").innerHTML=
     '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 230px);">'+
     '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f2f7;flex-shrink:0;">'+
-    backBtn+avHTML(cc,40)+
-    '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(cc?cc.name:"")+'</div>'+
-    '<div style="font-size:12px;color:#999;">'+(cc?escH(cc.role):"")+'</div></div>'+
-    (isBoss&&cc&&(state.messages["boss_"+cc.id]||[]).some(function(m){return m.flag;})?'<span style="font-size:22px;">🚩</span>':"")+
+    backBtn+(isShared?'<div style="font-size:32px;">🚩</div>':avHTML(cc||currentUser,40))+
+    '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(headerName)+'</div>'+
+    '<div style="font-size:12px;color:#999;">'+headerSub+'</div></div>'+
     '</div>'+
     '<div id="chat-msgs" class="scroll" style="flex:1;">'+msgsHTML+'</div>'+
     '<div class="chat-input-row">'+
@@ -839,15 +921,24 @@ function renderChat(){
   if(cm)cm.scrollTop=cm.scrollHeight;
 }
 
-function openChat(id){currentChatCollab=state.collaborators.find(function(c){return c.id===id;})||null;renderChat();}
+function openChat(id){
+  currentChatCollab=state.collaborators.find(function(c){return c.id===id;})||null;
+  var sks=sharedKeysForCollab(id);
+  currentChatKey=sks.length>0?sks[sks.length-1]:null;
+  renderChat();
+}
+function openSharedChat(sk){currentChatKey=sk;currentChatCollab=null;renderChat();}
+function openRegularChat(){currentChatKey="chat_"+currentUser.id;currentChatCollab=currentUser;renderChat();}
 
 function sendMsg(){
   if(aiLoading)return;
   var inp=document.getElementById("chat-in");
   if(!inp||!inp.value.trim())return;
   var isBoss=currentUser&&currentUser.type==="boss";
-  var cc=isBoss?currentChatCollab:currentUser;
-  var ck=isBoss?"boss_"+cc.id:"chat_"+currentUser.id;
+  var cc=currentChatCollab||(isBoss?null:currentUser);
+  var ck=currentChatKey||(isBoss?(cc?"boss_"+cc.id:null):"chat_"+currentUser.id);
+  if(!ck)return;
+  var isShared=ck.indexOf("shared_")===0;
   var text=inp.value.trim();inp.value="";
   if(!state.messages[ck])state.messages[ck]=[];
   state.messages[ck].push({id:Date.now(),from:isBoss?"boss":currentUser.id,text:text,ts:Date.now()});
@@ -855,16 +946,25 @@ function sendMsg(){
     state.alerts.forEach(function(a){if(a.collabId===currentUser.id&&a.type==="first"&&!a.responded){a.responded=true;a.newDate=text;}});
   saveLocal();renderChat();
   aiLoading=true;
+  var taskCtx=null;
+  if(isShared){var al=state.alerts.find(function(a){return a.sharedKey===ck;});taskCtx=al?state.tasks.find(function(t){return t.id===al.taskId;}):null;}
   var ct=cc?state.tasks.filter(function(t){return t.assignedTo===cc.id;}):state.tasks;
   var pend=ct.filter(function(t){return t.status!=="completada";});
-  var over=ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&new Date(t.endDate)<new Date();});
+  var over=ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&taskDue(t)<Date.now();});
   var ps=pend.map(function(t){return'"'+t.title+'"('+t.frequency+")";}).join(",")||"ninguno";
   var os=over.map(function(t){return'"'+t.title+'"';}).join(",")||"ninguna";
-  var sys=isBoss?"Eres asistente de AgendaTeam para el jefe. Colaborador: "+(cc?cc.name:"")+" ("+(cc?cc.role:"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones."
-    :"Eres asistente de AgendaTeam para "+(cc?cc.name:"")+". Pendientes: "+ps+". Vencidas: "+os+". Responde en español, amigable, max 3 oraciones.";
-  // Build history excluding the message just pushed (to avoid duplicates), then add it as the final "user" turn
-  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){return{role:(m.from==="boss"||m.from===currentUser.id)?"user":"assistant",content:m.text};});
-  // Ensure strict role alternation (no consecutive same-role messages)
+  var sys;
+  if(isShared&&taskCtx){
+    sys="Eres mediador de AgendaTeam en un chat de incumplimiento de la tarea \""+taskCtx.title+"\" ("+taskCtx.frequency+"). Están presentes el jefe y el colaborador "+(cc?cc.name:"")+" hablando contigo a la vez. Facilita el acuerdo de un nuevo compromiso concreto. Responde en español, máximo 4 oraciones.";
+  } else if(isBoss){
+    sys="Eres asistente de AgendaTeam para el jefe. Colaborador: "+(cc?cc.name:"")+" ("+(cc?cc.role:"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones.";
+  } else {
+    sys="Eres asistente de AgendaTeam para "+(cc?cc.name:"")+". Pendientes: "+ps+". Vencidas: "+os+". Responde en español, amigable, max 3 oraciones.";
+  }
+  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
+    var isHuman=m.from==="boss"||m.from===currentUser.id||(isShared&&typeof m.from==="number");
+    return{role:isHuman?"user":"assistant",content:m.text};
+  });
   var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
   var prev=clean.concat([{role:"user",content:text}]);
   fetch("/.netlify/functions/claude",{

@@ -331,7 +331,7 @@ function showMainLogin(){
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><div style="flex:1;height:1px;background:#eee;"></div><span style="color:#bbb;font-size:12px;font-weight:600;">colaboradores</span><div style="flex:1;height:1px;background:#eee;"></div></div>'+
       '<div style="display:flex;flex-direction:column;gap:8px;">'+
       state.collaborators.map(function(c){
-        var alertDot=(state.messages["chat_"+c.id]||[]).some(function(m){return m.type==="alert_request";});
+        var alertDot=(state.messages[collabCK(c.id)]||[]).some(function(m){return m.type==="alert_request";});
         var pending=state.tasks.filter(function(t){return t.assignedTo===c.id&&t.status!=="completada";}).length;
         return'<button onclick="showPinLogin('+c.id+')" style="background:#f7f8fc;border:1.5px solid '+(alertDot?"#ffd0a0":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;">'+
           '<div style="position:relative;">'+avHTML(c,44)+(alertDot?'<div style="position:absolute;top:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:#f5a623;border:2px solid #fff;"></div>':'')+'</div>'+
@@ -408,9 +408,9 @@ function runAlerts(){
     var col=state.collaborators.find(function(c){return c.id===task.assignedTo;});
     if(!col)return;
     var wid="w_"+task.id,aid="a_"+task.id,eid="e_"+task.id;
+    var ck=collabCK(task.assignedTo);
     // Pre-warning: 2h before due, while not yet overdue
     if(now>=due-2*3600000&&now<due&&!state.alerts.find(function(a){return a.id===wid;})){
-      var ck="chat_"+task.assignedTo;
       state.alerts.push({id:wid,taskId:task.id,collabId:task.assignedTo,type:"pre_warn",ts:now});
       var sys="Eres el asistente de AgendaTeam. La tarea \""+task.title+"\" de "+col.name+" vence en menos de 2 horas. Pregúntale amablemente por qué aún no ha completado la tarea y pídele que confirme una nueva fecha y hora de culminación si no podrá completarla a tiempo. Responde en español, máximo 3 oraciones.";
       aiNotify(ck,sys,"Alerta pre-vencimiento de tarea.");
@@ -420,26 +420,24 @@ function runAlerts(){
     var over=now-due;
     // First alert: task just overdue
     if(!state.alerts.find(function(a){return a.id===aid;})){
-      var ck="chat_"+task.assignedTo;
       if(!state.messages[ck])state.messages[ck]=[];
       state.messages[ck].push({id:Date.now()+Math.random(),from:"system",type:"alert_request",ts:now,
         text:"⚠️ Hola "+col.name.split(" ")[0]+", la tarea *\""+task.title+"\"* venció el "+task.endDate+(task.endTime?" "+task.endTime:"")+".\n\n¿Puedes confirmar una nueva fecha y hora para completarla?"});
       state.alerts.push({id:aid,taskId:task.id,collabId:task.assignedTo,type:"first",ts:now,responded:false,newDate:null});
       changed=true;
     }
-    // Escalation: overdue > threshold → shared 3-way chat
+    // Escalation: overdue > threshold → flag in shared channel
     var fa=state.alerts.find(function(a){return a.id===aid;});
     if(fa&&!state.alerts.find(function(a){return a.id===eid;})){
       var overThresh=over>thresh,badDate=fa.newDate&&(new Date(fa.newDate).getTime()-due)>thresh;
       if(overThresh||badDate){
-        var sk="shared_"+task.id;
-        if(!state.messages[sk])state.messages[sk]=[];
+        if(!state.messages[ck])state.messages[ck]=[];
         var reason=badDate?"La nueva fecha propuesta supera el margen permitido.":"Sin respuesta en el tiempo permitido.";
-        state.messages[sk].push({id:Date.now()+Math.random(),from:"system",flag:true,type:"escalated",ts:now,
-          text:"🚩 INCUMPLIMIENTO — \""+task.title+"\"\nColaborador: "+col.name+"\nFrecuencia: "+task.frequency+"\n"+reason+"\n\nEl jefe ha sido agregado a este chat para coordinar el cumplimiento."});
-        state.alerts.push({id:eid,taskId:task.id,collabId:task.assignedTo,type:"escalated",ts:now,sharedKey:sk});
-        var sys2="Eres mediador en AgendaTeam. Hay un incumplimiento de la tarea \""+task.title+"\" asignada a "+col.name+". Están presentes el jefe y el colaborador. Resume la situación brevemente y pídeles que acuerden un nuevo compromiso concreto de fecha y hora. Responde en español, máximo 4 oraciones.";
-        aiNotify(sk,sys2,"Inicio de chat de incumplimiento.");
+        state.messages[ck].push({id:Date.now()+Math.random(),from:"system",flag:true,type:"escalated",ts:now,
+          text:"🚩 INCUMPLIMIENTO — \""+task.title+"\"\nColaborador: "+col.name+"\nFrecuencia: "+task.frequency+"\n"+reason+"\n\nEl jefe ha sido notificado y está en este chat."});
+        state.alerts.push({id:eid,taskId:task.id,collabId:task.assignedTo,type:"escalated",ts:now});
+        var sys2="Eres mediador en AgendaTeam. Hay un incumplimiento de la tarea \""+task.title+"\" asignada a "+col.name+". El jefe y el colaborador están en este mismo chat contigo. Resume la situación y pídeles que acuerden un nuevo compromiso concreto de fecha y hora. Responde en español, máximo 4 oraciones.";
+        aiNotify(ck,sys2,"Inicio de mediación por incumplimiento.");
         changed=true;
       }
     }
@@ -524,7 +522,7 @@ function renderTasks(){
     var chips=state.collaborators.map(function(c){
       var ct=state.tasks.filter(function(t){return t.assignedTo===c.id;});
       var done=ct.filter(function(t){return t.status==="completada";}).length;
-      var ia=filterCollab===String(c.id),fl=(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});
+      var ia=filterCollab===String(c.id),fl=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===c.id;});
       return'<div class="chip'+(ia?" active":"")+(fl?' style="background:#fff5f5;border-color:#ffcccc;"':'')+'">'+
         '<span onclick="setFC(\''+c.id+'\')" style="display:flex;align-items:center;gap:6px;cursor:pointer;">'+
         avHTML(c,22)+'<span style="font-size:13px;font-weight:700;">'+escH(c.name.split(" ")[0])+(fl?" 🚩":"")+'</span>'+
@@ -703,7 +701,7 @@ function saveT(){
     state.tasks.push(nt);
     var col=state.collaborators.find(function(c){return c.id===assignedTo;});
     if(col){
-      var ck="chat_"+assignedTo;
+      var ck=collabCK(assignedTo);
       if(!state.messages[ck])state.messages[ck]=[];
       state.messages[ck].push({id:Date.now()+Math.random(),from:"system",type:"task_assigned",ts:Date.now(),
         text:"📋 Hola "+col.name.split(" ")[0]+", se te asignó una nueva tarea:\n\n*\""+title+"\"*\nFrecuencia: "+FC[freq].l+"\nPrioridad: "+PC[prio].l+(ti?"\n🕐 Hora: "+ti:"")+(sd?"\n📅 Inicio: "+sd:"")+(indef?"\n♾️ Sin fecha fin":(ed?"\n⏰ Fin: "+ed+(et?" "+et:""):""))+(notes?"\nNotas: "+notes:"")});
@@ -835,83 +833,51 @@ function importXL(){
 }
 
 // ── CHAT ──
-function sharedKeysForCollab(collabId){
-  return state.alerts.filter(function(a){return a.type==="escalated"&&a.collabId===collabId&&a.sharedKey;}).map(function(a){return a.sharedKey;});
-}
-function sharedKeysForMe(){
-  if(!currentUser||currentUser.type==="boss")return[];
-  return sharedKeysForCollab(currentUser.id);
-}
+// Canal único por colaborador: "collab_[id]" — jefe, colaborador e IA comparten el mismo hilo
+function collabCK(collabId){return"collab_"+collabId;}
 
 function renderChat(){
   var isBoss=currentUser&&currentUser.type==="boss";
-  if(!currentChatKey&&!currentChatCollab){
-    // List view
-    var items=state.collaborators.map(function(c){
-      var sks=sharedKeysForCollab(c.id);
-      var hasShared=sks.length>0;
-      var fl=hasShared||(state.messages["boss_"+c.id]||[]).some(function(m){return m.flag;});
-      var allMsgs=[];
-      if(hasShared)sks.forEach(function(sk){allMsgs=allMsgs.concat(state.messages[sk]||[]);});
-      else allMsgs=state.messages["boss_"+c.id]||[];
-      allMsgs.sort(function(a,b){return a.ts-b.ts;});
-      var lm=allMsgs.slice(-1)[0];
-      if(!isBoss&&c.id!==currentUser.id)return"";
+  var myId=isBoss?null:currentUser.id;
+  if(!currentChatCollab){
+    // Lista de conversaciones
+    var list=isBoss?state.collaborators:state.collaborators.filter(function(c){return c.id===myId;});
+    var items=list.map(function(c){
+      var ck=collabCK(c.id);
+      var fl=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===c.id;});
+      var lm=(state.messages[ck]||[]).slice(-1)[0];
       return'<button onclick="openChat('+c.id+')" style="background:'+(fl?"#fff5f5":"#fff")+';border:1.5px solid '+(fl?"#ffcccc":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
-        '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">'+(hasShared?"🚩":"🔴")+'</div>':'')+'</div>'+
-        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(hasShared?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Incumplimiento</span>':'')+'</div>'+
+        '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">🚩</div>':'')+'</div>'+
+        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(fl?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Incumplimiento</span>':'')+'</div>'+
+        '<div style="font-size:12px;color:#aaa;margin-top:2px;">👔 Jefe · 👤 Colaborador · 🤖 IA</div>'+
         '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Sin mensajes")+'</div></div>'+
         '<span style="font-size:22px;color:#ccc;">›</span></button>';
     }).join("")||(state.collaborators.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;">Agrega colaboradores primero</div>':"");
-    // Collab: show their own chats
-    if(!isBoss){
-      var myShared=sharedKeysForMe();
-      var myItems='';
-      myShared.forEach(function(sk){
-        var al=state.alerts.find(function(a){return a.sharedKey===sk;});
-        var task=al?state.tasks.find(function(t){return t.id===al.taskId;}):null;
-        var lm=(state.messages[sk]||[]).slice(-1)[0];
-        myItems+='<button onclick="openSharedChat(\''+sk+'\')" style="background:#fff5f5;border:1.5px solid #ffcccc;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
-          '<div style="font-size:32px;">🚩</div>'+
-          '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">Incumplimiento'+(task?' — '+escH(task.title):'')+'</div>'+
-          '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Chat activo")+'</div></div>'+
-          '<span style="font-size:22px;color:#ccc;">›</span></button>';
-      });
-      var regLm=(state.messages["chat_"+currentUser.id]||[]).slice(-1)[0];
-      myItems+='<button onclick="openRegularChat()" style="background:#fff;border:1.5px solid #eee;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
-        '<div style="font-size:32px;">💬</div>'+
-        '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">Chat con asistente</div>'+
-        '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(regLm?escH(regLm.text.replace(/\n/g," ").slice(0,46))+"...":"Escribe un mensaje")+'</div></div>'+
-        '<span style="font-size:22px;color:#ccc;">›</span></button>';
-      document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Mis chats</div>'+myItems+'</div>';
-      return;
-    }
-    document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Chat con equipo</div>'+items+'</div>';
+    document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Chat del equipo</div>'+items+'</div>';
     return;
   }
-  // Conversation view
-  var ck=currentChatKey;
-  var isShared=ck&&ck.indexOf("shared_")===0;
+  // Vista de conversación
   var cc=currentChatCollab;
-  if(!ck)ck=isBoss?(cc?"boss_"+cc.id:null):"chat_"+currentUser.id;
+  var ck=collabCK(cc.id);
+  var fl=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
   var msgs=(state.messages[ck]||[]);
   var msgsHTML=msgs.map(function(m){
-    var isMe=(isBoss&&m.from==="boss")||(!isBoss&&m.from===currentUser.id);
-    var isBossMsg=m.from==="boss"&&!isBoss;
-    var fl=m.flag,bub=isMe?"me":(isBossMsg?"boss_msg":(fl?"flag":(m.from==="system"?"system":"ai")));
-    var av=isMe?"":('<div class="msg-avatar" style="background:'+(isBossMsg?"#1a1d2e":fl?"#e74c3c":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(isBossMsg?"👔":fl?"🚩":m.from==="system"?"⚠️":"🤖")+'</div>');
+    var isMe=(isBoss&&m.from==="boss")||(!isBoss&&m.from===myId);
+    var isBossMsg=(!isBoss&&m.from==="boss");
+    var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.from==="system"?"system":"ai")));
+    var avBg=isBossMsg?"#1a1d2e":m.flag?"#e74c3c":m.from==="system"?"#f5a623":"#5a8fe0";
+    var avIcon=isBossMsg?"👔":m.flag?"🚩":m.from==="system"?"⚠️":"🤖";
+    var av=isMe?"":('<div class="msg-avatar" style="background:'+avBg+';">'+avIcon+'</div>');
     var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
-    return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bub+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
+    return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
   }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">💬</div>Escribe un mensaje</div>';
-  var backBtn='<button onclick="currentChatCollab=null;currentChatKey=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>';
-  var headerName=isShared?("🚩 Incumplimiento"+(cc?" — "+cc.name:"")):(cc?cc.name:"Chat");
-  var headerSub=isShared?"Jefe · Colaborador · Asistente IA":(cc?escH(cc.role):"");
   document.getElementById("content").innerHTML=
     '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 230px);">'+
     '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f2f7;flex-shrink:0;">'+
-    backBtn+(isShared?'<div style="font-size:32px;">🚩</div>':avHTML(cc||currentUser,40))+
-    '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(headerName)+'</div>'+
-    '<div style="font-size:12px;color:#999;">'+headerSub+'</div></div>'+
+    (isBoss?'<button onclick="currentChatCollab=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>':'')+
+    avHTML(cc,40)+
+    '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(cc.name)+(fl?' 🚩':'')+'</div>'+
+    '<div style="font-size:12px;color:#999;">👔 Jefe · 👤 Colaborador · 🤖 IA</div></div>'+
     '</div>'+
     '<div id="chat-msgs" class="scroll" style="flex:1;">'+msgsHTML+'</div>'+
     '<div class="chat-input-row">'+
@@ -921,14 +887,7 @@ function renderChat(){
   if(cm)cm.scrollTop=cm.scrollHeight;
 }
 
-function openChat(id){
-  currentChatCollab=state.collaborators.find(function(c){return c.id===id;})||null;
-  var sks=sharedKeysForCollab(id);
-  currentChatKey=sks.length>0?sks[sks.length-1]:null;
-  renderChat();
-}
-function openSharedChat(sk){currentChatKey=sk;currentChatCollab=null;renderChat();}
-function openRegularChat(){currentChatKey="chat_"+currentUser.id;currentChatCollab=currentUser;renderChat();}
+function openChat(id){currentChatCollab=state.collaborators.find(function(c){return c.id===id;})||null;renderChat();}
 
 function sendMsg(){
   if(aiLoading)return;
@@ -936,9 +895,8 @@ function sendMsg(){
   if(!inp||!inp.value.trim())return;
   var isBoss=currentUser&&currentUser.type==="boss";
   var cc=currentChatCollab||(isBoss?null:currentUser);
-  var ck=currentChatKey||(isBoss?(cc?"boss_"+cc.id:null):"chat_"+currentUser.id);
-  if(!ck)return;
-  var isShared=ck.indexOf("shared_")===0;
+  if(!cc)return;
+  var ck=collabCK(cc.id);
   var text=inp.value.trim();inp.value="";
   if(!state.messages[ck])state.messages[ck]=[];
   state.messages[ck].push({id:Date.now(),from:isBoss?"boss":currentUser.id,text:text,ts:Date.now()});
@@ -946,27 +904,21 @@ function sendMsg(){
     state.alerts.forEach(function(a){if(a.collabId===currentUser.id&&a.type==="first"&&!a.responded){a.responded=true;a.newDate=text;}});
   saveLocal();renderChat();
   aiLoading=true;
-  var taskCtx=null;
-  if(isShared){var al=state.alerts.find(function(a){return a.sharedKey===ck;});taskCtx=al?state.tasks.find(function(t){return t.id===al.taskId;}):null;}
-  var ct=cc?state.tasks.filter(function(t){return t.assignedTo===cc.id;}):state.tasks;
+  var ct=state.tasks.filter(function(t){return t.assignedTo===cc.id;});
   var pend=ct.filter(function(t){return t.status!=="completada";});
   var over=ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&taskDue(t)<Date.now();});
   var ps=pend.map(function(t){return'"'+t.title+'"('+t.frequency+")";}).join(",")||"ninguno";
   var os=over.map(function(t){return'"'+t.title+'"';}).join(",")||"ninguna";
-  var sys;
-  if(isShared&&taskCtx){
-    sys="Eres mediador de AgendaTeam en un chat de incumplimiento de la tarea \""+taskCtx.title+"\" ("+taskCtx.frequency+"). Están presentes el jefe y el colaborador "+(cc?cc.name:"")+" hablando contigo a la vez. Facilita el acuerdo de un nuevo compromiso concreto. Responde en español, máximo 4 oraciones.";
-  } else if(isBoss){
-    sys="Eres asistente de AgendaTeam para el jefe. Colaborador: "+(cc?cc.name:"")+" ("+(cc?cc.role:"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones.";
-  } else {
-    sys="Eres asistente de AgendaTeam para "+(cc?cc.name:"")+". Pendientes: "+ps+". Vencidas: "+os+". Responde en español, amigable, max 3 oraciones.";
-  }
+  var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
+  var sys=isEsc
+    ?"Eres mediador de AgendaTeam. Hay un incumplimiento activo con "+cc.name+". Tareas vencidas: "+os+". El jefe y el colaborador están en este chat contigo. Facilita el acuerdo de compromisos concretos. Responde en español, máximo 4 oraciones."
+    :"Eres asistente de AgendaTeam. Estás en un chat grupal con el jefe y el colaborador "+cc.name+" ("+escH(cc.role||"")+"). Pendientes: "+ps+". Vencidas: "+os+". Responde en español, breve, max 3 oraciones.";
   var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
-    var isHuman=m.from==="boss"||m.from===currentUser.id||(isShared&&typeof m.from==="number");
+    var isHuman=m.from==="boss"||typeof m.from==="number";
     return{role:isHuman?"user":"assistant",content:m.text};
   });
   var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
-  var prev=clean.concat([{role:"user",content:text}]);
+  var prev=clean.concat([{role:"user",content:(isBoss?"[Jefe]: ":"["+cc.name+"]: ")+text}]);
   fetch("/.netlify/functions/claude",{
     method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev})

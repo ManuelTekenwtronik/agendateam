@@ -813,6 +813,14 @@ function renderEvidencePreview(){
 
 function removeEvidence(i){_evidenceFiles.splice(i,1);renderEvidencePreview();}
 
+function tfToggleEvidence(el,type){
+  _tfRequiredEvidence[type]=!_tfRequiredEvidence[type];
+  var on=_tfRequiredEvidence[type];
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(on?" on":"");box.textContent=on?"✓":"";}
+  el.className="ck-label"+(on?" on":"");
+}
+
 function attachmentsHTML(atts){
   if(!atts||!atts.length)return"";
   return'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">'+atts.map(function(a){
@@ -848,6 +856,20 @@ function submitCompletionReport(taskId){
 function _finishSubmit(taskId,report,attachments){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
+  // Verificar soportes obligatorios antes de enviar a IA
+  var req=t.requiredEvidence||{};
+  var missing=[];
+  var hasPhoto=attachments.some(function(a){return a.type&&a.type.indexOf("image")>=0;});
+  var hasDoc=attachments.some(function(a){return!(a.type&&a.type.indexOf("image")>=0)&&!(a.type&&a.type.indexOf("video")>=0);});
+  if(req.photo&&!hasPhoto)missing.push("📷 Foto (tomada con cámara)");
+  if(req.image&&!hasPhoto)missing.push("🖼️ Imagen (desde galería)");
+  if(req.document&&!hasDoc)missing.push("📄 Documento");
+  if(missing.length>0){
+    toast("Faltan soportes obligatorios:\n"+missing.join(", "),"error");
+    // Reabrir el sheet
+    showCompletionReport(taskId);
+    return;
+  }
   t.status="pendiente_validacion";
   t.pendingReport=report;
   t.pendingAttachments=attachments;
@@ -863,8 +885,9 @@ function validateTaskCompletion(taskId,report,attachments){
   var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
   var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
   if(!ck)return;
-  var attInfo=attachments.length>0?"\nSoportes adjuntados: "+attachments.map(function(a){return a.name;}).join(", "):"";
-  var sys="Eres el validador de tareas de AgendaTeam. Tu función es verificar si una tarea fue completada correctamente según los criterios definidos por el jefe Manuel.\n\nTarea: \""+t.title+"\"\nCriterios de éxito definidos por Manuel:\n"+t.criteria+"\n\nEl colaborador reporta:\n\""+report+"\""+attInfo+"\n\nEvalúa si el reporte cumple TODOS los criterios. Si se adjuntaron soportes, considéralo positivamente. Responde ÚNICAMENTE en este formato JSON (sin texto adicional):\n{\"aprobada\":true,\"razon\":\"...\"}\no\n{\"aprobada\":false,\"razon\":\"...\",\"pendiente\":\"qué falta exactamente\"}";
+  var attInfo=attachments.length>0?"\nSoportes adjuntados: "+attachments.map(function(a){return a.name;}).join(", "):"\nNo se adjuntaron soportes.";
+  var criteriaLines=t.criteria.split(/\n|\./).filter(function(s){return s.trim();}).map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
+  var sys="Eres el validador de tareas de AgendaTeam. Verifica si la tarea fue completada según los criterios del jefe Manuel.\n\nTarea: \""+t.title+"\"\n\nCriterios numerados:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+"\n\nInstrucciones:\n- Evalúa cada criterio numerado individualmente\n- Si alguno no se cumple, indica el NÚMERO y TEXTO exacto del criterio incumplido\n- Sé específico y directo\n- Responde ÚNICAMENTE en JSON sin texto adicional:\n{\"aprobada\":true,\"razon\":\"Todos los criterios cumplidos. [resumen breve]\"}\no\n{\"aprobada\":false,\"razon\":\"Criterio(s) incumplido(s):\",\"pendiente\":\"1. [criterio exacto]: [qué falta]\\n2. [otro si aplica]\"}";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
@@ -897,7 +920,7 @@ function validateTaskCompletion(taskId,report,attachments){
       // Rechazar → seguimiento
       t.status="en-progreso";
       var pendiente=result.pendiente||"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+(pendiente?"\n\n⚠️ Pendiente: "+pendiente:"")+"\n\nPor favor completa los puntos faltantes y vuelve a reportar.",ts:Date.now()});
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+(pendiente?"\n\n📋 Criterios incumplidos:\n"+pendiente:"")+"\n\n🔄 Completa los puntos indicados y vuelve a reportar.",ts:Date.now()});
       sendNotif("boss","⚠️ Validación rechazada","\""+t.title+"\""+(col?" — "+col.name:"")+" no cumple los criterios.");
       if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+result.razon.slice(0,80));
       // Seguimiento programado
@@ -992,8 +1015,20 @@ function taskFormHTML(t){
     '<div class="field"><label>Notas</label><textarea id="tf-notes" placeholder="Instrucciones adicionales…">'+escH(v.notes||"")+'</textarea></div>'+
     '<div class="field" style="background:#f5eeff;border-radius:14px;padding:12px;">'+
     '<label style="color:#9b59b6;font-weight:800;">✅ Criterios de validación IA</label>'+
-    '<div style="font-size:12px;color:#9b59b6;margin-bottom:8px;">La IA verificará estos criterios antes de aprobar la tarea como completada.</div>'+
-    '<textarea id="tf-criteria" placeholder="Ej: El reporte debe incluir ventas del mes, estar firmado y enviado al correo indicado. Las cifras deben cuadrar con el sistema…" style="min-height:80px;">'+escH(v.criteria||"")+'</textarea></div>'+
+    '<div style="font-size:12px;color:#9b59b6;margin-bottom:10px;">La IA verificará estos criterios antes de aprobar la tarea como completada.</div>'+
+    '<textarea id="tf-criteria" placeholder="Ej: El reporte debe incluir ventas del mes, estar firmado y enviado al correo indicado. Las cifras deben cuadrar con el sistema…" style="min-height:80px;margin-bottom:12px;">'+escH(v.criteria||"")+'</textarea>'+
+    '<div style="font-weight:700;font-size:13px;color:#9b59b6;margin-bottom:8px;">📎 Soportes obligatorios</div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;">'+
+    ['photo','image','document'].map(function(type){
+      var icons={photo:"📷",image:"🖼️",document:"📄"};
+      var labels={photo:"Foto (tomada con cámara)",image:"Imagen (desde galería)",document:"Documento (PDF, Excel, Word, etc.)"};
+      var req=v.requiredEvidence&&v.requiredEvidence[type];
+      return'<div class="ck-label'+(req?" on":"")+'" onclick="tfToggleEvidence(this,\''+type+'\')" data-ev="'+type+'">'+
+        '<div class="ck-box'+(req?" on":"")+'">'+( req?"✓":"")+' </div>'+
+        '<span style="font-size:18px;">'+icons[type]+'</span>'+
+        '<span style="font-size:14px;font-weight:600;">'+labels[type]+'</span></div>';
+    }).join("")+
+    '</div></div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>';
 }
@@ -1015,6 +1050,7 @@ function applyPrioColor(){
 var _tfIndefOn=false;
 var _tfMode="individual";
 var _tfSelected=[];
+var _tfRequiredEvidence={photo:false,image:false,document:false};
 function togIndef(){
   _tfIndefOn=!_tfIndefOn;
   var box=document.getElementById("tf-indef-box"),w=document.getElementById("tf-end-wrap");
@@ -1040,6 +1076,7 @@ function tfSetMode(mode){
 function getSelectedMembers(){return _tfSelected.slice();}
 function openNT(){
   editingTaskId=null;_tfSelected=[];_tfMode="individual";_tfIndefOn=false;
+  _tfRequiredEvidence={photo:false,image:false,document:false};
   showSheet("Nueva tarea",taskFormHTML(null));setTimeout(applyPrioColor,50);
 }
 function openET(id){
@@ -1049,6 +1086,7 @@ function openET(id){
     _tfMode=t.isGroup?"grupal":"individual";
     _tfIndefOn=t.indefinite||false;
     _tfSelected=Array.isArray(t.assignedTo)?t.assignedTo.slice():(t.assignedTo?[t.assignedTo]:[]);
+    _tfRequiredEvidence=Object.assign({photo:false,image:false,document:false},t.requiredEvidence||{});
     showSheet("Editar tarea",taskFormHTML(t));setTimeout(applyPrioColor,50);
   }
 }
@@ -1070,10 +1108,11 @@ function saveT(){
   var et=indef?"":(document.getElementById("tf-et")||{}).value||"";
   var notes=(document.getElementById("tf-notes")||{}).value||"";
   var criteria=(document.getElementById("tf-criteria")||{}).value||"";
+  var requiredEvidence=Object.assign({},_tfRequiredEvidence);
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});
-    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria});
+    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence});
     toast("Tarea actualizada ✓");
   }else if(isGroup){
     // Tarea grupal: una sola tarea con todos los miembros y chat grupal
@@ -1082,7 +1121,7 @@ function saveT(){
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     var nt={id:taskId,history:[],title:title,assignedTo:members,isGroup:true,groupKey:groupKey,
-      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria};
+      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence};
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -1094,7 +1133,7 @@ function saveT(){
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
       var nt={id:Date.now()+i,history:[],title:title,assignedTo:assignedTo,isGroup:false,
-        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria};
+        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence};
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);

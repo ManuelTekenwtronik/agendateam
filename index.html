@@ -274,7 +274,11 @@ function sendNotif(userKey,title,body){
 function saveCloud(){
   if(!db)return;
   var fc={
-    collaborators:state.collaborators.map(function(c){return Object.assign({},c,{photo:""});}),
+    collaborators:state.collaborators.map(function(c){
+      // Guardar URL de Cloudinary; descartar base64/blob que no caben en Firestore
+      var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
+      return Object.assign({},c,{photo:ph});
+    }),
     tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[]
   };
   db.collection("at").doc("data").set(fc).catch(function(e){console.warn("save:",e);});
@@ -1337,8 +1341,8 @@ function collabFormHTML(c){
   return'<div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:16px;">'+
     '<div class="photo-circle" id="photo-preview">'+(tempPhoto?'<img src="'+tempPhoto+'">':'<span>👤</span>')+'</div>'+
     '<div class="photo-btns">'+
-    '<label class="photo-btn" style="background:#1a1d2e;color:#fff;">📷 Cámara<input type="file" accept="image/*" capture="environment" onchange="handlePhoto(this)" style="display:none;"></label>'+
-    '<label class="photo-btn" style="background:#5a8fe0;color:#fff;">🖼️ Galería<input type="file" accept="image/*" onchange="handlePhoto(this)" style="display:none;"></label>'+
+    '<label class="photo-btn" style="background:#1a1d2e;color:#fff;position:relative;">📷 Cámara<input type="file" accept="image/*" capture="environment" onchange="handlePhoto(this)" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;"></label>'+
+    '<label class="photo-btn" style="background:#5a8fe0;color:#fff;position:relative;">🖼️ Galería<input type="file" accept="image/*" onchange="handlePhoto(this)" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;"></label>'+
     '</div></div>'+
     '<div class="field"><label>Nombre completo *</label><input type="text" id="cf-name" value="'+escH(v.name)+'" placeholder="Ej: Carlos López"/></div>'+
     '<div class="field"><label>Cargo / Área *</label><input type="text" id="cf-role" value="'+escH(v.role)+'" placeholder="Ej: Ventas"/></div>'+
@@ -1357,7 +1361,18 @@ function collabFormHTML(c){
 
 function handlePhoto(input){
   var f=input.files[0];if(!f)return;
-  compressImg(f,function(b64){tempPhoto=b64;var p=document.getElementById("photo-preview");if(p)p.innerHTML='<img src="'+b64+'">';});
+  var p=document.getElementById("photo-preview");
+  if(p)p.innerHTML='<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:28px;">⏳</div>';
+  var fd=new FormData();
+  fd.append("file",f);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam_avatars");
+  var xhr=new XMLHttpRequest();
+  xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/image/upload");
+  xhr.onload=function(){
+    try{var r=JSON.parse(xhr.responseText);tempPhoto=r.secure_url;if(p)p.innerHTML='<img src="'+tempPhoto+'">';}
+    catch(e){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';}
+  };
+  xhr.onerror=function(){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';};
+  xhr.send(fd);
 }
 
 function openNC(){editingCollabId=null;showSheet("Nuevo colaborador",collabFormHTML(null));}

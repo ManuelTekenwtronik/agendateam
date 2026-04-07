@@ -947,7 +947,7 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
       var result=await checkFaceIdentity(col.photo,imgs[i].url);
       if(!result.skipped&&result.matched===false){
         return{passed:false,reason:"face_mismatch",
-          msg:"❌ El rostro en la foto "+(imgs.length>1?"#"+(i+1)+" ")+"no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
+          msg:"❌ El rostro en la foto "+(imgs.length>1?"#"+(i+1)+" ":"")+"no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
       }
       faceResults.push(result);
     }

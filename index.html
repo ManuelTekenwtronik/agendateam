@@ -313,7 +313,7 @@ var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
-var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[]};
+var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var confirmCallback=null,aiLoading=false;
@@ -733,6 +733,7 @@ function taskHTML(t){
     (t.requiredEvidence&&t.requiredEvidence.photo?'<span class="badge" style="background:#1a1d2e;color:#fff;">📷 Foto</span>':"")+
     (t.requiredEvidence&&t.requiredEvidence.image?'<span class="badge" style="background:#5a8fe0;color:#fff;">🖼️ Imagen</span>':"")+
     (t.requiredEvidence&&t.requiredEvidence.document?'<span class="badge" style="background:#27ae60;color:#fff;">📄 Documento</span>':"")+
+    (t.faceRecognition?'<span class="badge" style="background:#e74c3c;color:#fff;">🙂 Facial</span>':"")+
     dateInfo+'</div>'+
     (t.notes?'<div style="font-size:13px;color:#888;background:#f9f9fb;padding:7px 10px;border-radius:10px;margin-bottom:10px;">'+escH(t.notes)+'</div>':"")+
     (!isBoss?'<div style="margin-bottom:10px;"><textarea id="note-'+t.id+'" placeholder="Agregar nota…" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;resize:none;height:60px;font-family:inherit;"></textarea></div>':"")+
@@ -881,10 +882,80 @@ function submitCompletionReport(taskId){
   }
 }
 
-function _finishSubmit(taskId,report,attachments){
+// ── FACE & DUPLICATE VALIDATION ──
+function imgHash(url){
+  return new Promise(function(resolve){
+    var img=new Image();
+    img.crossOrigin="anonymous";
+    img.onload=function(){
+      try{
+        var cv=document.createElement("canvas");cv.width=8;cv.height=8;
+        var ctx=cv.getContext("2d");ctx.drawImage(img,0,0,8,8);
+        var d=ctx.getImageData(0,0,8,8).data;
+        var gray=[];
+        for(var i=0;i<64;i++)gray.push(Math.round((d[i*4]*299+d[i*4+1]*587+d[i*4+2]*114)/1000));
+        var avg=gray.reduce(function(a,b){return a+b;},0)/64;
+        resolve(gray.map(function(v){return v>=avg?1:0;}).join(""));
+      }catch(e){resolve(null);}
+    };
+    img.onerror=function(){resolve(null);};
+    img.src=url+"?_="+(Date.now()); // evitar caché CORS
+  });
+}
+
+function hammingDist(h1,h2){
+  if(!h1||!h2||h1.length!==h2.length)return 64;
+  var d=0;for(var i=0;i<h1.length;i++)if(h1[i]!==h2[i])d++;return d;
+}
+
+function checkFaceIdentity(profileUrl,evidenceUrl){
+  return fetch("/.netlify/functions/facematch",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({profileUrl:profileUrl,evidenceUrl:evidenceUrl})
+  }).then(function(r){return r.json();}).catch(function(){return{skipped:true,reason:"error_red"};});
+}
+
+async function runFaceAndDuplicateChecks(taskId,attachments){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return{passed:true};
+  var col=state.collaborators.find(function(c){
+    return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;
+  });
+  var imgs=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;});
+  if(!imgs.length)return{passed:true};
+
+  var newHashes=[];
+  for(var i=0;i<imgs.length;i++){
+    // 1. DUPLICADO — siempre activo
+    var h=await imgHash(imgs[i].url);
+    if(h){
+      var allHistory=(t.history||[]);
+      for(var j=0;j<allHistory.length;j++){
+        var prevHashes=allHistory[j].photoHashes||[];
+        for(var k=0;k<prevHashes.length;k++){
+          if(hammingDist(h,prevHashes[k])<10){
+            return{passed:false,reason:"duplicate",
+              msg:"⚠️ Esta imagen ya fue utilizada como soporte el "+escH(allHistory[j].date||"")+". Por favor toma una foto nueva."};
+          }
+        }
+      }
+      newHashes.push(h);
+    }
+    // 2. RECONOCIMIENTO FACIAL — solo si la tarea lo requiere
+    if(t.faceRecognition&&col&&col.photo){
+      var result=await checkFaceIdentity(col.photo,imgs[i].url);
+      if(!result.skipped&&result.matched===false){
+        return{passed:false,reason:"face_mismatch",
+          msg:"❌ El rostro en la foto no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
+      }
+    }
+  }
+  return{passed:true,newHashes:newHashes};
+}
+
+async function _finishSubmit(taskId,report,attachments){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
-  // Verificar soportes obligatorios antes de enviar a IA
+  // Verificar soportes obligatorios
   var req=t.requiredEvidence||{};
   var missing=[];
   var hasPhoto=attachments.some(function(a){return a.type&&a.type.indexOf("image")>=0;});
@@ -894,9 +965,19 @@ function _finishSubmit(taskId,report,attachments){
   if(req.document&&!hasDoc)missing.push("📄 Documento");
   if(missing.length>0){
     toast("Faltan soportes obligatorios:\n"+missing.join(", "),"error");
-    // Reabrir el sheet
-    showCompletionReport(taskId);
-    return;
+    showCompletionReport(taskId);return;
+  }
+  // Verificar duplicados y reconocimiento facial
+  var hasImgs=attachments.some(function(a){return a.type&&a.type.indexOf("image")>=0;});
+  if(hasImgs){
+    toast("🔍 Verificando imágenes…");
+    var checks=await runFaceAndDuplicateChecks(taskId,attachments);
+    if(!checks.passed){
+      toast(checks.msg,"error");
+      showCompletionReport(taskId);return;
+    }
+    // Guardar hashes en el estado temporal para registrarlos al aprobar
+    t._pendingHashes=checks.newHashes||[];
   }
   t.status="pendiente_validacion";
   t.pendingReport=report;
@@ -971,7 +1052,7 @@ function validateTaskCompletion(taskId,report,attachments){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,attachments:attachments});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,attachments:attachments,photoHashes:t._pendingHashes||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";
@@ -988,12 +1069,12 @@ function validateTaskCompletion(taskId,report,attachments){
       // Seguimiento programado
       setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
     }
-    delete t.pendingReport;delete t.pendingAttachments;
+    delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
     saveLocal();render();
   }).catch(function(e){
     t.status="en-progreso";
     state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
-    delete t.pendingReport;delete t.pendingAttachments;
+    delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
     saveLocal();render();
   });
 }
@@ -1213,6 +1294,15 @@ function taskFormHTML(t){
         '<span style="font-size:18px;">'+icons[type]+'</span>'+
         '<span style="font-size:14px;font-weight:600;">'+labels[type]+'</span></div>';
     }).join("")+
+    '</div>'+
+    '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8d8ff;">'+
+    '<div style="font-weight:700;font-size:13px;color:#9b59b6;margin-bottom:8px;">🙂 Reconocimiento facial</div>'+
+    '<div class="ck-label'+(v.faceRecognition?' on':'')+'" id="tf-face-ck" onclick="tfToggleFace(this)">'+
+      '<div class="ck-box'+(v.faceRecognition?' on':'')+'">'+( v.faceRecognition?'✓':'')+' </div>'+
+      '<span style="font-size:18px;">🔍</span>'+
+      '<span style="font-size:13px;font-weight:600;line-height:1.3;">Verificar que el rostro en las fotos coincida con el perfil del colaborador</span>'+
+    '</div>'+
+    '<div style="font-size:11px;color:#aaa;margin-top:4px;">⚠️ La detección de fotos duplicadas aplica siempre a todas las tareas con imágenes.</div>'+
     '</div></div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>';
@@ -1236,6 +1326,7 @@ var _tfIndefOn=false;
 var _tfMode="individual";
 var _tfSelected=[];
 var _tfRequiredEvidence={photo:false,image:false,document:false};
+var _tfFaceRecognition=false;
 function togIndef(){
   _tfIndefOn=!_tfIndefOn;
   var box=document.getElementById("tf-indef-box"),w=document.getElementById("tf-end-wrap");
@@ -1259,9 +1350,15 @@ function tfSetMode(mode){
   if(grp){grp.style.borderColor=mode==="grupal"?"#1a1d2e":"#eee";var r=grp.querySelector(".ck-radio");if(r)r.className="ck-radio"+(mode==="grupal"?" on":"");}
 }
 function getSelectedMembers(){return _tfSelected.slice();}
+function tfToggleFace(el){
+  _tfFaceRecognition=!_tfFaceRecognition;
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(_tfFaceRecognition?" on":"");box.textContent=_tfFaceRecognition?"✓":"";}
+  el.className="ck-label"+(_tfFaceRecognition?" on":"");
+}
 function openNT(){
   editingTaskId=null;_tfSelected=[];_tfMode="individual";_tfIndefOn=false;
-  _tfRequiredEvidence={photo:false,image:false,document:false};
+  _tfRequiredEvidence={photo:false,image:false,document:false};_tfFaceRecognition=false;
   showSheet("Nueva tarea",taskFormHTML(null));setTimeout(applyPrioColor,50);
 }
 function openET(id){
@@ -1272,6 +1369,7 @@ function openET(id){
     _tfIndefOn=t.indefinite||false;
     _tfSelected=Array.isArray(t.assignedTo)?t.assignedTo.slice():(t.assignedTo?[t.assignedTo]:[]);
     _tfRequiredEvidence=Object.assign({photo:false,image:false,document:false},t.requiredEvidence||{});
+    _tfFaceRecognition=t.faceRecognition||false;
     showSheet("Editar tarea",taskFormHTML(t));setTimeout(applyPrioColor,50);
   }
 }
@@ -1294,10 +1392,11 @@ function saveT(){
   var notes=(document.getElementById("tf-notes")||{}).value||"";
   var criteria=(document.getElementById("tf-criteria")||{}).value||"";
   var requiredEvidence=Object.assign({},_tfRequiredEvidence);
+  var faceRecognition=_tfFaceRecognition;
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});
-    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence});
+    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
     toast("Tarea actualizada ✓");
   }else if(isGroup){
     // Tarea grupal: una sola tarea con todos los miembros y chat grupal
@@ -1306,7 +1405,7 @@ function saveT(){
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     var nt={id:taskId,history:[],title:title,assignedTo:members,isGroup:true,groupKey:groupKey,
-      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence};
+      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition};
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -1318,7 +1417,7 @@ function saveT(){
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
       var nt={id:Date.now()+i,history:[],title:title,assignedTo:assignedTo,isGroup:false,
-        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence};
+        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition};
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);

@@ -42,8 +42,8 @@ exports.handler = async function(event) {
     }
 
     const confidence = data.confidence || 0;
-    // Umbral recomendado por Face++ para 1e-4 FPR ≈ 75
-    const matched = confidence >= 75;
+    // Umbral ajustado a 70 para tolerar variaciones de iluminación/ángulo
+    const matched = confidence >= 70;
 
     return { statusCode: 200, headers, body: JSON.stringify({ matched, confidence, skipped: false }) };
   } catch (e) {

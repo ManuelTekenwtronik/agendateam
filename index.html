@@ -776,7 +776,7 @@ function updStat(id,status){
   saveLocal();render();toast("Estado actualizado ✓");
 }
 
-function showCompletionReport(taskId){
+function showCompletionReport(taskId,errorMsg){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
   // Limpiar sheet previo si existe
@@ -804,6 +804,7 @@ function showCompletionReport(taskId){
     }
   }
   sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
+    (errorMsg?'<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#c0392b;line-height:1.5;">'+escH(errorMsg)+'</div>':'')+
     '<div style="font-weight:800;font-size:17px;margin-bottom:6px;">✅ Reportar completado</div>'+
     '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b> y adjunta soportes de cumplimiento.</div>'+
     '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;box-sizing:border-box;"></textarea>'+
@@ -966,7 +967,7 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
       }else if(skipped.length===faceResults.length){
         faceLine="\n🙂 Verificación facial: imágenes sin rostro detectable, omitida.";
       }
-    }else if(t.faceRecognition&&!col.photo){
+    }else if(t.faceRecognition&&(!col||!col.photo)){
       faceLine="\n⚠️ Verificación facial omitida: el colaborador no tiene foto de perfil registrada.";
     }
     bioSummary=dupLine+faceLine;
@@ -995,8 +996,7 @@ async function _finishSubmit(taskId,report,attachments){
     toast("🔍 Verificando imágenes…");
     var checks=await runFaceAndDuplicateChecks(taskId,attachments);
     if(!checks.passed){
-      toast(checks.msg,"error");
-      showCompletionReport(taskId);return;
+      showCompletionReport(taskId,checks.msg);return;
     }
     // Guardar hashes en el estado temporal para registrarlos al aprobar
     t._pendingHashes=checks.newHashes||[];

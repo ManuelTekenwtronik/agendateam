@@ -924,6 +924,7 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
   if(!imgs.length)return{passed:true};
 
   var newHashes=[];
+  var faceResults=[];
   for(var i=0;i<imgs.length;i++){
     // 1. DUPLICADO — siempre activo
     var h=await imgHash(imgs[i].url);
@@ -945,11 +946,31 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
       var result=await checkFaceIdentity(col.photo,imgs[i].url);
       if(!result.skipped&&result.matched===false){
         return{passed:false,reason:"face_mismatch",
-          msg:"❌ El rostro en la foto no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
+          msg:"❌ El rostro en la foto "+(imgs.length>1?"#"+(i+1)+" ")+"no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
       }
+      faceResults.push(result);
     }
   }
-  return{passed:true,newHashes:newHashes};
+  // Construir resumen biométrico para el chat
+  var bioSummary="";
+  if(imgs.length>0){
+    var dupLine="✅ "+imgs.length+" foto(s) verificada(s) — sin duplicados detectados.";
+    var faceLine="";
+    if(t.faceRecognition&&faceResults.length>0){
+      var verified=faceResults.filter(function(r){return !r.skipped&&r.matched;});
+      var skipped=faceResults.filter(function(r){return r.skipped;});
+      if(verified.length>0){
+        var avgConf=Math.round(verified.reduce(function(s,r){return s+(r.confidence||0);},0)/verified.length);
+        faceLine="\n🙂 Identidad facial verificada — coincidencia promedio: "+avgConf+"%.";
+      }else if(skipped.length===faceResults.length){
+        faceLine="\n🙂 Verificación facial: imágenes sin rostro detectable, omitida.";
+      }
+    }else if(t.faceRecognition&&!col.photo){
+      faceLine="\n⚠️ Verificación facial omitida: el colaborador no tiene foto de perfil registrada.";
+    }
+    bioSummary=dupLine+faceLine;
+  }
+  return{passed:true,newHashes:newHashes,bioSummary:bioSummary};
 }
 
 async function _finishSubmit(taskId,report,attachments){
@@ -978,6 +999,7 @@ async function _finishSubmit(taskId,report,attachments){
     }
     // Guardar hashes en el estado temporal para registrarlos al aprobar
     t._pendingHashes=checks.newHashes||[];
+    t._biometricSummary=checks.bioSummary||"";
   }
   t.status="pendiente_validacion";
   t.pendingReport=report;
@@ -1031,6 +1053,12 @@ function validateTaskCompletion(taskId,report,attachments){
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
+  // Mostrar reporte biométrico en el chat si existe
+  var bioMsg=t._biometricSummary||"";
+  if(bioMsg){
+    state.messages[ck].push({id:Date.now()-1,from:"system",type:"biometric",ts:Date.now()-1,
+      text:"🔐 Verificación biométrica:\n"+bioMsg});
+  }
   state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
     text:"🤖 Validando completado de \""+t.title+"\"…"+attMsg,attachments:attachments});
   saveLocal();

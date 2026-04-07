@@ -113,6 +113,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 .msg-bubble.system{background:#fff8ec;color:#1a1d2e;}
 .msg-bubble.flag{background:#fff0f0;color:#c0392b;border:1.5px solid #ffcccc;}
 .msg-bubble.boss_msg{background:#e8eaf6;color:#1a1d2e;}
+.msg-bubble.biometric{background:#eafaf1;color:#1a1d2e;border-left:3px solid #27ae60;}
 .msg-time{font-size:10px;opacity:.5;margin-top:4px;text-align:right;}
 .chat-input-row{display:flex;gap:8px;padding-top:8px;border-top:1px solid #f0f2f7;flex-shrink:0;}
 .chat-input{flex:1;padding:12px 16px;border-radius:99px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;font-family:inherit;}
@@ -1625,8 +1626,8 @@ function renderChat(){
       var isMe=(isBoss&&m.from==="boss")||(!isBoss&&m.from===myId);
       var isBossMsg=m.from==="boss"&&!isBoss;
       var memberCol=!isBoss&&!isBossMsg&&m.from!=="ai"&&m.from!=="system"?state.collaborators.find(function(c){return c.id===m.from;}):null;
-      var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.from==="system"?"system":"ai")));
-      var avEl=isMe?"":(memberCol?avHTML(memberCol,32):'<div class="msg-avatar" style="background:'+(isBossMsg?"#1a1d2e":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(isBossMsg?"👔":m.from==="system"?"⚠️":"🤖")+'</div>');
+      var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.type==="biometric"?"biometric":(m.from==="system"?"system":"ai"))));
+      var avEl=isMe?"":(memberCol?avHTML(memberCol,32):'<div class="msg-avatar" style="background:'+(isBossMsg?"#1a1d2e":m.type==="biometric"?"#27ae60":m.from==="system"?"#f5a623":"#5a8fe0")+'">'+(isBossMsg?"👔":m.type==="biometric"?"🔐":m.from==="system"?"⚠️":"🤖")+'</div>');
       var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
       return'<div class="msg-row'+(isMe?" me":"")+'">'+avEl+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+attachmentsHTML(m.attachments)+'<div class="msg-time">'+tstr+'</div></div></div>';
     }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">👥</div>Chat grupal</div>';
@@ -1684,9 +1685,9 @@ function renderChat(){
   var msgsHTML=msgs.map(function(m){
     var isMe=(isBoss&&m.from==="boss")||(!isBoss&&m.from===myId);
     var isBossMsg=(!isBoss&&m.from==="boss");
-    var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.from==="system"?"system":"ai")));
-    var avBg=isBossMsg?"#1a1d2e":m.flag?"#e74c3c":m.from==="system"?"#f5a623":"#5a8fe0";
-    var avIcon=isBossMsg?"👔":m.flag?"🚩":m.from==="system"?"⚠️":"🤖";
+    var bubClass=isMe?"me":(isBossMsg?"boss_msg":(m.flag?"flag":(m.type==="biometric"?"biometric":(m.from==="system"?"system":"ai"))));
+    var avBg=isBossMsg?"#1a1d2e":m.flag?"#e74c3c":m.type==="biometric"?"#27ae60":m.from==="system"?"#f5a623":"#5a8fe0";
+    var avIcon=isBossMsg?"👔":m.flag?"🚩":m.type==="biometric"?"🔐":m.from==="system"?"⚠️":"🤖";
     var av=isMe?"":('<div class="msg-avatar" style="background:'+avBg+';">'+avIcon+'</div>');
     var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
     return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+bubClass+'">'+escH(m.text)+attachmentsHTML(m.attachments)+'<div class="msg-time">'+tstr+'</div></div></div>';

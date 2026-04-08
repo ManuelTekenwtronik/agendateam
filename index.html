@@ -372,6 +372,7 @@ function init(){
   state=loadLocal();
   document.getElementById("login-screen").classList.remove("hidden");
   setInterval(runAlerts,30000);
+  setInterval(function(){if(currentUser&&currentTab==="tareas")renderTasks();},60000);
   initFCM();
   if(db){
     var done=false;
@@ -608,6 +609,29 @@ function runAlerts(){
   if(changed)saveLocal();
 }
 
+// ── COUNTDOWN ──
+function timeCountdown(t){
+  if(t.status==="completada"||t.indefinite||!t.endDate)return"";
+  var due=taskDue(t);
+  var diff=due-Date.now();
+  var abs=Math.abs(diff);
+  var d=Math.floor(abs/86400000);
+  var h=Math.floor((abs%86400000)/3600000);
+  var m=Math.floor((abs%3600000)/60000);
+  var str="",color="",bg="";
+  if(diff<0){
+    str=d>0?d+"d "+h+"h vencida":h>0?h+"h "+m+"min vencida":m+"min vencida";
+    color="#e74c3c";bg="#fff0f0";
+  }else if(diff<3600000){
+    str=m+"min restantes";color="#e74c3c";bg="#fff0f0";
+  }else if(diff<86400000){
+    str=h+"h "+m+"min restantes";color="#e67e22";bg="#fff8ec";
+  }else{
+    str=d+"d "+h+"h restantes";color="#27ae60";bg="#eafaf1";
+  }
+  return'<span class="badge" style="background:'+bg+';color:'+color+';font-weight:800;">⏱ '+str+'</span>';
+}
+
 // ── TIMELINE ──
 function timelineHTML(task){
   var history=task.history||[];
@@ -752,8 +776,8 @@ function taskHTML(t){
   var dateInfo="";
   if(t.startDate)dateInfo+='<span style="font-size:12px;color:#aaa;align-self:center;">📅 '+escH(t.startDate)+'</span>';
   if(t.indefinite)dateInfo+='<span style="font-size:12px;color:#9b59b6;font-weight:700;align-self:center;">♾️ Sin fecha fin</span>';
-  else if(t.endDate)dateInfo+='<span style="font-size:12px;color:'+(ov?"#e74c3c":"#bbb")+';align-self:center;">⏰ '+escH(t.endDate)+'</span>';
-  if(t.endTime)dateInfo+='<span class="badge" style="background:#f0f7ff;color:#4a90d9;">🕐 Entrega '+escH(t.endTime)+'</span>';
+  else if(t.endDate)dateInfo+='<span class="badge" style="background:#f0f7ff;color:#4a90d9;">📅 '+escH(t.endDate)+(t.endTime?" · 🕐 "+escH(t.endTime):"")+'</span>';
+  dateInfo+=timeCountdown(t);
   return'<div class="task-item'+(ov?" overdue":"")+(t.status==="completada"?" done":"")+'">'+
     '<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:10px;">'+
     '<div style="flex:1;">'+(ov?'<span style="font-size:16px;">🔴 </span>':'')+

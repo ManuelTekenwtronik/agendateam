@@ -1521,9 +1521,197 @@ function tfToggleFace(el){
   el.className="ck-label"+(_tfFaceRecognition?" on":"");
 }
 function openNT(){
+  showSheet("Nueva tarea",'<div style="display:flex;flex-direction:column;gap:14px;">'+
+    '<div onclick="openNTParticular()" style="padding:20px;background:#f0f2f7;border-radius:16px;cursor:pointer;border:2px solid #1a1d2e;display:flex;align-items:center;gap:14px;">'+
+      '<span style="font-size:36px;">📋</span>'+
+      '<div><div style="font-weight:800;font-size:16px;color:#1a1d2e;">Tarea Particular</div>'+
+      '<div style="font-size:13px;color:#888;margin-top:2px;">Crear y asignar una tarea específica ahora mismo</div></div></div>'+
+    '<div onclick="openGenericMenu()" style="padding:20px;background:#f5eeff;border-radius:16px;cursor:pointer;border:2px solid #9b59b6;display:flex;align-items:center;gap:14px;">'+
+      '<span style="font-size:36px;">📚</span>'+
+      '<div><div style="font-weight:800;font-size:16px;color:#9b59b6;">Tarea Genérica</div>'+
+      '<div style="font-size:13px;color:#888;margin-top:2px;">Gestionar plantillas reutilizables del equipo</div></div></div>'+
+    '</div>');
+}
+function openNTParticular(){
   editingTaskId=null;_tfSelected=[];_tfMode="individual";_tfIndefOn=false;
   _tfRequiredEvidence={photo:false,image:false,document:false};_tfFaceRecognition=false;
-  showSheet("Nueva tarea",taskFormHTML(null));setTimeout(applyPrioColor,50);
+  showSheet("Tarea Particular",taskFormHTML(null));setTimeout(applyPrioColor,50);
+}
+function openGenericMenu(){
+  var tmpls=state.taskTemplates||[];
+  showSheet("Tarea Genérica",'<div style="display:flex;flex-direction:column;gap:14px;">'+
+    '<div onclick="openTemplateCreate()" style="padding:20px;background:#f0f2f7;border-radius:16px;cursor:pointer;border:2px solid #1a1d2e;display:flex;align-items:center;gap:14px;">'+
+      '<span style="font-size:32px;">✏️</span>'+
+      '<div><div style="font-weight:800;font-size:15px;color:#1a1d2e;">Crear plantilla</div>'+
+      '<div style="font-size:13px;color:#888;margin-top:2px;">Definir una tarea base para asignar posteriormente</div></div></div>'+
+    '<div onclick="openAssignTemplate()" style="padding:20px;background:#eafaf1;border-radius:16px;cursor:pointer;border:2px solid #27ae60;display:flex;align-items:center;gap:14px;">'+
+      '<span style="font-size:32px;">👥</span>'+
+      '<div><div style="font-weight:800;font-size:15px;color:#27ae60;">Asignar plantilla</div>'+
+      '<div style="font-size:13px;color:#888;margin-top:2px;">'+tmpls.length+' plantilla'+(tmpls.length!==1?'s':'')+' disponible'+(tmpls.length!==1?'s':'')+' — asignar a uno o varios miembros</div></div></div>'+
+    '<button class="btn btn-gray btn-block" onclick="openNT()">← Volver</button>'+
+    '</div>');
+}
+
+// ── PLANTILLAS GENÉRICAS ──
+function templateFormHTML(tmpl){
+  var v=tmpl||{title:"",frequency:"diaria",priority:"media",endTime:"",indefinite:false,endDate:"",notes:"",criteria:""};
+  return'<div class="field"><label>Título de la plantilla *</label><input type="text" id="tf-title" value="'+escH(v.title||"")+'" placeholder="Ej: Inspección de EPP"/></div>'+
+    '<div class="form-row"><div class="field"><label>Frecuencia</label><select id="tf-freq">'+
+    ['diaria','semanal','mensual'].map(function(f){return'<option value="'+f+'"'+(v.frequency===f?' selected':'')+'>'+FC[f].i+' '+FC[f].l+'</option>';}).join("")+'</select></div>'+
+    '<div class="field"><label>Prioridad</label><select id="tf-prio">'+
+    ['alta','media','baja'].map(function(p){return'<option value="'+p+'"'+(v.priority===p?' selected':'')+'>'+PC[p].l+'</option>';}).join("")+'</select></div></div>'+
+    '<div class="form-row">'+
+    '<div class="field"><label>Hora de entrega</label><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'"/></div>'+
+    '</div>'+
+    '<div style="font-size:11px;color:#aaa;margin:-10px 0 12px;">Hora límite del ciclo</div>'+
+    '<div class="field"><label>Fecha fin</label>'+
+    '<div id="tf-indef-wrap" onclick="togIndef()" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:700;cursor:pointer;color:#9b59b6;">'+
+    '<div id="tf-indef-box" class="ck-box'+(v.indefinite?' on':'')+'" style="border-color:'+(v.indefinite?'#9b59b6':'#ccc')+';background:'+(v.indefinite?'#9b59b6':'#fff')+';">'+(v.indefinite?'✓':'')+'</div>'+
+    ' ♾️ Sin fecha fin (permanente)</div>'+
+    '<div id="tf-end-wrap" '+(v.indefinite?'style="display:none"':'')+'>'+
+    '<input type="date" id="tf-ed" value="'+escH(v.endDate||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/>'+
+    '</div></div>'+
+    '<div class="field"><label>Notas / Instrucciones</label><textarea id="tf-notes" placeholder="Instrucciones generales de la tarea…">'+escH(v.notes||"")+'</textarea></div>'+
+    '<div class="field" style="background:#f5eeff;border-radius:14px;padding:12px;">'+
+    '<label style="color:#9b59b6;font-weight:800;">✅ Criterios de validación IA</label>'+
+    '<textarea id="tf-criteria" placeholder="Ej: Foto con casco y lentes puestos, firmado por supervisor…" style="min-height:80px;margin-bottom:12px;">'+escH(v.criteria||"")+'</textarea>'+
+    '<div style="font-weight:700;font-size:13px;color:#9b59b6;margin-bottom:8px;">📎 Soportes obligatorios</div>'+
+    '<div style="display:flex;flex-direction:column;gap:6px;">'+
+    ['photo','image','document'].map(function(type){
+      var icons={photo:"📷",image:"🖼️",document:"📄"};
+      var labels={photo:"Foto (cámara)",image:"Imagen (galería)",document:"Documento"};
+      var req=v.requiredEvidence&&v.requiredEvidence[type];
+      return'<div class="ck-label'+(req?" on":"")+'" onclick="tfToggleEvidence(this,\''+type+'\')" data-ev="'+type+'">'+
+        '<div class="ck-box'+(req?" on":"")+'">'+( req?"✓":"")+' </div>'+
+        '<span style="font-size:18px;">'+icons[type]+'</span>'+
+        '<span style="font-size:14px;font-weight:600;">'+labels[type]+'</span></div>';
+    }).join("")+'</div>'+
+    '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8d8ff;">'+
+    '<div class="ck-label'+(v.faceRecognition?' on':'')+'" id="tf-face-ck" onclick="tfToggleFace(this)">'+
+      '<div class="ck-box'+(v.faceRecognition?' on':'')+'">'+( v.faceRecognition?'✓':'')+' </div>'+
+      '<span style="font-size:18px;">🔍</span>'+
+      '<span style="font-size:13px;font-weight:600;">Reconocimiento facial</span>'+
+    '</div></div></div>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+    '<button class="btn btn-dark btn-block" style="flex:1;" onclick="saveTemplate('+(v.id||'null')+')">Guardar plantilla</button>'+
+    '<button class="btn btn-gray btn-block" style="flex:1;" onclick="openGenericMenu()">← Volver</button></div>';
+}
+function openTemplateCreate(id){
+  var tmpl=id?(state.taskTemplates||[]).find(function(x){return x.id==id;}):null;
+  _tfIndefOn=tmpl?tmpl.indefinite||false:false;
+  _tfRequiredEvidence=Object.assign({photo:false,image:false,document:false},(tmpl&&tmpl.requiredEvidence)||{});
+  _tfFaceRecognition=(tmpl&&tmpl.faceRecognition)||false;
+  showSheet(id?"Editar plantilla":"Nueva plantilla",templateFormHTML(tmpl));
+}
+function saveTemplate(existingId){
+  var title=(document.getElementById("tf-title")||{}).value||"";
+  title=title.trim();
+  if(!title){toast("Escribe el título de la plantilla","error");return;}
+  var freq=(document.getElementById("tf-freq")||{}).value||"diaria";
+  var prio=(document.getElementById("tf-prio")||{}).value||"media";
+  var indef=_tfIndefOn;
+  var ed=indef?"":(document.getElementById("tf-ed")||{}).value||"";
+  var et=(document.getElementById("tf-et")||{}).value||"";
+  var notes=(document.getElementById("tf-notes")||{}).value||"";
+  var criteria=(document.getElementById("tf-criteria")||{}).value||"";
+  var requiredEvidence=Object.assign({},_tfRequiredEvidence);
+  var faceRecognition=_tfFaceRecognition;
+  if(!state.taskTemplates)state.taskTemplates=[];
+  if(existingId){
+    var tmpl=state.taskTemplates.find(function(x){return x.id==existingId;});
+    if(tmpl)Object.assign(tmpl,{title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
+    toast("Plantilla actualizada ✓");
+  }else{
+    state.taskTemplates.push({id:Date.now(),title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
+    toast("Plantilla guardada ✓");
+  }
+  saveLocal();if(db)saveCloud();closeSheet();
+}
+function openAssignTemplate(){
+  var tmpls=state.taskTemplates||[];
+  if(!tmpls.length){
+    showSheet("Asignar plantilla",'<div style="text-align:center;color:#aaa;padding:40px 0;">No hay plantillas creadas aún.<br><br>'+
+      '<button class="btn btn-dark btn-block" style="max-width:200px;margin:0 auto;" onclick="openTemplateCreate()">Crear plantilla</button></div>'+
+      '<button class="btn btn-gray btn-block" style="margin-top:10px;" onclick="openGenericMenu()">← Volver</button>');
+    return;
+  }
+  var cards=tmpls.map(function(tmpl){
+    return'<div style="background:#f7f8fc;border-radius:14px;padding:14px;margin-bottom:10px;">'+
+      '<div style="font-weight:800;font-size:15px;margin-bottom:4px;">'+escH(tmpl.title)+'</div>'+
+      '<div style="font-size:12px;color:#888;margin-bottom:10px;">'+FC[tmpl.frequency||"diaria"].i+' '+FC[tmpl.frequency||"diaria"].l+' · '+PC[tmpl.priority||"media"].l+(tmpl.endTime?' · 🕐 '+escH(tmpl.endTime):'')+'</div>'+
+      (tmpl.notes?'<div style="font-size:12px;color:#666;margin-bottom:10px;">'+escH(tmpl.notes.slice(0,80))+(tmpl.notes.length>80?'…':'')+'</div>':'')+
+      '<div style="display:flex;gap:8px;">'+
+      '<button class="btn btn-dark btn-sm" style="flex:1;" onclick="openAssignForm('+tmpl.id+')">👥 Asignar</button>'+
+      '<button class="btn btn-gray btn-sm" onclick="openTemplateCreate('+tmpl.id+')">✏️</button>'+
+      '<button class="btn btn-gray btn-sm" style="color:#e74c3c;" onclick="deleteTemplate('+tmpl.id+')">🗑️</button>'+
+      '</div></div>';
+  }).join("");
+  showSheet("Asignar plantilla",cards+'<button class="btn btn-gray btn-block" style="margin-top:6px;" onclick="openGenericMenu()">← Volver</button>');
+}
+function deleteTemplate(id){
+  state.taskTemplates=(state.taskTemplates||[]).filter(function(x){return x.id!=id;});
+  saveLocal();if(db)saveCloud();openAssignTemplate();
+}
+function openAssignForm(templateId){
+  var tmpl=(state.taskTemplates||[]).find(function(x){return x.id==templateId;});
+  if(!tmpl){toast("Plantilla no encontrada","error");return;}
+  _tfSelected=[];_tfMode="individual";
+  var collabChecks=state.collaborators.map(function(c){
+    return'<div class="ck-label" onclick="tfToggleMember(this,'+c.id+')" data-id="'+c.id+'">'+
+      '<div class="ck-box">'+''+'</div>'+avHTML(c,32)+
+      '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">'+escH(c.name)+'</div><div style="font-size:12px;color:#999;">'+escH(c.role)+'</div></div></div>';
+  }).join("")||'<div style="color:#ccc;font-size:13px;">No hay colaboradores</div>';
+  showSheet('Asignar: "'+tmpl.title+'"',
+    '<div style="margin-bottom:14px;padding:12px;background:#f5eeff;border-radius:12px;">'+
+    '<div style="font-weight:700;color:#9b59b6;font-size:13px;">📚 Plantilla seleccionada</div>'+
+    '<div style="font-weight:800;font-size:15px;margin-top:4px;">'+escH(tmpl.title)+'</div>'+
+    '<div style="font-size:12px;color:#888;margin-top:2px;">'+FC[tmpl.frequency||"diaria"].i+' '+FC[tmpl.frequency||"diaria"].l+' · '+PC[tmpl.priority||"media"].l+'</div></div>'+
+    '<div class="field"><label>Asignar a *</label>'+collabChecks+'</div>'+
+    '<div id="tf-mode-wrap" style="display:none"><div class="field"><label>Tipo</label>'+
+    '<div style="display:flex;gap:10px;">'+
+    '<div id="tf-mode-ind" onclick="tfSetMode(\'individual\')" style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;background:#f7f8fc;border-radius:12px;cursor:pointer;border:2px solid #1a1d2e;">'+
+    '<div class="ck-radio on"></div><div><div style="font-weight:700;font-size:14px;">👤 Individual</div><div style="font-size:12px;color:#999;">Una tarea por persona</div></div></div>'+
+    '<div id="tf-mode-grp" onclick="tfSetMode(\'grupal\')" style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;background:#f7f8fc;border-radius:12px;cursor:pointer;border:2px solid #eee;">'+
+    '<div class="ck-radio"></div><div><div style="font-weight:700;font-size:14px;">👥 Grupal</div><div style="font-size:12px;color:#999;">Chat compartido</div></div></div>'+
+    '</div></div></div>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;">'+
+    '<button class="btn btn-dark btn-block" style="flex:1;background:#27ae60;" onclick="confirmAssignTemplate('+templateId+')">✅ Asignar tarea</button>'+
+    '<button class="btn btn-gray btn-block" style="flex:1;" onclick="openAssignTemplate()">← Volver</button></div>');
+}
+function confirmAssignTemplate(templateId){
+  var tmpl=(state.taskTemplates||[]).find(function(x){return x.id==templateId;});
+  if(!tmpl){toast("Plantilla no encontrada","error");return;}
+  var members=getSelectedMembers();
+  if(!members.length){toast("Selecciona al menos un colaborador","error");return;}
+  var isGroup=members.length>1&&_tfMode==="grupal";
+  var today=new Date().toISOString().split("T")[0];
+  if(isGroup){
+    var taskId=Date.now();var groupKey="group_"+taskId;
+    var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
+    var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
+    var nt=Object.assign({},tmpl,{id:taskId,history:[],assignedTo:members,isGroup:true,groupKey:groupKey,status:"pendiente",startDate:today});
+    state.tasks.push(nt);
+    if(!state.messages[groupKey])state.messages[groupKey]=[];
+    state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
+      text:"👥 Tarea grupal asignada:\n\n*\""+tmpl.title+"\"*\nFrecuencia: "+FC[tmpl.frequency||"diaria"].l+"\nPrioridad: "+PC[tmpl.priority||"media"].l+(tmpl.notes?"\nNotas: "+tmpl.notes:"")+"\n\nParticipantes: "+names});
+    members.forEach(function(id){sendNotif("collab_"+id,"👥 Nueva tarea grupal","\""+tmpl.title+"\" — con "+names);});
+    toast("Tarea grupal asignada ✓");
+  }else{
+    members.forEach(function(assignedTo,i){
+      var col=state.collaborators.find(function(c){return c.id===assignedTo;});
+      var nt=Object.assign({},tmpl,{id:Date.now()+i,history:[],assignedTo:assignedTo,isGroup:false,groupKey:undefined,status:"pendiente",startDate:today});
+      state.tasks.push(nt);
+      if(col){
+        var ck=collabCK(assignedTo);
+        if(!state.messages[ck])state.messages[ck]=[];
+        state.messages[ck].push({id:Date.now()+i+0.5,from:"system",type:"task_assigned",ts:Date.now(),
+          text:"📋 Hola "+col.name.split(" ")[0]+", se te asignó la tarea:\n\n*\""+tmpl.title+"\"*\nFrecuencia: "+FC[tmpl.frequency||"diaria"].l+"\nPrioridad: "+PC[tmpl.priority||"media"].l+(tmpl.notes?"\nNotas: "+tmpl.notes:"")});
+        sendNotif("collab_"+assignedTo,"📋 Tarea asignada","\""+tmpl.title+"\" — "+FC[tmpl.frequency||"diaria"].l);
+      }
+    });
+    toast(members.length>1?members.length+" tareas asignadas ✓":"Tarea asignada ✓");
+  }
+  saveLocal();if(db)saveCloud();closeSheet();render();
 }
 function openET(id){
   var t=state.tasks.find(function(x){return x.id==id;});

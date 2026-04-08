@@ -1173,7 +1173,7 @@ function validateTaskCompletion(taskId,report,attachments){
       (evCount>0?"\n- Siguientes "+evCount+" imágen(es): SOPORTES enviados por el colaborador. Compara con el estándar.":"");
   }
   var faceNote=t.faceRecognition?"\n\n⚠️ NOTA IMPORTANTE: La verificación de identidad facial (que la persona en la foto sea el colaborador correcto) ya fue realizada por un sistema biométrico separado ANTES de llegar aquí. NO necesitas verificar ni comentar sobre identidad de personas. Tu único rol es verificar el cumplimiento de los criterios de la tarea.":"";
-  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+faceNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios (indumentaria, documentos, equipos, etc.) sin intentar identificar personas.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra:\n{\"aprobada\":true,\"razon\":\"✅ Todo cumplido.\\n\\n[desglose detallado criterio por criterio]\"}\no\n{\"aprobada\":false,\"razon\":\"❌ Hay criterios incumplidos:\",\"pendiente\":\"[Desglose detallado: número de criterio, qué está ✓ presente y qué está ✗ faltando, con máximo detalle]\"}";
+  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+faceNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios (indumentaria, documentos, equipos, etc.) sin intentar identificar personas.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra con este formato exacto:\n{\"aprobada\":true,\"razon\":\"✅ Todos los criterios cumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✓ [sub-elemento]: [evidencia]\\n\\nCriterio N — [nombre]:\\n✓ [sub-elemento]: [evidencia]\"}\no si hay incumplimientos:\n{\"aprobada\":false,\"razon\":\"❌ Criterios incumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✗ [sub-elemento]: [qué falta exactamente]\\n\\nCriterio N — [nombre]:\\n✗ [sub-elemento]: [qué falta]\",\"pendiente\":\"Resumen de lo que debe corregir para aprobar.\"}";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
@@ -1190,7 +1190,7 @@ function validateTaskCompletion(taskId,report,attachments){
   var allImgBlocks=refImageBlocks.concat(evImageBlocks);
   var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:sys,messages:[{role:"user",content:msgContent}]})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){return r.json();}).then(function(d){
     // Re-buscar t en state.tasks actual (onSnapshot pudo reemplazar el array durante la llamada a la IA)
     t=state.tasks.find(function(x){return x.id==taskId;});
@@ -1216,7 +1216,8 @@ function validateTaskCompletion(taskId,report,attachments){
       }
       t.status="completada";
       var attLinks=attachments.length>0?"\n\n📎 Soportes:\n"+attachments.map(function(a){return getFileIcon(a.type,a.name)+" "+a.name;}).join("\n"):"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon+attLinks,ts:Date.now(),attachments:attachments});
+      var reporteOk=result.reporte?"\n\n"+result.reporte:"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon+reporteOk+attLinks,ts:Date.now(),attachments:attachments});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
       // Rechazar → seguimiento
@@ -1225,7 +1226,8 @@ function validateTaskCompletion(taskId,report,attachments){
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var pendiente=result.pendiente||"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+(pendiente?"\n\n📋 Criterios incumplidos:\n"+pendiente:"")+"\n\n🔄 Completa los puntos indicados y vuelve a reportar.",ts:Date.now()});
+      var reporteNok=result.reporte?"\n\n"+result.reporte:"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+reporteNok+(pendiente?"\n\n🔧 Para aprobar:\n"+pendiente:"")+"\n\n🔄 Corrige los puntos indicados y vuelve a reportar.",ts:Date.now()});
       sendNotif("boss","⚠️ Validación rechazada","\""+t.title+"\""+(col?" — "+col.name:"")+" no cumple los criterios.");
       if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+result.razon.slice(0,80));
       // Seguimiento programado

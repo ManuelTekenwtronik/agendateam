@@ -637,7 +637,7 @@ function runAlerts(){
 
 // ── COUNTDOWN ──
 function timeCountdown(t){
-  if(t.status==="completada"||t.indefinite||!t.endDate)return"";
+  if(t.status==="completada")return"";
   var due=taskDue(t);
   var diff=due-Date.now();
   var abs=Math.abs(diff);

@@ -1825,22 +1825,63 @@ function sendMsg(){
   saveLocal();renderChat();
   aiLoading=true;
   var ct=state.tasks.filter(function(t){return taskBelongsTo(t,cc.id);});
-  var pend=ct.filter(function(t){return t.status!=="completada";});
-  var over=ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&taskDue(t)<Date.now();});
-  var ps=pend.map(function(t){return'"'+t.title+'"('+t.frequency+")";}).join(",")||"ninguno";
-  var os=over.map(function(t){return'"'+t.title+'"';}).join(",")||"ninguna";
+  var today=new Date().toLocaleDateString("es",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+  // Construir detalle completo de cada tarea
+  var taskDetail=ct.map(function(t){
+    var st=SC[t.status]?SC[t.status].l:t.status;
+    var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";
+    var lines=["• "+t.title+" ["+FC[t.frequency].l+"] — Estado: "+st+(ov?" ⚠️VENCIDA":"")];
+    if(t.startDate)lines.push("  Inicio: "+t.startDate);
+    if(t.endDate)lines.push("  Entrega: "+t.endDate+(t.endTime?" "+t.endTime:""));
+    if(t.criteria)lines.push("  Criterios: "+t.criteria.slice(0,200));
+    if(t.notes)lines.push("  Notas: "+t.notes.slice(0,100));
+    var hist=(t.history||[]);
+    if(hist.length>0){
+      lines.push("  Historial de entregas ("+hist.length+" registro(s)):");
+      hist.slice(-5).forEach(function(h){
+        lines.push("    - "+h.date+": "+(h.approved?"✅ Aprobada":"❌ Rechazada")+(h.report?" — \""+h.report.slice(0,80)+"\"":" "));
+      });
+    }else{
+      lines.push("  Sin entregas registradas aún.");
+    }
+    return lines.join("\n");
+  }).join("\n\n")||"Sin tareas asignadas.";
+
+  var totales="Total: "+ct.length+" | Pendientes: "+ct.filter(function(t){return t.status==="pendiente";}).length+
+    " | En progreso: "+ct.filter(function(t){return t.status==="en-progreso";}).length+
+    " | Validando: "+ct.filter(function(t){return t.status==="pendiente_validacion";}).length+
+    " | Completadas: "+ct.filter(function(t){return t.status==="completada";}).length+
+    " | Vencidas: "+ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&taskDue(t)<Date.now();}).length;
+
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
-  var sys=isEsc
-    ?"Eres el asistente de seguimiento de AgendaTeam. Hay un incumplimiento activo de "+cc.name+". Tareas vencidas: "+os+". El jefe y el colaborador están en este chat. Tu rol es presionar al colaborador para que dé una fecha y hora CONCRETA y realista de cumplimiento, recordarle las consecuencias del incumplimiento, y asegurarte de que el jefe quede conforme. No aceptes respuestas vagas. Si la fecha propuesta supera el margen permitido, señálalo. Responde en español, directo, máximo 4 oraciones."
-    :"Eres el asistente de AgendaTeam en un chat con el jefe y "+cc.name+" ("+escH(cc.role||"")+"). Tareas pendientes: "+ps+". Vencidas: "+os+". Tu rol es mantener al colaborador enfocado en los plazos, hacer preguntas directas sobre avances cuando hay tareas pendientes o vencidas, y presionar amablemente pero con firmeza para que cumpla los compromisos en los tiempos previstos. No seas condescendiente pero sí exigente. Responde en español, máximo 3 oraciones.";
-  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
-    var isHuman=m.from==="boss"||typeof m.from==="number";
-    return{role:isHuman?"user":"assistant",content:m.text};
+  var escalNote=isEsc?"⚠️ HAY UN INCUMPLIMIENTO ACTIVO — presiona para obtener fecha y hora concreta de cumplimiento.\n\n":"";
+
+  var sys="Eres el asistente inteligente de AgendaTeam. Hoy es "+today+".\n\n"+
+    escalNote+
+    "Colaborador: "+cc.name+" — "+escH(cc.role||"Sin cargo")+".\n\n"+
+    "=== TAREAS ASIGNADAS ===\n"+taskDetail+"\n\n"+
+    "=== RESUMEN ===\n"+totales+"\n\n"+
+    "Puedes: responder preguntas sobre tareas, generar reportes de desempeño detallados (cumplimiento, puntualidad, tendencias), analizar el historial, y hacer seguimiento. "+
+    "Cuando te pidan un reporte genera uno estructurado con: resumen ejecutivo, cumplimiento por tarea, % de tareas a tiempo, observaciones y recomendaciones. "+
+    "Para preguntas simples responde en máximo 3 oraciones. Para reportes puede extenderse. Responde siempre en español.";
+
+  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system"&&m.from!=="ai";}).slice(-12).map(function(m){
+    var name=m.from==="boss"?"Manuel":cc.name;
+    return{role:"user",content:"["+name+"]: "+m.text};
   });
-  var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
+  var aiHist=(state.messages[ck]||[]).filter(function(m){return m.from==="ai";}).slice(-6).map(function(m){
+    return{role:"assistant",content:m.text};
+  });
+  // Intercalar mensajes humanos y IA en orden cronológico
+  var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-14,-1).map(function(m){
+    var isHuman=m.from==="boss"||typeof m.from==="number";
+    var name=m.from==="boss"?"Manuel":cc.name;
+    return{role:isHuman?"user":"assistant",content:isHuman?"["+name+"]: "+m.text:m.text};
+  });
+  var clean=[];for(var i=0;i<allHist.length;i++){if(clean.length===0||allHist[i].role!==clean[clean.length-1].role)clean.push(allHist[i]);}
   var prev=clean.concat([{role:"user",content:(isBoss?"[Manuel]: ":"["+cc.name+"]: ")+text}]);
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:sys,messages:prev})
   }).then(function(r){return r.json();}).then(function(d){
     var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
     state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});

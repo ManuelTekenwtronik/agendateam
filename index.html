@@ -221,11 +221,13 @@ var fcmMessaging=null;
 var CLOUDINARY_CLOUD="dzwm1f3o8";
 var CLOUDINARY_PRESET="AgendaTeam";
 var _evidenceFiles=[];
+var _evidenceCoords=[]; // coords paralelas por archivo: {lat,lng,acc} o null
 
-function uploadEvidence(taskId,files,onProgress,onDone,onError){
+function uploadEvidence(taskId,files,coordsList,onProgress,onDone,onError){
   var urls=[],total=files.length,done=0;
   if(!total){onDone([]);return;}
-  Array.from(files).forEach(function(file){
+  Array.from(files).forEach(function(file,idx){
+    var fileCoord=(coordsList&&coordsList[idx])||null;
     var isImg=file.type.indexOf("image")>=0||file.type.indexOf("video")>=0;
     var resource=isImg?(file.type.indexOf("video")>=0?"video":"image"):"raw";
     var fd=new FormData();
@@ -238,7 +240,9 @@ function uploadEvidence(taskId,files,onProgress,onDone,onError){
     xhr.onload=function(){
       var res=JSON.parse(xhr.responseText);
       if(res.secure_url){
-        urls.push({url:res.secure_url,name:file.name,type:file.type,size:file.size,public_id:res.public_id});
+        var att={url:res.secure_url,name:file.name,type:file.type,size:file.size,public_id:res.public_id};
+        if(fileCoord)att.coords=fileCoord;
+        urls.push(att);
         done++;
         if(done===total)onDone(urls);
       }else{onError(res.error&&res.error.message||"Error Cloudinary");}
@@ -899,7 +903,7 @@ function showCompletionReport(taskId,errorMsg){
   if(!t)return;
   // Limpiar sheet previo si existe
   var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
-  _evidenceFiles=[];
+  _evidenceFiles=[];_evidenceCoords=[];
   var sh=document.createElement("div");
   sh.id="completion-sheet";
   sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;overflow-y:auto;";
@@ -911,7 +915,7 @@ function showCompletionReport(taskId,errorMsg){
       return'<label style="flex:1;background:'+bg+';color:#fff;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;cursor:pointer;position:relative;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
         '<span style="font-size:22px;pointer-events:none;">'+icon+'</span>'+
         '<span style="pointer-events:none;">'+label+'</span>'+
-        '<input type="file" accept="'+accept+'"'+(capture?' capture="'+capture+'"':'')+' multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="addEvidenceFiles(this.files)">'+
+        '<input type="file" accept="'+accept+'"'+(capture?' capture="'+capture+'"':'')+' multiple style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="'+(capture?'addCameraFiles':'addEvidenceFiles')+'(this.files)">'+
       '</label>';
     }else{
       return'<div style="flex:1;background:#e8e8ee;color:#bbb;border-radius:12px;padding:12px 8px;text-align:center;font-size:13px;font-weight:700;min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
@@ -943,8 +947,29 @@ function showCompletionReport(taskId,errorMsg){
 }
 
 function addEvidenceFiles(files){
-  Array.from(files).forEach(function(f){_evidenceFiles.push(f);});
+  Array.from(files).forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
   renderEvidencePreview();
+}
+function addCameraFiles(files){
+  var fileArray=Array.from(files);
+  if(!fileArray.length)return;
+  if(navigator.geolocation){
+    toast("📍 Obteniendo ubicación…");
+    navigator.geolocation.getCurrentPosition(function(pos){
+      fileArray.forEach(function(f){
+        _evidenceFiles.push(f);
+        _evidenceCoords.push({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)});
+      });
+      renderEvidencePreview();
+    },function(){
+      // Sin permiso o error → agregar sin coords
+      fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
+      renderEvidencePreview();
+    },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+  }else{
+    fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
+    renderEvidencePreview();
+  }
 }
 
 function renderEvidencePreview(){
@@ -954,13 +979,15 @@ function renderEvidencePreview(){
     var isImg=f.type.indexOf("image")>=0;
     var icon=getFileIcon(f.type,f.name);
     var preview=isImg?'<img src="'+URL.createObjectURL(f)+'" style="width:60px;height:60px;object-fit:cover;border-radius:8px;">':'<div style="width:60px;height:60px;background:#f0f2f7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;">'+icon+'</div>';
-    return'<div style="position:relative;cursor:pointer;" onclick="removeEvidence('+i+')">'+preview+
+    var coord=_evidenceCoords[i];
+    var pin=coord?'<div style="position:absolute;bottom:0;left:0;background:#27ae60;color:#fff;border-radius:0 4px 0 8px;padding:1px 4px;font-size:9px;font-weight:800;">📍</div>':"";
+    return'<div style="position:relative;cursor:pointer;" onclick="removeEvidence('+i+')">'+preview+pin+
       '<div style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">✕</div>'+
       '<div style="font-size:10px;color:#888;text-align:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escH(f.name)+'</div></div>';
   }).join("");
 }
 
-function removeEvidence(i){_evidenceFiles.splice(i,1);renderEvidencePreview();}
+function removeEvidence(i){_evidenceFiles.splice(i,1);_evidenceCoords.splice(i,1);renderEvidencePreview();}
 
 function tfToggleEvidence(el,type){
   _tfRequiredEvidence[type]=!_tfRequiredEvidence[type];
@@ -974,8 +1001,13 @@ function attachmentsHTML(atts){
   if(!atts||!atts.length)return"";
   return'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;">'+atts.map(function(a){
     var isImg=a.type&&a.type.indexOf("image")>=0;
-    if(isImg)return'<a href="'+a.url+'" target="_blank" style="display:block;"><img src="'+a.url+'" style="max-width:120px;max-height:100px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,.2);"></a>';
-    return'<a href="'+a.url+'" target="_blank" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:12px;">'+getFileIcon(a.type,a.name)+' '+escH(a.name)+'</a>';
+    var coordBadge="";
+    if(a.coords&&a.coords.lat){
+      var mapsUrl="https://www.google.com/maps?q="+a.coords.lat+","+a.coords.lng;
+      coordBadge='<a href="'+mapsUrl+'" target="_blank" style="display:flex;align-items:center;gap:3px;background:rgba(39,174,96,.85);color:#fff;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;margin-top:3px;">📍 '+a.coords.lat.toFixed(5)+', '+a.coords.lng.toFixed(5)+'<span style="font-size:9px;opacity:.8;margin-left:2px;">(±'+a.coords.acc+'m)</span></a>';
+    }
+    if(isImg)return'<div style="display:flex;flex-direction:column;align-items:flex-start;"><a href="'+a.url+'" target="_blank" style="display:block;"><img src="'+a.url+'" style="max-width:120px;max-height:100px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,.2);"></a>'+coordBadge+'</div>';
+    return'<div style="display:flex;flex-direction:column;align-items:flex-start;"><a href="'+a.url+'" target="_blank" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:12px;">'+getFileIcon(a.type,a.name)+' '+escH(a.name)+'</a>'+coordBadge+'</div>';
   }).join("")+'</div>';
 }
 
@@ -988,7 +1020,7 @@ function submitCompletionReport(taskId){
   if(_evidenceFiles.length>0){
     var prog=document.getElementById("upload-progress");
     if(prog)prog.style.display="block";
-    uploadEvidence(taskId,_evidenceFiles,
+    uploadEvidence(taskId,_evidenceFiles,_evidenceCoords,
       function(pct){var p=document.getElementById("upload-progress");if(p)p.textContent="⏳ Subiendo… "+pct+"%";},
       function(urls){
         var sh=document.getElementById("completion-sheet");if(sh)sh.remove();

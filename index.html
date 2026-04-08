@@ -327,7 +327,7 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
   };
   window._pendingSave=true;
   db.collection("at").doc("data").set(fc).then(function(){
@@ -355,7 +355,7 @@ function startSync(){
       localStatuses[t.id]=t.status;
       localHistories[t.id]=t.history||[];
     });
-    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},d);
+    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]},d);
     state.tasks=state.tasks.map(function(t){
       var ls=localStatuses[t.id];
       var lh=localHistories[t.id]||[];
@@ -413,7 +413,7 @@ var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
-var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[]};
+var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var confirmCallback=null,aiLoading=false;
@@ -1551,12 +1551,16 @@ function taskFormHTML(t){
       '<span style="font-size:13px;font-weight:600;">Validar que la foto fue tomada cerca de la bodega</span>'+
     '</div>'+
     '<div id="tf-prox-fields" style="'+(v.validateProximity?'':'display:none;')+'margin-top:10px;display:'+(v.validateProximity?'flex':'none')+';flex-direction:column;gap:8px;">'+
-    '<div style="font-size:12px;color:#888;margin-bottom:2px;">Coordenadas de referencia (bodega):</div>'+
-    '<div style="display:flex;gap:8px;">'+
-    '<input type="number" id="tf-ref-lat" step="0.00001" value="'+(v.locationRef&&v.locationRef.lat||"")+'" placeholder="Latitud (ej: 14.6349)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;"/>'+
-    '<input type="number" id="tf-ref-lng" step="0.00001" value="'+(v.locationRef&&v.locationRef.lng||"")+'" placeholder="Longitud (ej: -90.5069)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;"/></div>'+
-    '<input type="number" id="tf-ref-radius" value="'+(v.locationRef&&v.locationRef.radius||200)+'" placeholder="Radio máximo en metros (ej: 200)" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;"/>'+
-    '<div style="font-size:11px;color:#888;">El sistema verificará que las fotos se tomen dentro del radio permitido.</div>'+
+    (function(){
+      var locs=state.locations||[];
+      var selId=v.locationRef&&v.locationRef.locationId||"";
+      var opts=locs.map(function(l){return'<option value="'+l.id+'"'+(l.id==selId?' selected':'')+'>'+escH((l.type==="bodega"?"🏭 ":"📌 ")+l.name)+' (±'+l.radius+'m)</option>';}).join("");
+      return'<div style="font-size:12px;color:#888;margin-bottom:4px;">Seleccionar ubicación de referencia:</div>'+
+        '<select id="tf-loc-select" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;background:#fff;">'+
+        '<option value="">-- Seleccionar --</option>'+opts+'</select>'+
+        '<button type="button" onclick="openLocationsManager()" style="background:#f0f2f7;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;color:#1a1d2e;">⚙️ Gestionar ubicaciones</button>'+
+        '<div style="font-size:11px;color:#888;">Las fotos deben tomarse dentro del radio de la ubicación.</div>';
+    })()+
     '</div></div></div>'+
     '</div></div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
@@ -1630,6 +1634,78 @@ function tfToggleProximity(el){
   el.className="ck-label"+(_tfValidateProximity?" on":"");
   var pf=document.getElementById("tf-prox-fields");
   if(pf)pf.style.display=_tfValidateProximity?"block":"none";
+}
+// ── GESTIÓN DE UBICACIONES ──
+function openLocationsManager(){
+  var locs=state.locations||[];
+  var cards=locs.length?locs.map(function(l){
+    var icon=l.type==="bodega"?"🏭":"📌";
+    return'<div style="background:#f7f8fc;border-radius:12px;padding:12px;margin-bottom:8px;">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;">'+
+      '<div><div style="font-weight:800;font-size:14px;">'+icon+' '+escH(l.name)+'</div>'+
+      '<div style="font-size:11px;color:#888;margin-top:2px;">'+l.lat.toFixed(5)+', '+l.lng.toFixed(5)+' · Radio: '+l.radius+'m</div></div>'+
+      '<div style="display:flex;gap:6px;">'+
+      '<button class="btn btn-gray btn-sm" onclick="openLocationForm('+l.id+')">✏️</button>'+
+      '<button class="btn btn-gray btn-sm" style="color:#e74c3c;" onclick="deleteLocation('+l.id+')">🗑️</button>'+
+      '</div></div></div>';
+  }).join(""):'<div style="color:#ccc;text-align:center;padding:20px 0;">No hay ubicaciones guardadas</div>';
+  showSheet("Ubicaciones de referencia",
+    cards+
+    '<div style="display:flex;gap:8px;margin-top:10px;">'+
+    '<button class="btn btn-dark btn-sm" style="flex:1;background:#1a4fc7;" onclick="openLocationForm(null,\'bodega\')">🏭 + Bodega</button>'+
+    '<button class="btn btn-dark btn-sm" style="flex:1;background:#27ae60;" onclick="openLocationForm(null,\'proyecto\')">📌 + Proyecto</button>'+
+    '</div>'+
+    '<button class="btn btn-gray btn-block" style="margin-top:8px;" onclick="closeSheet()">Cerrar</button>');
+}
+function openLocationForm(id,defaultType){
+  var loc=id?(state.locations||[]).find(function(l){return l.id==id;}):null;
+  var type=loc?loc.type:(defaultType||"bodega");
+  showSheet(loc?"Editar ubicación":"Nueva ubicación",
+    '<div class="field"><label>Nombre *</label><input type="text" id="lf-name" value="'+escH(loc?loc.name:"")+'" placeholder="Ej: Bodega Central, Proyecto Zona 10"/></div>'+
+    '<div class="field"><label>Tipo</label>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<div id="lf-type-bodega" onclick="lfSetType(\'bodega\')" style="flex:1;padding:10px;border-radius:10px;cursor:pointer;text-align:center;font-weight:700;border:2px solid '+(type==="bodega"?"#1a4fc7":"#eee")+';color:'+(type==="bodega"?"#1a4fc7":"#888")+';">🏭 Bodega</div>'+
+    '<div id="lf-type-proyecto" onclick="lfSetType(\'proyecto\')" style="flex:1;padding:10px;border-radius:10px;cursor:pointer;text-align:center;font-weight:700;border:2px solid '+(type==="proyecto"?"#27ae60":"#eee")+';color:'+(type==="proyecto"?"#27ae60":"#888")+';">📌 Proyecto</div>'+
+    '</div></div>'+
+    '<div class="form-row">'+
+    '<div class="field"><label>Latitud *</label><input type="number" id="lf-lat" step="0.00001" value="'+escH(loc?String(loc.lat):"")+'" placeholder="Ej: 14.63490"/></div>'+
+    '<div class="field"><label>Longitud *</label><input type="number" id="lf-lng" step="0.00001" value="'+escH(loc?String(loc.lng):"")+'" placeholder="Ej: -90.50690"/></div>'+
+    '</div>'+
+    '<div class="field"><label>Radio permitido (metros)</label><input type="number" id="lf-radius" value="'+(loc?loc.radius:200)+'" placeholder="200"/></div>'+
+    '<div style="font-size:11px;color:#888;margin:-8px 0 12px;">Abre Google Maps → mantén presionado la ubicación → copia las coordenadas</div>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<button class="btn btn-dark btn-block" style="flex:1;" onclick="saveLocation('+(id||'null')+')">Guardar</button>'+
+    '<button class="btn btn-gray btn-block" style="flex:1;" onclick="openLocationsManager()">← Volver</button></div>');
+  window._lfType=type;
+}
+function lfSetType(t){
+  window._lfType=t;
+  var b=document.getElementById("lf-type-bodega"),p=document.getElementById("lf-type-proyecto");
+  if(b){b.style.borderColor=t==="bodega"?"#1a4fc7":"#eee";b.style.color=t==="bodega"?"#1a4fc7":"#888";}
+  if(p){p.style.borderColor=t==="proyecto"?"#27ae60":"#eee";p.style.color=t==="proyecto"?"#27ae60":"#888";}
+}
+function saveLocation(existingId){
+  var name=((document.getElementById("lf-name")||{}).value||"").trim();
+  if(!name){toast("Escribe el nombre","error");return;}
+  var lat=parseFloat((document.getElementById("lf-lat")||{}).value);
+  var lng=parseFloat((document.getElementById("lf-lng")||{}).value);
+  if(isNaN(lat)||isNaN(lng)){toast("Ingresa coordenadas válidas","error");return;}
+  var radius=parseInt((document.getElementById("lf-radius")||{}).value)||200;
+  var type=window._lfType||"bodega";
+  if(!state.locations)state.locations=[];
+  if(existingId){
+    var loc=state.locations.find(function(l){return l.id==existingId;});
+    if(loc)Object.assign(loc,{name:name,type:type,lat:lat,lng:lng,radius:radius});
+    toast("Ubicación actualizada ✓");
+  }else{
+    state.locations.push({id:Date.now(),name:name,type:type,lat:lat,lng:lng,radius:radius});
+    toast("Ubicación guardada ✓");
+  }
+  saveLocal();if(db)saveCloud();openLocationsManager();
+}
+function deleteLocation(id){
+  state.locations=(state.locations||[]).filter(function(l){return l.id!=id;});
+  saveLocal();if(db)saveCloud();openLocationsManager();
 }
 function openNT(){
   showSheet("Nueva tarea",'<div style="display:flex;flex-direction:column;gap:14px;">'+
@@ -1863,11 +1939,12 @@ function saveT(){
   var faceRecognition=_tfFaceRecognition;
   var requireLocation=_tfRequireLocation;
   var validateProximity=_tfValidateProximity;
-  var locationRef=_tfValidateProximity?{
-    lat:parseFloat((document.getElementById("tf-ref-lat")||{}).value)||_tfLocationRef.lat||0,
-    lng:parseFloat((document.getElementById("tf-ref-lng")||{}).value)||_tfLocationRef.lng||0,
-    radius:parseInt((document.getElementById("tf-ref-radius")||{}).value)||200
-  }:null;
+  var locationRef=null;
+  if(_tfValidateProximity){
+    var selLocId=(document.getElementById("tf-loc-select")||{}).value||"";
+    var selLoc=(state.locations||[]).find(function(l){return String(l.id)===String(selLocId);});
+    if(selLoc)locationRef={locationId:selLoc.id,name:selLoc.name,type:selLoc.type,lat:selLoc.lat,lng:selLoc.lng,radius:selLoc.radius};
+  }
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});

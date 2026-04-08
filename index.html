@@ -1498,10 +1498,20 @@ function handlePhoto(input){
   var xhr=new XMLHttpRequest();
   xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/image/upload");
   xhr.onload=function(){
-    try{var r=JSON.parse(xhr.responseText);tempPhoto=r.secure_url;if(p)p.innerHTML='<img src="'+tempPhoto+'">';}
-    catch(e){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';}
+    try{
+      var r=JSON.parse(xhr.responseText);
+      if(r.secure_url){
+        tempPhoto=r.secure_url;
+        if(p)p.innerHTML='<img src="'+tempPhoto+'">';
+        console.log("Foto subida OK:",tempPhoto);
+      }else{
+        console.error("Cloudinary error:",r.error&&r.error.message||JSON.stringify(r));
+        toast("Error al subir foto: "+(r.error&&r.error.message||"respuesta inválida"),"error");
+        if(p)p.innerHTML='<span>👤</span>';
+      }
+    }catch(e){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';}
   };
-  xhr.onerror=function(){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';};
+  xhr.onerror=function(){toast("Error de red al subir foto","error");if(p)p.innerHTML='<span>👤</span>';};
   xhr.send(fd);
 }
 

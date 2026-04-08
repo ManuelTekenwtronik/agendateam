@@ -1197,7 +1197,8 @@ function validateTaskCompletion(taskId,report,attachments){
     if(!t)return;
     var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
     var result={};
-    try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){}
+    try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){console.warn("JSON parse error:",e,raw);}
+    if(!result||typeof result.aprobada==="undefined"){console.warn("Respuesta IA inesperada:",raw);}
     var approved=result.aprobada===true;
     if(approved){
       // Aprobar
@@ -1216,8 +1217,9 @@ function validateTaskCompletion(taskId,report,attachments){
       }
       t.status="completada";
       var attLinks=attachments.length>0?"\n\n📎 Soportes:\n"+attachments.map(function(a){return getFileIcon(a.type,a.name)+" "+a.name;}).join("\n"):"";
-      var reporteOk=result.reporte?"\n\n"+result.reporte:"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+result.razon+reporteOk+attLinks,ts:Date.now(),attachments:attachments});
+      var razonOk=result.razon||result.reason||"✅ Aprobada.";
+      var reporteOk=result.reporte||result.report||"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+razonOk+(reporteOk?"\n\n"+reporteOk:"")+attLinks,ts:Date.now(),attachments:attachments});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
       // Rechazar → seguimiento
@@ -1226,10 +1228,11 @@ function validateTaskCompletion(taskId,report,attachments){
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var pendiente=result.pendiente||"";
-      var reporteNok=result.reporte?"\n\n"+result.reporte:"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+reporteNok+(pendiente?"\n\n🔧 Para aprobar:\n"+pendiente:"")+"\n\n🔄 Corrige los puntos indicados y vuelve a reportar.",ts:Date.now()});
+      var razonNok=result.razon||result.reason||"Sin detalle.";
+      var reporteNok=result.reporte||result.report||"";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+razonNok+(reporteNok?"\n\n"+reporteNok:"")+(pendiente?"\n\n🔧 Para aprobar:\n"+pendiente:"")+"\n\n🔄 Corrige los puntos indicados y vuelve a reportar.",ts:Date.now()});
       sendNotif("boss","⚠️ Validación rechazada","\""+t.title+"\""+(col?" — "+col.name:"")+" no cumple los criterios.");
-      if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+result.razon.slice(0,80));
+      if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+razonNok.slice(0,80));
       // Seguimiento programado
       setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
     }

@@ -293,7 +293,7 @@ function startSync(){
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},d);
-    state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:pm[c.id]||""});});
+    state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
     saveLocal();
     if(currentUser)render();
   },function(e){console.warn("sync:",e);});
@@ -343,7 +343,7 @@ function init(){
         var pm={};
         state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
         state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[]},d);
-        state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:pm[c.id]||""});});
+        state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
         saveLocal();
       }
       showMainLogin();

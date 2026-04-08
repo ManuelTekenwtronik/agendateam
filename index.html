@@ -1792,31 +1792,20 @@ function templateFormHTML(tmpl){
     '</div>'+
     '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8d8ff;">'+
     '<div style="font-weight:700;font-size:13px;color:#27ae60;margin-bottom:8px;">📍 Ubicación GPS</div>'+
+    '<div style="font-size:12px;color:#888;margin-bottom:8px;">La ubicación específica (bodega/proyecto) se asignará al momento de asignar la plantilla.</div>'+
     '<div class="ck-label'+(v.requireLocation?' on':'')+'" id="tf-loc-ck" onclick="tfToggleLocation(this)">'+
       '<div class="ck-box'+(v.requireLocation?' on':'')+'">'+( v.requireLocation?'✓':'')+' </div>'+
       '<span style="font-size:18px;">🌍</span>'+
       '<span style="font-size:13px;font-weight:600;line-height:1.3;">Requerir coordenadas GPS en fotos de cámara</span>'+
     '</div>'+
-    '<div id="tf-loc-options" style="'+(v.requireLocation?'':'display:none;')+'margin-top:10px;padding:10px;background:#f0fff4;border-radius:10px;">'+
+    '<div id="tf-loc-options" style="'+(v.requireLocation?'':'display:none;')+'margin-top:8px;padding:8px;background:#f0fff4;border-radius:10px;">'+
     '<div class="ck-label'+(v.validateProximity?' on':'')+'" id="tf-prox-ck" onclick="tfToggleProximity(this)">'+
       '<div class="ck-box'+(v.validateProximity?' on':'')+'">'+( v.validateProximity?'✓':'')+' </div>'+
       '<span style="font-size:16px;">🏭</span>'+
-      '<span style="font-size:13px;font-weight:600;">Validar que la foto fue tomada cerca de la bodega</span>'+
+      '<span style="font-size:13px;font-weight:600;">Validar proximidad a bodega o proyecto</span>'+
     '</div>'+
-    '<div id="tf-prox-fields" style="'+(v.validateProximity?'':'display:none;')+'margin-top:10px;display:'+(v.validateProximity?'flex':'none')+';flex-direction:column;gap:8px;">'+
-    (function(){
-      var locs=state.locations||[];
-      var selId=v.locationRef&&v.locationRef.locationId||"";
-      var opts=locs.map(function(l){return'<option value="'+l.id+'"'+(l.id==selId?' selected':'')+'>'+escH((l.type==="bodega"?"🏭 ":"📌 ")+l.name)+' (±'+l.radius+'m)</option>';}).join("");
-      return'<div style="font-size:12px;color:#888;margin-bottom:4px;">Seleccionar ubicación de referencia:</div>'+
-        '<select id="tf-loc-select" onchange="tfLocationChanged(this)" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;background:#fff;">'+
-        '<option value="">-- Seleccionar --</option>'+opts+'</select>'+
-        '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Radio permitido para esta tarea (metros) *</label>'+
-        '<input type="number" id="tf-ref-radius" min="10" value="'+(v.locationRef&&v.locationRef.taskRadius||v.locationRef&&v.locationRef.radius||200)+'" placeholder="Ej: 200" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;box-sizing:border-box;"/>'+
-        '<div style="font-size:11px;color:#888;margin-top:4px;">El colaborador debe estar dentro de este radio al tomar la foto.</div></div>'+
-        '<button type="button" onclick="openLocationsManager()" style="background:#f0f2f7;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;color:#1a1d2e;margin-top:6px;">⚙️ Gestionar ubicaciones</button>';
-    })()+
-    '</div></div></div>'+
+    (v.validateProximity?'<div style="font-size:11px;color:#27ae60;margin-top:6px;padding-left:4px;">✓ Al asignar se pedirá la ubicación de referencia y el radio permitido.</div>':'')+
+    '</div></div>'+
     '</div></div>'+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
     '<button class="btn btn-dark btn-block" style="flex:1;" onclick="saveTemplate('+(v.id||'null')+')">Guardar plantilla</button>'+
@@ -1895,14 +1884,35 @@ function openAssignForm(templateId){
   _tfSelected=[];_tfMode="individual";
   var collabChecks=state.collaborators.map(function(c){
     return'<div class="ck-label" onclick="tfToggleMember(this,'+c.id+')" data-id="'+c.id+'">'+
-      '<div class="ck-box">'+''+'</div>'+avHTML(c,32)+
+      '<div class="ck-box"></div>'+avHTML(c,32)+
       '<div style="flex:1;"><div style="font-weight:700;font-size:14px;">'+escH(c.name)+'</div><div style="font-size:12px;color:#999;">'+escH(c.role)+'</div></div></div>';
   }).join("")||'<div style="color:#ccc;font-size:13px;">No hay colaboradores</div>';
+  // Sección de ubicación si la plantilla lo requiere
+  var locSection="";
+  if(tmpl.requireLocation){
+    var locs=state.locations||[];
+    var opts=locs.map(function(l){return'<option value="'+l.id+'">'+escH((l.type==="bodega"?"🏭 ":"📌 ")+l.name)+'</option>';}).join("");
+    locSection='<div style="margin-top:14px;padding:12px;background:#f0fff4;border-radius:12px;">'+
+      '<div style="font-weight:800;font-size:13px;color:#27ae60;margin-bottom:10px;">📍 Ubicación GPS para esta asignación</div>'+
+      (tmpl.validateProximity?
+        '<div class="field"><label>Ubicación de referencia *</label>'+
+        '<select id="assign-loc-select" onchange="assignLocChanged(this)" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;background:#fff;">'+
+        '<option value="">-- Seleccionar bodega o proyecto --</option>'+opts+'</select></div>'+
+        '<div class="field"><label>Radio permitido (metros) *</label>'+
+        '<input type="number" id="assign-radius" min="10" value="200" placeholder="Ej: 200" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;box-sizing:border-box;"/>'+
+        '<div style="font-size:11px;color:#888;margin-top:4px;">El colaborador debe estar dentro de este radio al tomar la foto.</div></div>'+
+        '<button type="button" onclick="openLocationsManager()" style="background:#f0f2f7;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;">⚙️ Gestionar ubicaciones</button>'
+        :'<div style="font-size:12px;color:#555;">Las fotos de cámara deberán incluir coordenadas GPS. No se validará proximidad a ubicación específica.</div>')+
+      '</div>';
+  }
   showSheet('Asignar: "'+tmpl.title+'"',
     '<div style="margin-bottom:14px;padding:12px;background:#f5eeff;border-radius:12px;">'+
     '<div style="font-weight:700;color:#9b59b6;font-size:13px;">📚 Plantilla seleccionada</div>'+
     '<div style="font-weight:800;font-size:15px;margin-top:4px;">'+escH(tmpl.title)+'</div>'+
-    '<div style="font-size:12px;color:#888;margin-top:2px;">'+FC[tmpl.frequency||"diaria"].i+' '+FC[tmpl.frequency||"diaria"].l+' · '+PC[tmpl.priority||"media"].l+'</div></div>'+
+    '<div style="font-size:12px;color:#888;margin-top:2px;">'+FC[tmpl.frequency||"diaria"].i+' '+FC[tmpl.frequency||"diaria"].l+' · '+PC[tmpl.priority||"media"].l+
+    (tmpl.requireLocation?' · 📍 GPS requerido':'')+
+    (tmpl.validateProximity?' · 🏭 Proximidad validada':'')+
+    '</div></div>'+
     '<div class="field"><label>Asignar a *</label>'+collabChecks+'</div>'+
     '<div id="tf-mode-wrap" style="display:none"><div class="field"><label>Tipo</label>'+
     '<div style="display:flex;gap:10px;">'+
@@ -1911,22 +1921,38 @@ function openAssignForm(templateId){
     '<div id="tf-mode-grp" onclick="tfSetMode(\'grupal\')" style="flex:1;display:flex;align-items:center;gap:8px;padding:12px;background:#f7f8fc;border-radius:12px;cursor:pointer;border:2px solid #eee;">'+
     '<div class="ck-radio"></div><div><div style="font-weight:700;font-size:14px;">👥 Grupal</div><div style="font-size:12px;color:#999;">Chat compartido</div></div></div>'+
     '</div></div></div>'+
+    locSection+
     '<div style="display:flex;gap:10px;margin-top:14px;">'+
     '<button class="btn btn-dark btn-block" style="flex:1;background:#27ae60;" onclick="confirmAssignTemplate('+templateId+')">✅ Asignar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="openAssignTemplate()">← Volver</button></div>');
+}
+function assignLocChanged(sel){
+  var locId=sel.value;
+  var loc=(state.locations||[]).find(function(l){return String(l.id)===String(locId);});
+  var radInput=document.getElementById("assign-radius");
+  if(radInput&&loc)radInput.value=loc.radius;
 }
 function confirmAssignTemplate(templateId){
   var tmpl=(state.taskTemplates||[]).find(function(x){return x.id==templateId;});
   if(!tmpl){toast("Plantilla no encontrada","error");return;}
   var members=getSelectedMembers();
   if(!members.length){toast("Selecciona al menos un colaborador","error");return;}
+  // Leer ubicación si la plantilla la requiere
+  var assignedLocationRef=tmpl.locationRef||null;
+  if(tmpl.validateProximity){
+    var selLocId=(document.getElementById("assign-loc-select")||{}).value||"";
+    var selLoc=(state.locations||[]).find(function(l){return String(l.id)===String(selLocId);});
+    if(!selLoc){toast("Selecciona una ubicación de referencia","error");return;}
+    var taskRadius=parseInt((document.getElementById("assign-radius")||{}).value)||selLoc.radius||200;
+    assignedLocationRef={locationId:selLoc.id,name:selLoc.name,type:selLoc.type,lat:selLoc.lat,lng:selLoc.lng,radius:selLoc.radius,taskRadius:taskRadius};
+  }
   var isGroup=members.length>1&&_tfMode==="grupal";
   var today=new Date().toISOString().split("T")[0];
   if(isGroup){
     var taskId=Date.now();var groupKey="group_"+taskId;
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
-    var nt=Object.assign({},tmpl,{id:taskId,history:[],assignedTo:members,isGroup:true,groupKey:groupKey,status:"pendiente",startDate:today});
+    var nt=Object.assign({},tmpl,{id:taskId,history:[],assignedTo:members,isGroup:true,groupKey:groupKey,status:"pendiente",startDate:today,locationRef:assignedLocationRef});
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -1936,7 +1962,7 @@ function confirmAssignTemplate(templateId){
   }else{
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
-      var nt=Object.assign({},tmpl,{id:Date.now()+i,history:[],assignedTo:assignedTo,isGroup:false,status:"pendiente",startDate:today});
+      var nt=Object.assign({},tmpl,{id:Date.now()+i,history:[],assignedTo:assignedTo,isGroup:false,status:"pendiente",startDate:today,locationRef:assignedLocationRef});
       delete nt.groupKey;
       state.tasks.push(nt);
       if(col){

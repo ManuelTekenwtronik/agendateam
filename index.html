@@ -1192,6 +1192,9 @@ function validateTaskCompletion(taskId,report,attachments){
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){return r.json();}).then(function(d){
+    // Re-buscar t en state.tasks actual (onSnapshot pudo reemplazar el array durante la llamada a la IA)
+    t=state.tasks.find(function(x){return x.id==taskId;});
+    if(!t)return;
     var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
     var result={};
     try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){}
@@ -1231,8 +1234,9 @@ function validateTaskCompletion(taskId,report,attachments){
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
     saveLocal();if(db)saveCloud();render();
   }).catch(function(e){
+    t=state.tasks.find(function(x){return x.id==taskId;})||t;
     t.status="en-progreso";
-    state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
+    if(state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
     saveLocal();if(db)saveCloud();render();
   });

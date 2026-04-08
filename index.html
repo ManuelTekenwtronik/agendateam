@@ -332,7 +332,15 @@ function startSync(){
     var d=snap.data();
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
+    // Preservar status local de tareas que están siendo validadas para evitar race condition
+    var localStatuses={};
+    state.tasks.forEach(function(t){localStatuses[t.id]=t.status;});
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},d);
+    state.tasks=state.tasks.map(function(t){
+      var ls=localStatuses[t.id];
+      if(ls&&ls!==t.status&&(ls==="completada"||t.status==="pendiente_validacion"))t.status=ls;
+      return t;
+    });
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
     saveLocal();
     if(currentUser)render();
@@ -1193,12 +1201,12 @@ function validateTaskCompletion(taskId,report,attachments){
       setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
     }
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
-    saveLocal();render();
+    saveLocal();if(db)saveCloud();render();
   }).catch(function(e){
     t.status="en-progreso";
     state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
-    saveLocal();render();
+    saveLocal();if(db)saveCloud();render();
   });
 }
 

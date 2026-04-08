@@ -340,7 +340,33 @@ function startSync(){
 }
 var OT={diaria:2.4*3600000,semanal:.7*86400000,mensual:3*86400000};
 var CD={diaria:86400000,semanal:7*86400000,mensual:30*86400000};
-function taskDue(t){return t.endTime?new Date(t.endDate+'T'+t.endTime).getTime():new Date(t.endDate).getTime()+23*3600000;}
+function taskDue(t){
+  // Si tiene fecha fin explícita
+  if(t.endDate){
+    return t.endTime?new Date(t.endDate+'T'+t.endTime).getTime():new Date(t.endDate).getTime()+86399000;
+  }
+  // Sin fecha fin: calcular último día del ciclo actual con hora de entrega
+  var now=new Date();
+  var d;
+  if(t.frequency==="semanal"){
+    // Último día de la semana actual (domingo=0, lunes=1...; usamos domingo como fin)
+    var day=now.getDay();var diff=day===0?0:7-day;
+    d=new Date(now);d.setDate(now.getDate()+diff);
+  }else if(t.frequency==="mensual"){
+    // Último día del mes actual
+    d=new Date(now.getFullYear(),now.getMonth()+1,0);
+  }else{
+    // Diaria: hoy
+    d=new Date(now);
+  }
+  if(t.endTime){
+    var parts=t.endTime.split(":");
+    d.setHours(Number(parts[0]),Number(parts[1]),0,0);
+  }else{
+    d.setHours(23,59,0,0);
+  }
+  return d.getTime();
+}
 function cycleStart(t){
   var ref=t.startDate?new Date(t.startDate).getTime():taskDue(t);
   var now=Date.now();
@@ -1364,16 +1390,18 @@ function taskFormHTML(t){
     ['alta','media','baja'].map(function(p){return'<option value="'+p+'"'+(v.priority===p?' selected':'')+'>'+PC[p].l+'</option>';}).join("")+'</select></div></div>'+
     '<div class="field"><label>Estado</label><select id="tf-stat">'+
     ['pendiente','en-progreso','completada'].map(function(s){return'<option value="'+s+'"'+(v.status===s?' selected':'')+'>'+SC[s].l+'</option>';}).join("")+'</select></div>'+
+    '<div class="form-row">'+
     '<div class="field"><label>Fecha inicio</label><input type="date" id="tf-sd" value="'+escH(v.startDate||"")+'"/></div>'+
-    '<div class="field"><label>Fecha de entrega</label>'+
+    '<div class="field"><label>Hora de entrega</label><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'"/></div>'+
+    '</div>'+
+    '<div style="font-size:11px;color:#aaa;margin:-10px 0 12px;">Hora límite del último día del ciclo (diario, semanal o mensual)</div>'+
+    '<div class="field"><label>Fecha fin</label>'+
     '<div id="tf-indef-wrap" onclick="togIndef()" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:700;cursor:pointer;color:#9b59b6;">'+
     '<div id="tf-indef-box" class="ck-box'+(v.indefinite?' on':'')+'" style="border-color:'+(v.indefinite?'#9b59b6':'#ccc')+';background:'+(v.indefinite?'#9b59b6':'#fff')+';">'+(v.indefinite?'✓':'')+'</div>'+
     ' ♾️ Sin fecha fin (permanente)</div>'+
     '<div id="tf-end-wrap" '+(v.indefinite?'style="display:none"':'')+'>'+
-    '<div class="form-row">'+
-    '<div><input type="date" id="tf-ed" value="'+escH(v.endDate||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
-    '<div class="field" style="margin:0;"><label>Hora de entrega</label><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
-    '</div></div></div>'+
+    '<input type="date" id="tf-ed" value="'+escH(v.endDate||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/>'+
+    '</div></div>'+
     '<div class="field"><label>Notas</label><textarea id="tf-notes" placeholder="Instrucciones adicionales…">'+escH(v.notes||"")+'</textarea></div>'+
     '<div class="field" style="background:#f5eeff;border-radius:14px;padding:12px;">'+
     '<label style="color:#9b59b6;font-weight:800;">✅ Criterios de validación IA</label>'+

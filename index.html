@@ -1036,11 +1036,13 @@ function submitCompletionReport(taskId){
     if(t.validateProximity&&t.locationRef&&t.locationRef.lat){
       var outOfRange=_evidenceCoords.filter(function(c){
         if(!c||!c.lat)return false;
-        return haversineMeters(c.lat,c.lng,t.locationRef.lat,t.locationRef.lng)>(t.locationRef.radius||200);
+        var allowedRadius=t.locationRef.taskRadius||t.locationRef.radius||200;
+        return haversineMeters(c.lat,c.lng,t.locationRef.lat,t.locationRef.lng)>allowedRadius;
       });
       if(outOfRange.length>0){
+        var allowedR=t.locationRef.taskRadius||t.locationRef.radius||200;
         var dist=Math.round(haversineMeters(outOfRange[0].lat,outOfRange[0].lng,t.locationRef.lat,t.locationRef.lng));
-        toast("📍 Foto tomada a "+dist+"m de la bodega. Radio permitido: "+(t.locationRef.radius||200)+"m.","error");return;
+        toast("📍 Foto tomada a "+dist+"m de "+escH(t.locationRef.name||"la referencia")+". Radio permitido: "+allowedR+"m.","error");return;
       }
     }
   }
@@ -1556,10 +1558,12 @@ function taskFormHTML(t){
       var selId=v.locationRef&&v.locationRef.locationId||"";
       var opts=locs.map(function(l){return'<option value="'+l.id+'"'+(l.id==selId?' selected':'')+'>'+escH((l.type==="bodega"?"🏭 ":"📌 ")+l.name)+' (±'+l.radius+'m)</option>';}).join("");
       return'<div style="font-size:12px;color:#888;margin-bottom:4px;">Seleccionar ubicación de referencia:</div>'+
-        '<select id="tf-loc-select" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;background:#fff;">'+
+        '<select id="tf-loc-select" onchange="tfLocationChanged(this)" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;background:#fff;">'+
         '<option value="">-- Seleccionar --</option>'+opts+'</select>'+
-        '<button type="button" onclick="openLocationsManager()" style="background:#f0f2f7;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;color:#1a1d2e;">⚙️ Gestionar ubicaciones</button>'+
-        '<div style="font-size:11px;color:#888;">Las fotos deben tomarse dentro del radio de la ubicación.</div>';
+        '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Radio permitido para esta tarea (metros) *</label>'+
+        '<input type="number" id="tf-ref-radius" min="10" value="'+(v.locationRef&&v.locationRef.taskRadius||v.locationRef&&v.locationRef.radius||200)+'" placeholder="Ej: 200" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;box-sizing:border-box;" onchange=""/>'+
+        '<div style="font-size:11px;color:#888;margin-top:4px;">El colaborador debe estar dentro de este radio al tomar la foto.</div></div>'+
+        '<button type="button" onclick="openLocationsManager()" style="background:#f0f2f7;border:none;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;color:#1a1d2e;margin-top:6px;">⚙️ Gestionar ubicaciones</button>';
     })()+
     '</div></div></div>'+
     '</div></div>'+
@@ -1612,6 +1616,12 @@ function tfSetMode(mode){
   if(grp){grp.style.borderColor=mode==="grupal"?"#1a1d2e":"#eee";var r=grp.querySelector(".ck-radio");if(r)r.className="ck-radio"+(mode==="grupal"?" on":"");}
 }
 function getSelectedMembers(){return _tfSelected.slice();}
+function tfLocationChanged(sel){
+  var locId=sel.value;
+  var loc=(state.locations||[]).find(function(l){return String(l.id)===String(locId);});
+  var radInput=document.getElementById("tf-ref-radius");
+  if(radInput&&loc)radInput.value=loc.radius; // pre-llenar con radio por defecto de la ubicación
+}
 function tfToggleFace(el){
   _tfFaceRecognition=!_tfFaceRecognition;
   var box=el.querySelector(".ck-box");
@@ -1943,7 +1953,10 @@ function saveT(){
   if(_tfValidateProximity){
     var selLocId=(document.getElementById("tf-loc-select")||{}).value||"";
     var selLoc=(state.locations||[]).find(function(l){return String(l.id)===String(selLocId);});
-    if(selLoc)locationRef={locationId:selLoc.id,name:selLoc.name,type:selLoc.type,lat:selLoc.lat,lng:selLoc.lng,radius:selLoc.radius};
+    if(selLoc){
+      var taskRadius=parseInt((document.getElementById("tf-ref-radius")||{}).value)||selLoc.radius||200;
+      locationRef={locationId:selLoc.id,name:selLoc.name,type:selLoc.type,lat:selLoc.lat,lng:selLoc.lng,radius:selLoc.radius,taskRadius:taskRadius};
+    }
   }
 
   if(editingTaskId){

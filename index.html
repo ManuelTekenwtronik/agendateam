@@ -765,12 +765,10 @@ function taskHTML(t){
     (isBoss?'<button onclick="delT(\''+t.id+'\')" style="background:#fff0f0;border:none;border-radius:10px;width:36px;height:36px;font-size:17px;cursor:pointer;">🗑️</button>':'')+
     '</div></div>'+
     '<div class="badges">'+
-    '<span class="badge" style="background:'+sc.bg+';color:'+sc.c+'">● '+sc.l+'</span>'+
+    '<span class="badge" style="background:'+sc.bg+';color:'+sc.c+'">● '+(t.status==="pendiente_validacion"?"En revisión":sc.l)+'</span>'+
     '<span class="badge" style="background:#f7f8fc;color:#666;">'+fc.i+' '+fc.l+'</span>'+
     '<span class="badge" style="background:#fff3f3;color:'+pc.c+'">'+pc.l+'</span>'+
     (isGroupTask?'<span class="badge" style="background:#eef3ff;color:#4a6cf7;cursor:pointer;" onclick="openGroupChat(\''+t.id+'\')">👥 Grupal — Chat</span>':"")+
-    (isBoss&&t.criteria?'<span class="badge" style="background:#f5eeff;color:#9b59b6;">✅ Validación IA</span>':"")+
-    (t.status==="pendiente_validacion"?'<span class="badge" style="background:#f5eeff;color:#9b59b6;font-weight:800;">🤖 Validando…</span>':"")+
     (isBoss&&t.requiredEvidence&&t.requiredEvidence.photo?'<span class="badge" style="background:#1a1d2e;color:#fff;">📷 Foto</span>':"")+
     (isBoss&&t.requiredEvidence&&t.requiredEvidence.image?'<span class="badge" style="background:#5a8fe0;color:#fff;">🖼️ Imagen</span>':"")+
     (isBoss&&t.requiredEvidence&&t.requiredEvidence.document?'<span class="badge" style="background:#27ae60;color:#fff;">📄 Documento</span>':"")+

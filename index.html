@@ -1699,7 +1699,8 @@ function confirmAssignTemplate(templateId){
   }else{
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
-      var nt=Object.assign({},tmpl,{id:Date.now()+i,history:[],assignedTo:assignedTo,isGroup:false,groupKey:undefined,status:"pendiente",startDate:today});
+      var nt=Object.assign({},tmpl,{id:Date.now()+i,history:[],assignedTo:assignedTo,isGroup:false,status:"pendiente",startDate:today});
+      delete nt.groupKey;
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);

@@ -1183,7 +1183,7 @@ function validateTaskCompletion(taskId,report,attachments){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,attachments:attachments,photoHashes:t._pendingHashes||[]});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";
@@ -1192,6 +1192,9 @@ function validateTaskCompletion(taskId,report,attachments){
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
       // Rechazar → seguimiento
+      if(!t.history)t.history=[];
+      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||""});
+      if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var pendiente=result.pendiente||"";
       state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+result.razon+(pendiente?"\n\n📋 Criterios incumplidos:\n"+pendiente:"")+"\n\n🔄 Completa los puntos indicados y vuelve a reportar.",ts:Date.now()});

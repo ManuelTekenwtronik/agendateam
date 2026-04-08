@@ -7,7 +7,8 @@ exports.handler = async function(event) {
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };
 
   try {
-    const { profileUrl, evidenceUrl } = JSON.parse(event.body);
+    const rawBody = event.isBase64Encoded ? Buffer.from(event.body, 'base64').toString('utf8') : event.body;
+    const { profileUrl, evidenceUrl } = JSON.parse(rawBody);
     if (!profileUrl || !evidenceUrl) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: "profileUrl y evidenceUrl requeridos" }) };
     }

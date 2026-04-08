@@ -210,7 +210,7 @@ try{
     }
     db=firebase.firestore();
     // Persistencia offline: las escrituras fallidas se reintentan automáticamente al recuperar red
-    db.enablePersistence({synchronizeTabs:true}).catch(function(e){
+    db.enablePersistence().catch(function(e){
       if(e.code!=="failed-precondition"&&e.code!=="unimplemented")console.warn("persistence:",e);
     });
   }

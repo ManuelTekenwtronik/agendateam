@@ -750,10 +750,10 @@ function taskHTML(t){
     }).join("");
   }
   var dateInfo="";
-  if(t.time)dateInfo+='<span class="badge" style="background:#f0f7ff;color:#4a90d9;">🕐 '+escH(t.time)+'</span>';
   if(t.startDate)dateInfo+='<span style="font-size:12px;color:#aaa;align-self:center;">📅 '+escH(t.startDate)+'</span>';
   if(t.indefinite)dateInfo+='<span style="font-size:12px;color:#9b59b6;font-weight:700;align-self:center;">♾️ Sin fecha fin</span>';
-  else if(t.endDate)dateInfo+='<span style="font-size:12px;color:'+(ov?"#e74c3c":"#bbb")+';align-self:center;">⏰ '+escH(t.endDate)+(t.endTime?" "+escH(t.endTime):"")+'</span>';
+  else if(t.endDate)dateInfo+='<span style="font-size:12px;color:'+(ov?"#e74c3c":"#bbb")+';align-self:center;">⏰ '+escH(t.endDate)+'</span>';
+  if(t.endTime)dateInfo+='<span class="badge" style="background:#f0f7ff;color:#4a90d9;">🕐 Entrega '+escH(t.endTime)+'</span>';
   return'<div class="task-item'+(ov?" overdue":"")+(t.status==="completada"?" done":"")+'">'+
     '<div style="display:flex;justify-content:space-between;gap:10px;margin-bottom:10px;">'+
     '<div style="flex:1;">'+(ov?'<span style="font-size:16px;">🔴 </span>':'')+
@@ -1342,16 +1342,15 @@ function taskFormHTML(t){
     ['alta','media','baja'].map(function(p){return'<option value="'+p+'"'+(v.priority===p?' selected':'')+'>'+PC[p].l+'</option>';}).join("")+'</select></div></div>'+
     '<div class="field"><label>Estado</label><select id="tf-stat">'+
     ['pendiente','en-progreso','completada'].map(function(s){return'<option value="'+s+'"'+(v.status===s?' selected':'')+'>'+SC[s].l+'</option>';}).join("")+'</select></div>'+
-    '<div class="form-row"><div class="field"><label>Fecha inicio</label><input type="date" id="tf-sd" value="'+escH(v.startDate||"")+'"/></div>'+
-    '<div class="field"><label>Hora inicio</label><input type="time" id="tf-t" value="'+escH(v.time||"")+'"/></div></div>'+
-    '<div class="field"><label>Fecha fin</label>'+
+    '<div class="field"><label>Fecha inicio</label><input type="date" id="tf-sd" value="'+escH(v.startDate||"")+'"/></div>'+
+    '<div class="field"><label>Fecha de entrega</label>'+
     '<div id="tf-indef-wrap" onclick="togIndef()" style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;font-weight:700;cursor:pointer;color:#9b59b6;">'+
     '<div id="tf-indef-box" class="ck-box'+(v.indefinite?' on':'')+'" style="border-color:'+(v.indefinite?'#9b59b6':'#ccc')+';background:'+(v.indefinite?'#9b59b6':'#fff')+';">'+(v.indefinite?'✓':'')+'</div>'+
     ' ♾️ Sin fecha fin (permanente)</div>'+
     '<div id="tf-end-wrap" '+(v.indefinite?'style="display:none"':'')+'>'+
     '<div class="form-row">'+
     '<div><input type="date" id="tf-ed" value="'+escH(v.endDate||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
-    '<div><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
+    '<div class="field" style="margin:0;"><label>Hora de entrega</label><input type="time" id="tf-et" value="'+escH(v.endTime||"")+'" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;background:#fff;"/></div>'+
     '</div></div></div>'+
     '<div class="field"><label>Notas</label><textarea id="tf-notes" placeholder="Instrucciones adicionales…">'+escH(v.notes||"")+'</textarea></div>'+
     '<div class="field" style="background:#f5eeff;border-radius:14px;padding:12px;">'+
@@ -1460,7 +1459,7 @@ function saveT(){
   var prio=(document.getElementById("tf-prio")||{}).value||"media";
   var stat=(document.getElementById("tf-stat")||{}).value||"pendiente";
   var sd=(document.getElementById("tf-sd")||{}).value||"";
-  var ti=(document.getElementById("tf-t")||{}).value||"";
+  var ti="";
   var indef=_tfIndefOn;
   var ed=indef?"":(document.getElementById("tf-ed")||{}).value||"";
   var et=indef?"":(document.getElementById("tf-et")||{}).value||"";

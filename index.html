@@ -944,7 +944,8 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
       newHashes.push(h);
     }
     // 2. RECONOCIMIENTO FACIAL — solo si la tarea lo requiere
-    if(t.faceRecognition&&col&&col.photo){
+    var validProfileUrl=col&&col.photo&&!col.photo.startsWith("data:")&&!col.photo.startsWith("blob:");
+    if(t.faceRecognition&&validProfileUrl){
       var result=await checkFaceIdentity(col.photo,imgs[i].url);
       if(!result.skipped&&result.matched===false){
         return{passed:false,reason:"face_mismatch",

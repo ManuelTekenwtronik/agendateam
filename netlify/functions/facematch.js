@@ -31,12 +31,11 @@ exports.handler = async function(event) {
     const data = await res.json();
 
     if (data.error_message) {
-      // FACE_NOT_FOUND → imagen sin rostro, no bloquear
-      const noFace = data.error_message.includes("FACE_NOT_FOUND") || data.error_message.includes("NO_FACE");
+      // Cualquier error de API (sin rostro, imagen no descargable, etc.) → omitir, no bloquear
       return { statusCode: 200, headers, body: JSON.stringify({
-        skipped: noFace,
-        reason: noFace ? "sin_rostro" : data.error_message,
-        matched: noFace ? null : false,
+        skipped: true,
+        reason: data.error_message,
+        matched: null,
         confidence: 0
       })};
     }

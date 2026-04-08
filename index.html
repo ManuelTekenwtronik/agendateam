@@ -209,6 +209,10 @@ try{
       });
     }
     db=firebase.firestore();
+    // Persistencia offline: las escrituras fallidas se reintentan automáticamente al recuperar red
+    db.enablePersistence({synchronizeTabs:true}).catch(function(e){
+      if(e.code!=="failed-precondition"&&e.code!=="unimplemented")console.warn("persistence:",e);
+    });
   }
 }catch(e){console.warn("Firebase init:",e);}
 
@@ -322,7 +326,14 @@ function saveCloud(){
     }),
     tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[]
   };
-  db.collection("at").doc("data").set(fc).catch(function(e){console.warn("save:",e);});
+  db.collection("at").doc("data").set(fc).catch(function(e){
+    console.warn("save:",e);
+    // Reintento automático en 5s si falla por red
+    if(e&&(e.code==="unavailable"||e.message&&e.message.indexOf("network")>-1)){
+      clearTimeout(window._retryTimer);
+      window._retryTimer=setTimeout(saveCloud,5000);
+    }
+  });
 }
 
 function startSync(){
@@ -342,7 +353,8 @@ function startSync(){
       return t;
     });
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
-    saveLocal();
+    // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
     if(currentUser)render();
   },function(e){console.warn("sync:",e);});
 }

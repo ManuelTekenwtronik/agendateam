@@ -956,16 +956,27 @@ function addCameraFiles(files){
   if(navigator.geolocation){
     toast("📍 Obteniendo ubicación…");
     navigator.geolocation.getCurrentPosition(function(pos){
-      fileArray.forEach(function(f){
-        _evidenceFiles.push(f);
-        _evidenceCoords.push({lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)});
-      });
+      var coord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
+      fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(Object.assign({},coord));});
       renderEvidencePreview();
+      // Geocodificación inversa con Nominatim (OpenStreetMap)
+      fetch("https://nominatim.openstreetmap.org/reverse?lat="+coord.lat+"&lon="+coord.lng+"&format=json&accept-language=es",{headers:{"User-Agent":"AgendaTeam/1.0"}})
+        .then(function(r){return r.json();}).then(function(geo){
+          if(geo&&geo.address){
+            var a=geo.address;
+            var parts=[a.road||a.pedestrian||a.footway||"",a.neighbourhood||a.suburb||a.quarter||a.city_district||"",a.city||a.town||a.village||a.municipality||"",a.state||"",a.country||""].filter(Boolean);
+            var address=parts.slice(0,4).join(", ");
+            // Actualizar todas las coords recién añadidas con la dirección
+            var start=_evidenceCoords.length-fileArray.length;
+            for(var i=start;i<_evidenceCoords.length;i++){if(_evidenceCoords[i])_evidenceCoords[i].address=address;}
+            renderEvidencePreview();
+          }
+        }).catch(function(){});
     },function(){
-      // Sin permiso o error → agregar sin coords
       fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
       renderEvidencePreview();
-    },{enableHighAccuracy:true,timeout:10000,maximumAge:0});
+      toast("Ubicación no disponible — verifica permisos","warn");
+    },{enableHighAccuracy:true,timeout:12000,maximumAge:0});
   }else{
     fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
     renderEvidencePreview();
@@ -980,7 +991,7 @@ function renderEvidencePreview(){
     var icon=getFileIcon(f.type,f.name);
     var preview=isImg?'<img src="'+URL.createObjectURL(f)+'" style="width:60px;height:60px;object-fit:cover;border-radius:8px;">':'<div style="width:60px;height:60px;background:#f0f2f7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;">'+icon+'</div>';
     var coord=_evidenceCoords[i];
-    var pin=coord?'<div style="position:absolute;bottom:0;left:0;background:#27ae60;color:#fff;border-radius:0 4px 0 8px;padding:1px 4px;font-size:9px;font-weight:800;">📍</div>':"";
+    var pin=coord?'<div style="position:absolute;bottom:0;left:0;background:#27ae60;color:#fff;border-radius:0 4px 0 8px;padding:1px 4px;font-size:9px;font-weight:800;" title="'+(coord.address||coord.lat.toFixed(4)+","+coord.lng.toFixed(4))+'">📍'+(coord.address?"✓":"…")+'</div>':"";
     return'<div style="position:relative;cursor:pointer;" onclick="removeEvidence('+i+')">'+preview+pin+
       '<div style="position:absolute;top:-6px;right:-6px;background:#e74c3c;color:#fff;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;">✕</div>'+
       '<div style="font-size:10px;color:#888;text-align:center;max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+escH(f.name)+'</div></div>';
@@ -1004,7 +1015,8 @@ function attachmentsHTML(atts){
     var coordBadge="";
     if(a.coords&&a.coords.lat){
       var mapsUrl="https://www.google.com/maps?q="+a.coords.lat+","+a.coords.lng;
-      coordBadge='<a href="'+mapsUrl+'" target="_blank" style="display:flex;align-items:center;gap:3px;background:rgba(39,174,96,.85);color:#fff;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;margin-top:3px;">📍 '+a.coords.lat.toFixed(5)+', '+a.coords.lng.toFixed(5)+'<span style="font-size:9px;opacity:.8;margin-left:2px;">(±'+a.coords.acc+'m)</span></a>';
+      var locText=a.coords.address?a.coords.address:(a.coords.lat.toFixed(5)+', '+a.coords.lng.toFixed(5));
+      coordBadge='<a href="'+mapsUrl+'" target="_blank" style="display:flex;align-items:center;gap:3px;background:rgba(39,174,96,.85);color:#fff;padding:3px 7px;border-radius:6px;font-size:10px;font-weight:700;text-decoration:none;margin-top:3px;max-width:180px;word-break:break-word;">📍 '+escH(locText)+'<span style="font-size:9px;opacity:.8;margin-left:2px;flex-shrink:0;">(±'+a.coords.acc+'m)</span></a>';
     }
     if(isImg)return'<div style="display:flex;flex-direction:column;align-items:flex-start;"><a href="'+a.url+'" target="_blank" style="display:block;"><img src="'+a.url+'" style="max-width:120px;max-height:100px;border-radius:8px;object-fit:cover;border:1px solid rgba(255,255,255,.2);"></a>'+coordBadge+'</div>';
     return'<div style="display:flex;flex-direction:column;align-items:flex-start;"><a href="'+a.url+'" target="_blank" style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:8px;color:inherit;text-decoration:none;font-size:12px;">'+getFileIcon(a.type,a.name)+' '+escH(a.name)+'</a>'+coordBadge+'</div>';
@@ -1017,6 +1029,21 @@ function submitCompletionReport(taskId){
   if(!report){toast("Describe qué hiciste para completar la tarea","error");return;}
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
+  // Validar ubicación requerida
+  if(t.requireLocation){
+    var cameraFiles=_evidenceFiles.filter(function(_,i){return _evidenceCoords[i]&&_evidenceCoords[i].lat;});
+    if(!cameraFiles.length){toast("⚠️ Esta tarea requiere al menos una foto con ubicación GPS. Usa el botón 📷 Cámara.","error");return;}
+    if(t.validateProximity&&t.locationRef&&t.locationRef.lat){
+      var outOfRange=_evidenceCoords.filter(function(c){
+        if(!c||!c.lat)return false;
+        return haversineMeters(c.lat,c.lng,t.locationRef.lat,t.locationRef.lng)>(t.locationRef.radius||200);
+      });
+      if(outOfRange.length>0){
+        var dist=Math.round(haversineMeters(outOfRange[0].lat,outOfRange[0].lng,t.locationRef.lat,t.locationRef.lng));
+        toast("📍 Foto tomada a "+dist+"m de la bodega. Radio permitido: "+(t.locationRef.radius||200)+"m.","error");return;
+      }
+    }
+  }
   if(_evidenceFiles.length>0){
     var prog=document.getElementById("upload-progress");
     if(prog)prog.style.display="block";
@@ -1063,6 +1090,12 @@ function hammingDist(h1,h2){
 function cloudinarySmall(url){
   if(!url||url.indexOf("res.cloudinary.com")<0)return url;
   return url.replace("/upload/","/upload/w_600,h_600,c_fill,q_80/");
+}
+// Distancia en metros entre dos coords (Haversine)
+function haversineMeters(lat1,lng1,lat2,lng2){
+  var R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 function checkFaceIdentity(profileUrl,evidenceUrl){
   return fetch("/.netlify/functions/facematch",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -1504,6 +1537,27 @@ function taskFormHTML(t){
       '<span style="font-size:13px;font-weight:600;line-height:1.3;">Verificar que el rostro en las fotos coincida con el perfil del colaborador</span>'+
     '</div>'+
     '<div style="font-size:11px;color:#aaa;margin-top:4px;">⚠️ La detección de fotos duplicadas aplica siempre a todas las tareas con imágenes.</div>'+
+    '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8d8ff;">'+
+    '<div style="font-weight:700;font-size:13px;color:#27ae60;margin-bottom:8px;">📍 Ubicación GPS</div>'+
+    '<div class="ck-label'+(v.requireLocation?' on':'')+'" id="tf-loc-ck" onclick="tfToggleLocation(this)">'+
+      '<div class="ck-box'+(v.requireLocation?' on':'')+'">'+( v.requireLocation?'✓':'')+' </div>'+
+      '<span style="font-size:18px;">🌍</span>'+
+      '<span style="font-size:13px;font-weight:600;line-height:1.3;">Requerir coordenadas GPS en fotos de cámara</span>'+
+    '</div>'+
+    '<div id="tf-loc-options" style="'+(v.requireLocation?'':'display:none;')+'margin-top:10px;padding:10px;background:#f0fff4;border-radius:10px;">'+
+    '<div class="ck-label'+(v.validateProximity?' on':'')+'" id="tf-prox-ck" onclick="tfToggleProximity(this)">'+
+      '<div class="ck-box'+(v.validateProximity?' on':'')+'">'+( v.validateProximity?'✓':'')+' </div>'+
+      '<span style="font-size:16px;">🏭</span>'+
+      '<span style="font-size:13px;font-weight:600;">Validar que la foto fue tomada cerca de la bodega</span>'+
+    '</div>'+
+    '<div id="tf-prox-fields" style="'+(v.validateProximity?'':'display:none;')+'margin-top:10px;display:'+(v.validateProximity?'flex':'none')+';flex-direction:column;gap:8px;">'+
+    '<div style="font-size:12px;color:#888;margin-bottom:2px;">Coordenadas de referencia (bodega):</div>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<input type="number" id="tf-ref-lat" step="0.00001" value="'+(v.locationRef&&v.locationRef.lat||"")+'" placeholder="Latitud (ej: 14.6349)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;"/>'+
+    '<input type="number" id="tf-ref-lng" step="0.00001" value="'+(v.locationRef&&v.locationRef.lng||"")+'" placeholder="Longitud (ej: -90.5069)" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;"/></div>'+
+    '<input type="number" id="tf-ref-radius" value="'+(v.locationRef&&v.locationRef.radius||200)+'" placeholder="Radio máximo en metros (ej: 200)" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;"/>'+
+    '<div style="font-size:11px;color:#888;">El sistema verificará que las fotos se tomen dentro del radio permitido.</div>'+
+    '</div></div></div>'+
     '</div></div>'+
     '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>';
@@ -1528,6 +1582,9 @@ var _tfMode="individual";
 var _tfSelected=[];
 var _tfRequiredEvidence={photo:false,image:false,document:false};
 var _tfFaceRecognition=false;
+var _tfRequireLocation=false;
+var _tfValidateProximity=false;
+var _tfLocationRef={lat:"",lng:"",radius:200};
 function togIndef(){
   _tfIndefOn=!_tfIndefOn;
   var box=document.getElementById("tf-indef-box"),w=document.getElementById("tf-end-wrap");
@@ -1557,6 +1614,23 @@ function tfToggleFace(el){
   if(box){box.className="ck-box"+(_tfFaceRecognition?" on":"");box.textContent=_tfFaceRecognition?"✓":"";}
   el.className="ck-label"+(_tfFaceRecognition?" on":"");
 }
+function tfToggleLocation(el){
+  _tfRequireLocation=!_tfRequireLocation;
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(_tfRequireLocation?" on":"");box.textContent=_tfRequireLocation?"✓":"";}
+  el.className="ck-label"+(_tfRequireLocation?" on":"");
+  var opts=document.getElementById("tf-loc-options");
+  if(opts)opts.style.display=_tfRequireLocation?"block":"none";
+  if(!_tfRequireLocation){_tfValidateProximity=false;var pc=document.getElementById("tf-prox-ck");if(pc)pc.className="ck-label";var pf=document.getElementById("tf-prox-fields");if(pf)pf.style.display="none";}
+}
+function tfToggleProximity(el){
+  _tfValidateProximity=!_tfValidateProximity;
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(_tfValidateProximity?" on":"");box.textContent=_tfValidateProximity?"✓":"";}
+  el.className="ck-label"+(_tfValidateProximity?" on":"");
+  var pf=document.getElementById("tf-prox-fields");
+  if(pf)pf.style.display=_tfValidateProximity?"block":"none";
+}
 function openNT(){
   showSheet("Nueva tarea",'<div style="display:flex;flex-direction:column;gap:14px;">'+
     '<div onclick="openNTParticular()" style="padding:20px;background:#f0f2f7;border-radius:16px;cursor:pointer;border:2px solid #1a1d2e;display:flex;align-items:center;gap:14px;">'+
@@ -1572,6 +1646,7 @@ function openNT(){
 function openNTParticular(){
   editingTaskId=null;_tfSelected=[];_tfMode="individual";_tfIndefOn=false;
   _tfRequiredEvidence={photo:false,image:false,document:false};_tfFaceRecognition=false;
+  _tfRequireLocation=false;_tfValidateProximity=false;_tfLocationRef={lat:"",lng:"",radius:200};
   showSheet("Tarea Particular",taskFormHTML(null));setTimeout(applyPrioColor,50);
 }
 function openGenericMenu(){
@@ -1656,10 +1731,10 @@ function saveTemplate(existingId){
   if(!state.taskTemplates)state.taskTemplates=[];
   if(existingId){
     var tmpl=state.taskTemplates.find(function(x){return x.id==existingId;});
-    if(tmpl)Object.assign(tmpl,{title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
+    if(tmpl)Object.assign(tmpl,{title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null});
     toast("Plantilla actualizada ✓");
   }else{
-    state.taskTemplates.push({id:Date.now(),title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
+    state.taskTemplates.push({id:Date.now(),title:title,frequency:freq,priority:prio,endTime:et,indefinite:indef,endDate:ed,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null});
     toast("Plantilla guardada ✓");
   }
   saveLocal();if(db)saveCloud();closeSheet();
@@ -1760,6 +1835,9 @@ function openET(id){
     _tfSelected=Array.isArray(t.assignedTo)?t.assignedTo.slice():(t.assignedTo?[t.assignedTo]:[]);
     _tfRequiredEvidence=Object.assign({photo:false,image:false,document:false},t.requiredEvidence||{});
     _tfFaceRecognition=t.faceRecognition||false;
+    _tfRequireLocation=t.requireLocation||false;
+    _tfValidateProximity=t.validateProximity||false;
+    _tfLocationRef=Object.assign({lat:"",lng:"",radius:200},t.locationRef||{});
     showSheet("Editar tarea",taskFormHTML(t));setTimeout(applyPrioColor,50);
   }
 }
@@ -1783,10 +1861,17 @@ function saveT(){
   var criteria=(document.getElementById("tf-criteria")||{}).value||"";
   var requiredEvidence=Object.assign({},_tfRequiredEvidence);
   var faceRecognition=_tfFaceRecognition;
+  var requireLocation=_tfRequireLocation;
+  var validateProximity=_tfValidateProximity;
+  var locationRef=_tfValidateProximity?{
+    lat:parseFloat((document.getElementById("tf-ref-lat")||{}).value)||_tfLocationRef.lat||0,
+    lng:parseFloat((document.getElementById("tf-ref-lng")||{}).value)||_tfLocationRef.lng||0,
+    radius:parseInt((document.getElementById("tf-ref-radius")||{}).value)||200
+  }:null;
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});
-    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition});
+    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null});
     toast("Tarea actualizada ✓");
   }else if(isGroup){
     // Tarea grupal: una sola tarea con todos los miembros y chat grupal
@@ -1795,7 +1880,7 @@ function saveT(){
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     var nt={id:taskId,history:[],title:title,assignedTo:members,isGroup:true,groupKey:groupKey,
-      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition};
+      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null};
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -1807,7 +1892,7 @@ function saveT(){
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
       var nt={id:Date.now()+i,history:[],title:title,assignedTo:assignedTo,isGroup:false,
-        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition};
+        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null};
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);

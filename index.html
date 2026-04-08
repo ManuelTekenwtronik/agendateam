@@ -320,21 +320,23 @@ function saveCloud(){
   if(!db)return;
   var fc={
     collaborators:state.collaborators.map(function(c){
-      // Guardar URL de Cloudinary; descartar base64/blob que no caben en Firestore
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
     tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[]
   };
-  db.collection("at").doc("data").set(fc).catch(function(e){
+  window._pendingSave=true;
+  db.collection("at").doc("data").set(fc).then(function(){
+    window._pendingSave=false;
+  }).catch(function(e){
     console.warn("save:",e);
-    // Reintento automático en 5s si falla por red
-    if(e&&(e.code==="unavailable"||e.message&&e.message.indexOf("network")>-1)){
-      clearTimeout(window._retryTimer);
-      window._retryTimer=setTimeout(saveCloud,5000);
-    }
+    window._pendingSave=true;
   });
 }
+// Reintento automático cuando vuelve la red
+window.addEventListener("online",function(){
+  if(window._pendingSave&&db){console.log("Red recuperada, reintentando guardar...");saveCloud();}
+});
 
 function startSync(){
   if(!db)return;
@@ -343,13 +345,20 @@ function startSync(){
     var d=snap.data();
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-    // Preservar status local de tareas que están siendo validadas para evitar race condition
-    var localStatuses={};
-    state.tasks.forEach(function(t){localStatuses[t.id]=t.status;});
+    // Preservar status e historial local para evitar que onSnapshot sobreescriba cambios no guardados
+    var localStatuses={},localHistories={};
+    state.tasks.forEach(function(t){
+      localStatuses[t.id]=t.status;
+      localHistories[t.id]=t.history||[];
+    });
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},d);
     state.tasks=state.tasks.map(function(t){
       var ls=localStatuses[t.id];
+      var lh=localHistories[t.id]||[];
+      // Preservar status si hay cambio local pendiente (completada o validación)
       if(ls&&ls!==t.status&&(ls==="completada"||t.status==="pendiente_validacion"))t.status=ls;
+      // Preservar historial si el local tiene más entradas (aún no sincronizadas con Firestore)
+      if(lh.length>(t.history||[]).length)t.history=lh;
       return t;
     });
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});

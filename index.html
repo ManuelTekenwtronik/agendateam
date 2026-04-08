@@ -910,9 +910,13 @@ function hammingDist(h1,h2){
   var d=0;for(var i=0;i<h1.length;i++)if(h1[i]!==h2[i])d++;return d;
 }
 
+function cloudinarySmall(url){
+  if(!url||url.indexOf("res.cloudinary.com")<0)return url;
+  return url.replace("/upload/","/upload/w_600,h_600,c_fill,q_80/");
+}
 function checkFaceIdentity(profileUrl,evidenceUrl){
   return fetch("/.netlify/functions/facematch",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({profileUrl:profileUrl,evidenceUrl:evidenceUrl})
+    body:JSON.stringify({profileUrl:cloudinarySmall(profileUrl),evidenceUrl:cloudinarySmall(evidenceUrl)})
   }).then(function(r){return r.json();}).catch(function(){return{skipped:true,reason:"error_red"};});
 }
 

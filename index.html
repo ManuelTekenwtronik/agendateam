@@ -553,8 +553,7 @@ function showMainLogin(){
     '<button class="btn btn-dark btn-block" onclick="showPinLogin(\'boss\')" style="border-radius:14px;font-size:16px;margin-bottom:16px;">👔 Entrar como Manuel</button>'+
     (state.collaborators.length?
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><div style="flex:1;height:1px;background:#eee;"></div><span style="color:#bbb;font-size:12px;font-weight:600;">colaboradores ('+state.collaborators.length+')</span><div style="flex:1;height:1px;background:#eee;"></div></div>'+
-      '<input id="login-search" type="text" placeholder="🔍 Buscar por nombre…" oninput="filterLoginList(this.value)" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px;">'+
-      '<div id="login-collab-list" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;">'+
+      '<div id="login-collab-list" style="display:flex;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;padding-right:4px;">'+
       state.collaborators.map(function(c){
         var alertDot=(state.messages[collabCK(c.id)]||[]).some(function(m){return m.type==="alert_request";});
         var pending=state.tasks.filter(function(t){return t.assignedTo===c.id&&t.status!=="completada";}).length;
@@ -810,8 +809,7 @@ function renderTasks(){
           (c.email?'<button onclick="sendCredentials('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px;color:#27ae60;">📧</button>':'')+
           '<button onclick="askDC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px;color:#e74c3c;">✕</button></div></div>';
       }).join("");
-      collabListHTML='<input id="collab-search" type="text" placeholder="🔍 Buscar colaborador…" oninput="filterCollabList(this.value)" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;margin-bottom:8px;">'+
-        '<div id="collab-list" style="max-height:220px;overflow-y:auto;">'+allRow+collabRows+'</div>';
+      collabListHTML='<div id="collab-list" style="max-height:220px;overflow-y:auto;padding-right:4px;">'+allRow+collabRows+'</div>';
     }else{
       collabListHTML='<p style="color:#ccc;font-size:13px;text-align:center;">Agrega tu equipo para comenzar</p>';
     }

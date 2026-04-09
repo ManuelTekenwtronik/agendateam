@@ -127,7 +127,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 #toast.error{background:linear-gradient(135deg,#e74c3c,#c0392b);}
 
 /* ── CONFIRM DIALOG ── */
-#confirm-overlay{position:fixed;inset:0;background:rgba(15,18,35,.55);z-index:500;display:none;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px);}
+#confirm-overlay{position:fixed;inset:0;background:rgba(15,18,35,.55);z-index:9000;display:none;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px);}
 .confirm-box{background:#fff;border-radius:24px;padding:30px 24px;max-width:320px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.2);}
 
 /* ── LOGIN ── */
@@ -492,7 +492,9 @@ function showConfirm(msg,sub,cb,okLabel,okColor){
   var btn=document.getElementById("confirm-ok-btn");
   btn.textContent=okLabel||"Eliminar";
   btn.style.background=okColor||(okLabel&&okLabel!=="Eliminar"?"#27ae60":"");
-  document.getElementById("confirm-overlay").style.display="flex";
+  var ov=document.getElementById("confirm-overlay");
+  document.body.appendChild(ov); // mover al final del DOM para estar siempre encima
+  ov.style.display="flex";
   confirmCallback=cb;
 }
 function confirmOk(){document.getElementById("confirm-overlay").style.display="none";if(confirmCallback)confirmCallback();}

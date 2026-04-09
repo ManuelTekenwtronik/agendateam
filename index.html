@@ -812,7 +812,7 @@ function renderTasks(){
 
 function setFC(v){filterCollab=filterCollab===v?"todas":v;renderTasks();}
 function openLoginTeamSheet(){
-  var rows=state.collaborators.map(function(c){
+  var rows=state.collaborators.slice().sort(function(a,b){return a.name.localeCompare(b.name,"es");}).map(function(c){
     var alertDot=(state.messages[collabCK(c.id)]||[]).some(function(m){return m.type==="alert_request";});
     var pending=state.tasks.filter(function(t){return t.assignedTo===c.id&&t.status!=="completada";}).length;
     return'<button onclick="closeSheet();showPinLogin('+c.id+')" style="width:100%;background:#f7f8fc;border:1.5px solid '+(alertDot?"#ffd0a0":"#eee")+';border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;margin-bottom:8px;">'+
@@ -824,7 +824,7 @@ function openLoginTeamSheet(){
   showSheet("👥 Selecciona tu perfil",rows);
 }
 function openTeamSheet(){
-  var rows=state.collaborators.map(function(c){
+  var rows=state.collaborators.slice().sort(function(a,b){return a.name.localeCompare(b.name,"es");}).map(function(c){
     var ct=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
     var done=ct.filter(function(t){return t.status==="completada";}).length;
     var ia=filterCollab===String(c.id);

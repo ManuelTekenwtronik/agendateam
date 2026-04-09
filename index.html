@@ -788,15 +788,40 @@ function renderTasks(){
         (c.email?'<button onclick="sendCredentials('+c.id+')" title="Enviar credenciales por correo" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 2px;color:#27ae60;">📧</button>':'')+
         '<button onclick="askDC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;color:#e74c3c;">✕</button></div>';
     }).join("");
+    var collabListHTML='';
+    if(state.collaborators.length){
+      var allRow='<div onclick="setFC(\'todas\');document.getElementById(\'collab-search\').value=\'\';filterCollabList(\'\');" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer;background:'+(filterCollab==="todas"?"#f0f4ff":"transparent")+';margin-bottom:2px;">'+
+        '<div style="width:32px;height:32px;border-radius:50%;background:#e5e7ef;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;">👥</div>'+
+        '<div style="flex:1;"><div style="font-weight:700;font-size:13px;">Todos</div></div>'+
+        '<div style="font-size:11px;color:#999;">'+state.collaborators.length+' miembros</div></div>';
+      var collabRows=state.collaborators.map(function(c){
+        var ct=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+        var done=ct.filter(function(t){return t.status==="completada";}).length;
+        var ia=filterCollab===String(c.id);
+        var fl=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===c.id;});
+        return'<div class="collab-row" data-name="'+escH(c.name.toLowerCase())+'" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:'+(ia?"#f0f4ff":fl?"#fff5f5":"transparent")+';margin-bottom:2px;">'+
+          '<div onclick="setFC(\''+c.id+'\')" style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer;min-width:0;">'+
+          avHTML(c,32)+
+          '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(c.name)+(fl?" 🚩":"")+'</div>'+
+          '<div style="font-size:11px;color:#999;">'+escH(c.role||"")+'</div></div>'+
+          '<div style="font-size:11px;color:'+(ia?"#5a8fe0":"#bbb")+';font-weight:700;flex-shrink:0;">'+done+'/'+ct.length+'</div></div>'+
+          '<div style="display:flex;gap:2px;flex-shrink:0;">'+
+          '<button onclick="openEC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px;color:#5a8fe0;">✏️</button>'+
+          (c.email?'<button onclick="sendCredentials('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px;color:#27ae60;">📧</button>':'')+
+          '<button onclick="askDC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:13px;padding:4px;color:#e74c3c;">✕</button></div></div>';
+      }).join("");
+      collabListHTML='<input id="collab-search" type="text" placeholder="🔍 Buscar colaborador…" oninput="filterCollabList(this.value)" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;margin-bottom:8px;">'+
+        '<div id="collab-list" style="max-height:220px;overflow-y:auto;">'+allRow+collabRows+'</div>';
+    }else{
+      collabListHTML='<p style="color:#ccc;font-size:13px;text-align:center;">Agrega tu equipo para comenzar</p>';
+    }
     team='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
-      '<div style="font-weight:800;font-size:15px;">👥 Equipo</div>'+
+      '<div style="font-weight:800;font-size:15px;">👥 Equipo <span style="font-size:12px;font-weight:400;color:#999;">('+state.collaborators.length+')</span></div>'+
       '<div style="display:flex;gap:8px;">'+
-      (state.collaborators.some(function(c){return c.email;})?'<button class="btn btn-gray btn-sm" onclick="sendAllCredentials()" style="color:#27ae60;">📧 Enviar todos</button>':'')+
-      '<button class="btn btn-gray btn-sm" onclick="openXL()">📂 Excel</button>'+
+      (state.collaborators.some(function(c){return c.email;})?'<button class="btn btn-gray btn-sm" onclick="sendAllCredentials()" style="color:#27ae60;">📧</button>':'')+
+      '<button class="btn btn-gray btn-sm" onclick="openXL()">📂</button>'+
       '<button class="btn btn-blue btn-sm" onclick="openNC()">+ Nuevo</button></div></div>'+
-      (state.collaborators.length?
-        '<div id="collab-chips"><button class="chip'+(filterCollab==="todas"?" active":"")+'" onclick="setFC(\'todas\')" style="border:none;cursor:pointer;">Todos</button>'+chips+'</div>':
-        '<p style="color:#ccc;font-size:13px;text-align:center;">Agrega tu equipo para comenzar</p>')+
+      collabListHTML+
     '</div>';
   }
   var fSel='<div style="display:flex;gap:8px;margin-bottom:14px;overflow-x:auto;">'+
@@ -814,6 +839,11 @@ function renderTasks(){
 }
 
 function setFC(v){filterCollab=filterCollab===v?"todas":v;renderTasks();}
+function filterCollabList(q){
+  var rows=document.querySelectorAll("#collab-list .collab-row");
+  var val=(q||"").toLowerCase().trim();
+  rows.forEach(function(r){r.style.display=(!val||r.dataset.name.indexOf(val)>=0)?"flex":"none";});
+}
 
 function taskHTML(t){
   var isGroupTask=t.isGroup&&Array.isArray(t.assignedTo);

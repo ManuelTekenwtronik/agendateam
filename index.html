@@ -1041,7 +1041,24 @@ function submitCompletionReport(taskId){
       if(outOfRange.length>0){
         var allowedR=t.locationRef.taskRadius||t.locationRef.radius||200;
         var dist=Math.round(haversineMeters(outOfRange[0].lat,outOfRange[0].lng,t.locationRef.lat,t.locationRef.lng));
-        toast("📍 Foto tomada a "+dist+"m de "+escH(t.locationRef.name||"la referencia")+". Radio permitido: "+allowedR+"m.","error");return;
+        var locName=escH(t.locationRef.name||"la referencia");
+        var rejMsg="📍 Soporte rechazado por ubicación fuera de rango.\n\nFoto tomada a "+dist+"m de "+locName+".\nRadio permitido: "+allowedR+"m.\nDistancia excedida: "+(dist-allowedR)+"m.\n\n🔧 Para aprobar: ubícate dentro del radio permitido antes de tomar la foto.";
+        // Registrar rechazo en historial
+        if(!t.history)t.history=[];
+        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:"[Rechazo GPS] Foto a "+dist+"m, radio "+allowedR+"m"});
+        if(t.history.length>20)t.history=t.history.slice(-20);
+        // Publicar en el chat del colaborador
+        var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
+        var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
+        if(ck){
+          if(!state.messages[ck])state.messages[ck]=[];
+          state.messages[ck].push({id:Date.now(),from:"ai",text:rejMsg,ts:Date.now()});
+        }
+        // Cerrar el sheet y notificar
+        var sh=document.getElementById("completion-sheet");if(sh)sh.remove();
+        saveLocal();if(db)saveCloud();render();
+        toast("📍 Foto fuera del radio permitido ("+dist+"m de "+locName+")","error");
+        return;
       }
     }
   }

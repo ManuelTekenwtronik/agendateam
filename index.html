@@ -2230,7 +2230,8 @@ function askDC(id){
     state.collaborators=state.collaborators.filter(function(x){return x.id!==id;});
     state.tasks=state.tasks.filter(function(t){return t.assignedTo!==id;});
     if(filterCollab===String(id))filterCollab="todas";
-    saveLocal();render();toast(c.name+" eliminado","error");
+    saveLocal();if(db)saveCloud();render();toast(c.name+" eliminado","error");
+    if(state.collaborators.length)openTeamSheet();else closeSheet();
   });
 }
 

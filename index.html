@@ -782,11 +782,14 @@ function renderTasks(){
         avHTML(c,22)+'<span style="font-size:13px;font-weight:700;">'+escH(c.name.split(" ")[0])+(fl?" 🚩":"")+'</span>'+
         '<span style="font-size:11px;opacity:.6;">'+done+"/"+ct.length+'</span></span>'+
         '<button onclick="openEC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 2px;color:#5a8fe0;">✏️</button>'+
+        (c.email?'<button onclick="sendCredentials('+c.id+')" title="Enviar credenciales por correo" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 2px;color:#27ae60;">📧</button>':'')+
         '<button onclick="askDC('+c.id+')" style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;color:#e74c3c;">✕</button></div>';
     }).join("");
     team='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'+
       '<div style="font-weight:800;font-size:15px;">👥 Equipo</div>'+
-      '<div style="display:flex;gap:8px;"><button class="btn btn-gray btn-sm" onclick="openXL()">📂 Excel</button>'+
+      '<div style="display:flex;gap:8px;">'+
+      (state.collaborators.some(function(c){return c.email;})?'<button class="btn btn-gray btn-sm" onclick="sendAllCredentials()" style="color:#27ae60;">📧 Enviar todos</button>':'')+
+      '<button class="btn btn-gray btn-sm" onclick="openXL()">📂 Excel</button>'+
       '<button class="btn btn-blue btn-sm" onclick="openNC()">+ Nuevo</button></div></div>'+
       (state.collaborators.length?
         '<div id="collab-chips"><button class="chip'+(filterCollab==="todas"?" active":"")+'" onclick="setFC(\'todas\')" style="border:none;cursor:pointer;">Todos</button>'+chips+'</div>':
@@ -2169,6 +2172,40 @@ function askDC(id){
     state.tasks=state.tasks.filter(function(t){return t.assignedTo!==id;});
     if(filterCollab===String(id))filterCollab="todas";
     saveLocal();render();toast(c.name+" eliminado","error");
+  });
+}
+
+// ── EMAIL CREDENCIALES ──
+function sendCredentials(collabId){
+  var c=state.collaborators.find(function(x){return x.id===collabId;});
+  if(!c){toast("Colaborador no encontrado","error");return;}
+  if(!c.email){toast("Este colaborador no tiene correo registrado","error");return;}
+  toast("📧 Enviando credenciales a "+c.name+"…");
+  fetch("/.netlify/functions/sendmail",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({to:c.email,name:c.name,role:c.role||"",pin:c.pin,appUrl:window.location.origin,fromName:"AgendaTeam"})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(d.ok)toast("✅ Credenciales enviadas a "+escH(c.email));
+    else if(d.skipped)toast("⚠️ Servicio de correo no configurado (RESEND_API_KEY)","error");
+    else toast("❌ Error al enviar: "+(d.error||"Sin detalle"),"error");
+  }).catch(function(){toast("❌ Error de red al enviar correo","error");});
+}
+function sendAllCredentials(){
+  var withEmail=state.collaborators.filter(function(c){return c.email;});
+  if(!withEmail.length){toast("Ningún colaborador tiene correo registrado","error");return;}
+  showConfirm("Enviar credenciales a "+withEmail.length+" colaboradores","Se enviará un correo con PIN y datos de acceso a cada uno.",function(){
+    var sent=0,errors=0;
+    var total=withEmail.length;
+    toast("📧 Enviando "+total+" correos…");
+    withEmail.forEach(function(c,i){
+      setTimeout(function(){
+        fetch("/.netlify/functions/sendmail",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({to:c.email,name:c.name,role:c.role||"",pin:c.pin,appUrl:window.location.origin,fromName:"AgendaTeam"})
+        }).then(function(r){return r.json();}).then(function(d){
+          if(d.ok)sent++;else errors++;
+          if(sent+errors===total)toast("✅ "+sent+" enviados"+(errors?" · ❌ "+errors+" errores":""));
+        }).catch(function(){errors++;if(sent+errors===total)toast("✅ "+sent+" enviados · ❌ "+errors+" errores");});
+      },i*800); // espaciar envíos 800ms para no saturar
+    });
   });
 }
 

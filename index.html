@@ -552,17 +552,17 @@ function showMainLogin(){
     '<p style="color:#999;font-size:14px;margin-top:4px;">Selecciona tu perfil</p></div>'+
     '<button class="btn btn-dark btn-block" onclick="showPinLogin(\'boss\')" style="border-radius:14px;font-size:16px;margin-bottom:16px;">👔 Entrar como Manuel</button>'+
     (state.collaborators.length?
-      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;"><div style="flex:1;height:1px;background:#eee;"></div><span style="color:#bbb;font-size:12px;font-weight:600;">colaboradores</span><div style="flex:1;height:1px;background:#eee;"></div></div>'+
-      '<div style="display:flex;flex-direction:column;gap:8px;">'+
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><div style="flex:1;height:1px;background:#eee;"></div><span style="color:#bbb;font-size:12px;font-weight:600;">colaboradores ('+state.collaborators.length+')</span><div style="flex:1;height:1px;background:#eee;"></div></div>'+
+      '<input id="login-search" type="text" placeholder="🔍 Buscar por nombre…" oninput="filterLoginList(this.value)" style="width:100%;padding:9px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;box-sizing:border-box;margin-bottom:10px;">'+
+      '<div id="login-collab-list" style="display:flex;flex-direction:column;gap:6px;max-height:300px;overflow-y:auto;">'+
       state.collaborators.map(function(c){
         var alertDot=(state.messages[collabCK(c.id)]||[]).some(function(m){return m.type==="alert_request";});
         var pending=state.tasks.filter(function(t){return t.assignedTo===c.id&&t.status!=="completada";}).length;
-        return'<button onclick="showPinLogin('+c.id+')" style="background:#f7f8fc;border:1.5px solid '+(alertDot?"#ffd0a0":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;">'+
-          '<div style="position:relative;">'+avHTML(c,44)+(alertDot?'<div style="position:absolute;top:-2px;right:-2px;width:12px;height:12px;border-radius:50%;background:#f5a623;border:2px solid #fff;"></div>':'')+'</div>'+
-          '<div style="flex:1;text-align:left;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+'</div>'+
-          '<div style="font-size:13px;color:#999;">'+escH(c.role)+'</div>'+
-          (c.phone?'<div style="font-size:12px;color:#bbb;">📞 '+escH(c.phone)+'</div>':'')+
-          '</div><div style="font-size:13px;color:#bbb;background:#f0f2f7;padding:4px 12px;border-radius:99px;font-weight:700;">'+pending+' tareas</div></button>';
+        return'<button class="login-collab-btn" data-name="'+escH(c.name.toLowerCase())+'" onclick="showPinLogin('+c.id+')" style="background:#f7f8fc;border:1.5px solid '+(alertDot?"#ffd0a0":"#eee")+';border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;width:100%;">'+
+          '<div style="position:relative;">'+avHTML(c,38)+(alertDot?'<div style="position:absolute;top:-2px;right:-2px;width:10px;height:10px;border-radius:50%;background:#f5a623;border:2px solid #fff;"></div>':'')+'</div>'+
+          '<div style="flex:1;text-align:left;min-width:0;"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escH(c.name)+'</div>'+
+          '<div style="font-size:12px;color:#999;">'+escH(c.role)+'</div></div>'+
+          '<div style="font-size:12px;color:#bbb;background:#f0f2f7;padding:3px 10px;border-radius:99px;font-weight:700;flex-shrink:0;">'+pending+'</div></button>';
       }).join("")+'</div>':
       '<p style="text-align:center;color:#ccc;font-size:13px;margin-top:4px;">Entra como Manuel para agregar tu equipo</p>')+
   '</div>';
@@ -843,6 +843,11 @@ function filterCollabList(q){
   var rows=document.querySelectorAll("#collab-list .collab-row");
   var val=(q||"").toLowerCase().trim();
   rows.forEach(function(r){r.style.display=(!val||r.dataset.name.indexOf(val)>=0)?"flex":"none";});
+}
+function filterLoginList(q){
+  var btns=document.querySelectorAll("#login-collab-list .login-collab-btn");
+  var val=(q||"").toLowerCase().trim();
+  btns.forEach(function(b){b.style.display=(!val||b.dataset.name.indexOf(val)>=0)?"flex":"none";});
 }
 
 function taskHTML(t){

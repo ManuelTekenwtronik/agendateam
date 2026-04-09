@@ -2750,16 +2750,22 @@ function sendMsg(){
   var ct=state.tasks.filter(function(t){return taskBelongsTo(t,cc.id);});
   var today=new Date().toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
   // Detalle compacto de tareas (máx tokens)
-  var taskDetail=ct.slice(0,8).map(function(t){
+  var taskDetail=ct.slice(0,6).map(function(t){
     var st=SC[t.status]?SC[t.status].l:t.status;
     var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";
-    var parts=[t.title+" ["+st+(ov?" ⚠️":"")+"]"];
-    if(t.endDate)parts.push("Entrega:"+t.endDate+(t.endTime?" "+t.endTime:""));
-    if(t.criteria)parts.push("Criterios:"+t.criteria.slice(0,100));
-    var lastH=(t.history||[]).slice(-2).map(function(h){return h.date+":"+(h.approved?"✅":"❌");}).join(", ");
-    if(lastH)parts.push("Historial:"+lastH);
-    return parts.join(" | ");
-  }).join("\n")||"Sin tareas.";
+    var lines=[t.title+" ["+st+(ov?" ⚠️":"")+"]"+(t.endDate?" — Entrega:"+t.endDate+(t.endTime?" "+t.endTime:""):"")];
+    if(t.criteria)lines.push("  Criterios: "+t.criteria.slice(0,400));
+    // Último resultado de validación con criterios fallados
+    var lastEntry=(t.history||[]).slice(-1)[0];
+    if(lastEntry){
+      lines.push("  Última entrega ("+lastEntry.date+"): "+(lastEntry.approved?"✅ Aprobada":"❌ Rechazada"));
+      if(!lastEntry.approved&&lastEntry.criteriaResults&&lastEntry.criteriaResults.length>0){
+        var failed=lastEntry.criteriaResults.filter(function(cr){return!cr.cumplido;});
+        if(failed.length>0)lines.push("  Criterios fallados: "+failed.map(function(cr){return cr.criterio+(cr.detalle?" ("+cr.detalle+")":"");}).join("; "));
+      }
+    }
+    return lines.join("\n");
+  }).join("\n\n")||"Sin tareas.";
 
   var totales="Tot:"+ct.length+" Pend:"+ct.filter(function(t){return t.status==="pendiente";}).length+
     " Prog:"+ct.filter(function(t){return t.status==="en-progreso";}).length+

@@ -977,10 +977,27 @@ function showCompletionReport(taskId,errorMsg){
       '</div>';
     }
   }
+  // Selector de ubicación si la tarea lo requiere
+  var locSelectorHTML="";
+  if(t.requireLocation){
+    var locs=state.locations||[];
+    var locOpts=locs.map(function(l){
+      return'<option value="'+l.id+'">'+escH((l.type==="bodega"?"🏭 ":"📌 ")+l.name)+'</option>';
+    }).join("");
+    locSelectorHTML='<div style="margin-bottom:14px;padding:12px;background:#f0fff4;border-radius:12px;border:1.5px solid #b8f0d8;">'+
+      '<div style="font-weight:700;font-size:13px;color:#1a7a4a;margin-bottom:8px;">📍 ¿Dónde te encuentras?</div>'+
+      (locs.length?
+        '<select id="collab-loc-select" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;background:#fff;box-sizing:border-box;">'+
+        '<option value="">-- Selecciona tu ubicación --</option>'+locOpts+'</select>'+
+        (t.validateProximity?'<div style="font-size:11px;color:#888;margin-top:6px;">Se verificará que tu GPS coincida con la ubicación seleccionada.</div>':''):
+        '<div style="font-size:13px;color:#999;">No hay ubicaciones de referencia cargadas.</div>')+
+      '</div>';
+  }
   sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:24px 20px;width:100%;max-width:480px;margin:0 auto;">'+
     (errorMsg?'<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:12px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#c0392b;line-height:1.5;">'+escH(errorMsg)+'</div>':'')+
     '<div style="font-weight:800;font-size:17px;margin-bottom:6px;">✅ Reportar completado</div>'+
     '<div style="font-size:13px;color:#888;margin-bottom:14px;">Describe qué hiciste para completar <b>'+escH(t.title)+'</b> y adjunta soportes de cumplimiento.</div>'+
+    locSelectorHTML+
     '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;box-sizing:border-box;"></textarea>'+
     '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes'+(anyReq?'<span style="font-size:11px;font-weight:400;color:#9b59b6;margin-left:8px;">Solo los requeridos están habilitados</span>':'')+'</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
@@ -1082,18 +1099,25 @@ function submitCompletionReport(taskId){
   if(!t)return;
   // Validar ubicación requerida
   if(t.requireLocation){
+    // Leer ubicación seleccionada por el colaborador
+    var selLocEl=document.getElementById("collab-loc-select");
+    var selLocId=selLocEl?selLocEl.value:"";
+    var selLoc=(state.locations||[]).find(function(l){return String(l.id)===String(selLocId);});
+    if(!selLocId||!selLoc){toast("⚠️ Selecciona la ubicación donde te encuentras","error");return;}
     var cameraFiles=_evidenceFiles.filter(function(_,i){return _evidenceCoords[i]&&_evidenceCoords[i].lat;});
     if(!cameraFiles.length){toast("⚠️ Esta tarea requiere al menos una foto con ubicación GPS. Usa el botón 📷 Cámara.","error");return;}
-    if(t.validateProximity&&t.locationRef&&t.locationRef.lat){
+    if(t.validateProximity){
+      // Validar contra la ubicación seleccionada por el colaborador
+      var refLoc=selLoc;
+      var allowedRadius=t.locationRef&&t.locationRef.taskRadius||t.locationRef&&t.locationRef.radius||selLoc.radius||200;
       var outOfRange=_evidenceCoords.filter(function(c){
         if(!c||!c.lat)return false;
-        var allowedRadius=t.locationRef.taskRadius||t.locationRef.radius||200;
-        return haversineMeters(c.lat,c.lng,t.locationRef.lat,t.locationRef.lng)>allowedRadius;
+        return haversineMeters(c.lat,c.lng,refLoc.lat,refLoc.lng)>allowedRadius;
       });
       if(outOfRange.length>0){
-        var allowedR=t.locationRef.taskRadius||t.locationRef.radius||200;
-        var dist=Math.round(haversineMeters(outOfRange[0].lat,outOfRange[0].lng,t.locationRef.lat,t.locationRef.lng));
-        var locName=escH(t.locationRef.name||"la referencia");
+        var allowedR=allowedRadius;
+        var dist=Math.round(haversineMeters(outOfRange[0].lat,outOfRange[0].lng,refLoc.lat,refLoc.lng));
+        var locName=escH(refLoc.name||"la referencia");
         var rejMsg="📍 Soporte rechazado por ubicación fuera de rango.\n\nFoto tomada a "+dist+"m de "+locName+".\nRadio permitido: "+allowedR+"m.\nDistancia excedida: "+(dist-allowedR)+"m.\n\n🔧 Para aprobar: ubícate dentro del radio permitido antes de tomar la foto.";
         // Registrar rechazo en historial
         if(!t.history)t.history=[];
@@ -1113,6 +1137,10 @@ function submitCompletionReport(taskId){
         return;
       }
     }
+  }
+  // Agregar ubicación seleccionada al reporte
+  if(t.requireLocation&&selLoc){
+    report+=" [📍 Ubicación: "+selLoc.name+"]";
   }
   if(_evidenceFiles.length>0){
     var prog=document.getElementById("upload-progress");

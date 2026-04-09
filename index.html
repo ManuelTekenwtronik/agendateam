@@ -2216,8 +2216,8 @@ function saveC(){
         body:JSON.stringify({to:newCollab.email,name:newCollab.name,role:newCollab.role,pin:newCollab.pin,appUrl:window.location.origin,fromName:"AgendaTeam"})
       }).then(function(r){return r.json();}).then(function(d){
         if(d.ok)toast("📧 Credenciales enviadas a "+escH(newCollab.email));
-        else if(d.skipped){}// silencioso si no está configurado
-        else toast("⚠️ No se pudo enviar el correo a "+escH(newCollab.email),"error");
+        else if(d.skipped)toast("⚠️ Correo no enviado: configura RESEND_API_KEY en Netlify","error");
+        else toast("⚠️ Error al enviar correo: "+(d.error||"Sin detalle"),"error");
       }).catch(function(){});}
   }
   saveLocal();closeSheet();render();

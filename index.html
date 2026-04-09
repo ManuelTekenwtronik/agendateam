@@ -808,7 +808,7 @@ function renderTasks(){
   document.getElementById("content").innerHTML=team+
     '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'+
     '<div style="font-weight:800;font-size:15px;">'+(currentUser&&currentUser.type==="collab"?"Hola, "+escH(currentUser.name.split(" ")[0])+" 👋":"✅ Tareas")+'</div>'+
-    (isBoss?'<button class="btn btn-dark btn-sm" onclick="openNT()">+ Nueva</button>':'')+
+    (isBoss?'<div style="display:flex;gap:6px;"><button class="btn btn-dark btn-sm" onclick="openNT()">+ Nueva</button><button class="btn btn-gray btn-sm" onclick="openCriteriaReport()" style="color:#9b59b6;">📊</button></div>':'')+
     '</div>'+fSel+cards+'</div>';
 }
 
@@ -1337,7 +1337,7 @@ function validateTaskCompletion(taskId,report,attachments){
   }
   var faceNote=t.faceRecognition?"\n\n⚠️ NOTA IMPORTANTE: La verificación de identidad facial (que la persona en la foto sea el colaborador correcto) ya fue realizada por un sistema biométrico separado ANTES de llegar aquí. NO necesitas verificar ni comentar sobre identidad de personas. Tu único rol es verificar el cumplimiento de los criterios de la tarea.":"";
   var gpsNote=t.requireLocation?"\n\n⚠️ NOTA IMPORTANTE SOBRE UBICACIÓN: La validación de coordenadas GPS y proximidad geográfica ya fue realizada por el sistema ANTES de esta solicitud, comparando coordenadas exactas con el punto de referencia y el radio permitido. NO intentes determinar visualmente si el entorno de las fotos parece una bodega, proyecto, oficina u otro lugar. No evalúes ni comentes sobre la ubicación geográfica del entorno. Tu único rol es verificar el cumplimiento de los criterios específicos de la tarea.":"";
-  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+faceNote+gpsNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios (indumentaria, documentos, equipos, etc.) sin intentar identificar personas.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra con este formato exacto:\n{\"aprobada\":true,\"razon\":\"✅ Todos los criterios cumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✓ [sub-elemento]: [evidencia]\\n\\nCriterio N — [nombre]:\\n✓ [sub-elemento]: [evidencia]\"}\no si hay incumplimientos:\n{\"aprobada\":false,\"razon\":\"❌ Criterios incumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✗ [sub-elemento]: [qué falta exactamente]\\n\\nCriterio N — [nombre]:\\n✗ [sub-elemento]: [qué falta]\",\"pendiente\":\"Resumen de lo que debe corregir para aprobar.\"}";
+  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+faceNote+gpsNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios (indumentaria, documentos, equipos, etc.) sin intentar identificar personas.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra con este formato exacto:\n{\"aprobada\":true,\"razon\":\"✅ Todos los criterios cumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n\\nCriterio N — [nombre]:\\n✓ [sub-elemento]: [evidencia]\",\"criteriaResults\":[{\"criterio\":\"Nombre exacto del criterio 1\",\"cumplido\":true,\"detalle\":\"Breve evidencia\"},{\"criterio\":\"Nombre exacto del criterio N\",\"cumplido\":false,\"detalle\":\"Qué faltó\"}]}\no si hay incumplimientos:\n{\"aprobada\":false,\"razon\":\"❌ Criterios incumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✗ [sub-elemento]: [qué falta exactamente]\\n\\nCriterio N — [nombre]:\\n✗ [sub-elemento]: [qué falta]\",\"pendiente\":\"Resumen de lo que debe corregir para aprobar.\",\"criteriaResults\":[{\"criterio\":\"Nombre exacto del criterio 1\",\"cumplido\":true,\"detalle\":\"Evidencia\"},{\"criterio\":\"Nombre exacto del criterio N\",\"cumplido\":false,\"detalle\":\"Qué faltó exactamente\"}]}\nIMPORTANTE: criteriaResults debe tener UN objeto por cada criterio numerado de la lista, en el mismo orden.";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
@@ -1376,7 +1376,7 @@ function validateTaskCompletion(taskId,report,attachments){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[]});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";
@@ -1388,7 +1388,7 @@ function validateTaskCompletion(taskId,report,attachments){
     }else{
       // Rechazar → seguimiento
       if(!t.history)t.history=[];
-      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||""});
+      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var pendiente=result.pendiente||"";
@@ -2317,6 +2317,86 @@ function sendAllCredentials(){
       },i*800); // espaciar envíos 800ms para no saturar
     });
   },"Enviar","#27ae60");
+}
+
+// ── REPORTE POR CRITERIOS ──
+function openCriteriaReport(){
+  var tasks=state.tasks.filter(function(t){return t.criteria&&t.criteria.trim()&&t.history&&t.history.some(function(h){return h.criteriaResults&&h.criteriaResults.length;});});
+  if(!tasks.length){toast("No hay validaciones con datos estructurados aún. Los reportes se generan a partir de las próximas validaciones.","error");return;}
+  var today=new Date().toLocaleDateString("es");
+  var dates=[...new Set(state.tasks.flatMap(function(t){return(t.history||[]).filter(function(h){return h.criteriaResults&&h.criteriaResults.length;}).map(function(h){return h.date;});}).filter(Boolean))].sort().reverse();
+  if(!dates.length){toast("No hay datos de reportes aún","error");return;}
+  var dateOpts=dates.map(function(d){return'<option value="'+escH(d)+'"'+(d===today?' selected':'')+'>'+escH(d)+'</option>';}).join("");
+  var taskOpts=tasks.map(function(t){return'<option value="'+t.id+'">'+escH(t.title)+'</option>';}).join("");
+  showSheet("📊 Reporte por Criterios",
+    '<div class="field"><label>Fecha</label><select id="rep-date" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;background:#fff;">'+dateOpts+'</select></div>'+
+    '<div class="field"><label>Tarea</label><select id="rep-task" style="width:100%;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;background:#fff;">'+taskOpts+'</select></div>'+
+    '<button class="btn btn-dark btn-block" style="margin-top:8px;" onclick="generateCriteriaReport()">📊 Generar reporte</button>'+
+    '<div id="rep-result" style="margin-top:16px;"></div>');
+}
+
+function generateCriteriaReport(){
+  var date=(document.getElementById("rep-date")||{}).value||"";
+  var taskId=(document.getElementById("rep-task")||{}).value||"";
+  var task=state.tasks.find(function(t){return String(t.id)===String(taskId);});
+  if(!task||!date){toast("Selecciona fecha y tarea","error");return;}
+
+  // Recolectar todos los colaboradores asignados a esta tarea (o grupo)
+  var collabs=[];
+  if(task.isGroup&&Array.isArray(task.assignedTo)){
+    collabs=task.assignedTo.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
+  } else {
+    // Buscar todas las instancias de tareas con el mismo título en esa fecha
+    var sameTasks=state.tasks.filter(function(t){return t.title===task.title&&t.criteria===task.criteria;});
+    sameTasks.forEach(function(t){
+      var col=state.collaborators.find(function(c){return c.id===t.assignedTo||c.id===String(t.assignedTo);});
+      if(col&&!collabs.find(function(x){return x.id===col.id;}))collabs.push(col);
+    });
+  }
+
+  // Obtener criterios de la tarea
+  var criteriaLines=task.criteria.split(/\n/).filter(function(s){return s.trim();});
+  if(criteriaLines.length<=1)criteriaLines=task.criteria.split(/\./).filter(function(s){return s.trim();});
+  criteriaLines=criteriaLines.map(function(s){return s.replace(/^\d+[\.\-\)]\s*/,"").trim();}).filter(Boolean);
+
+  // Para cada colaborador, obtener el historial del día — priorizar aprobado, sino último
+  function getBestEntry(t,d){
+    var dayEntries=(t.history||[]).filter(function(h){return h.date===d&&h.criteriaResults&&h.criteriaResults.length;});
+    if(!dayEntries.length)return null;
+    var approved=dayEntries.filter(function(h){return h.approved;});
+    if(approved.length)return approved[approved.length-1]; // último aprobado del ciclo
+    return dayEntries[dayEntries.length-1]; // último intento si ninguno aprobado
+  }
+
+  // Construir tabla
+  var theadCols=criteriaLines.map(function(c,i){return'<th style="min-width:90px;padding:8px 6px;font-size:11px;font-weight:700;background:#1a1d2e;color:#fff;text-align:center;border:1px solid #333;max-width:120px;white-space:normal;line-height:1.3;">'+(i+1)+'. '+escH(c.length>40?c.slice(0,40)+'…':c)+'</th>';}).join("");
+  var rows="";
+  var allTasks=task.isGroup?[task]:state.tasks.filter(function(t){return t.title===task.title&&t.criteria===task.criteria;});
+
+  collabs.forEach(function(col){
+    var colTask=task.isGroup?task:allTasks.find(function(t){return t.assignedTo===col.id||String(t.assignedTo)===String(col.id);});
+    if(!colTask)return;
+    var entry=getBestEntry(colTask,date);
+    var statusBadge=entry?(entry.approved?'<span style="color:#27ae60;font-weight:700;font-size:10px;">✅ APROBADO</span>':'<span style="color:#e74c3c;font-weight:700;font-size:10px;">❌ NO APROBADO</span>'):'<span style="color:#bbb;font-size:10px;">Sin reporte</span>';
+    var cols=criteriaLines.map(function(c,i){
+      if(!entry)return'<td style="text-align:center;background:#f8f8f8;border:1px solid #eee;padding:6px;">—</td>';
+      var cr=entry.criteriaResults&&entry.criteriaResults[i];
+      var cumplido=cr?cr.cumplido:null;
+      if(cumplido===true)return'<td style="text-align:center;background:#f0fff4;border:1px solid #ddd;padding:6px;font-size:16px;">✓</td>';
+      if(cumplido===false)return'<td style="text-align:center;background:#fff0f0;border:1px solid #ddd;padding:6px;font-size:16px;font-weight:900;color:#e74c3c;">✗</td>';
+      return'<td style="text-align:center;background:#f8f8f8;border:1px solid #eee;padding:6px;">—</td>';
+    }).join("");
+    rows+='<tr><td style="padding:8px 10px;font-weight:700;font-size:12px;white-space:nowrap;border:1px solid #eee;background:#fafafa;">'+escH(col.name)+'<br>'+statusBadge+'</td>'+cols+'</tr>';
+  });
+
+  if(!rows){document.getElementById("rep-result").innerHTML='<div style="text-align:center;color:#bbb;padding:20px;">Sin datos para esta fecha y tarea.</div>';return;}
+
+  var html='<div style="font-weight:800;font-size:14px;margin-bottom:10px;">📊 '+escH(task.title)+' — '+escH(date)+'</div>'+
+    '<div style="overflow-x:auto;border-radius:10px;border:1px solid #eee;">'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px;">'+
+    '<thead><tr><th style="padding:8px 10px;background:#1a1d2e;color:#fff;text-align:left;border:1px solid #333;white-space:nowrap;">Colaborador</th>'+theadCols+'</tr></thead>'+
+    '<tbody>'+rows+'</tbody></table></div>';
+  document.getElementById("rep-result").innerHTML=html;
 }
 
 // ── EXCEL ──

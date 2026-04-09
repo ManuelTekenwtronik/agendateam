@@ -953,11 +953,16 @@ function addEvidenceFiles(files){
 function addCameraFiles(files){
   var fileArray=Array.from(files);
   if(!fileArray.length)return;
+  // Agregar archivos INMEDIATAMENTE con coords null para que la preview y el envío no queden bloqueados
+  var startIdx=_evidenceFiles.length;
+  fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
+  renderEvidencePreview();
   if(navigator.geolocation){
     toast("📍 Obteniendo ubicación…");
     navigator.geolocation.getCurrentPosition(function(pos){
       var coord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
-      fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(Object.assign({},coord));});
+      // Actualizar coords de las fotos recién añadidas
+      for(var i=startIdx;i<startIdx+fileArray.length;i++){_evidenceCoords[i]=Object.assign({},coord);}
       renderEvidencePreview();
       // Geocodificación inversa con Nominatim (OpenStreetMap)
       fetch("https://nominatim.openstreetmap.org/reverse?lat="+coord.lat+"&lon="+coord.lng+"&format=json&accept-language=es",{headers:{"User-Agent":"AgendaTeam/1.0"}})
@@ -966,20 +971,14 @@ function addCameraFiles(files){
             var a=geo.address;
             var parts=[a.road||a.pedestrian||a.footway||"",a.neighbourhood||a.suburb||a.quarter||a.city_district||"",a.city||a.town||a.village||a.municipality||"",a.state||"",a.country||""].filter(Boolean);
             var address=parts.slice(0,4).join(", ");
-            // Actualizar todas las coords recién añadidas con la dirección
-            var start=_evidenceCoords.length-fileArray.length;
-            for(var i=start;i<_evidenceCoords.length;i++){if(_evidenceCoords[i])_evidenceCoords[i].address=address;}
+            for(var i=startIdx;i<startIdx+fileArray.length;i++){if(_evidenceCoords[i])_evidenceCoords[i].address=address;}
             renderEvidencePreview();
           }
         }).catch(function(){});
     },function(){
-      fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
-      renderEvidencePreview();
-      toast("Ubicación no disponible — verifica permisos","warn");
+      toast("Ubicación no disponible — verifica permisos GPS","warn");
+      // Las fotos ya están en el array con coords null, no se bloquea el envío
     },{enableHighAccuracy:true,timeout:12000,maximumAge:0});
-  }else{
-    fileArray.forEach(function(f){_evidenceFiles.push(f);_evidenceCoords.push(null);});
-    renderEvidencePreview();
   }
 }
 

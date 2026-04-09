@@ -1824,6 +1824,10 @@ function openNT(){
       '<span style="font-size:36px;">📚</span>'+
       '<div><div style="font-weight:800;font-size:16px;color:#9b59b6;">Tarea Genérica</div>'+
       '<div style="font-size:13px;color:#888;margin-top:2px;">Gestionar plantillas reutilizables del equipo</div></div></div>'+
+    '<div onclick="openLocationsManager()" style="padding:20px;background:#f0fff8;border-radius:16px;cursor:pointer;border:2px solid #27ae60;display:flex;align-items:center;gap:14px;">'+
+      '<span style="font-size:36px;">📍</span>'+
+      '<div><div style="font-weight:800;font-size:16px;color:#27ae60;">Ubicaciones de referencia</div>'+
+      '<div style="font-size:13px;color:#888;margin-top:2px;">Gestionar bodegas, proyectos y puntos GPS ('+(state.locations||[]).length+' cargadas)</div></div></div>'+
     '</div>');
 }
 function openNTParticular(){

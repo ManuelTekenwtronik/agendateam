@@ -555,7 +555,7 @@ function showMainLogin(){
       '<button onclick="var l=document.getElementById(\'lcl\');var a=document.getElementById(\'lca\');if(l.style.display===\'none\'){l.style.display=\'flex\';a.textContent=\'▲\';}else{l.style.display=\'none\';a.textContent=\'▼\';}" style="width:100%;background:#f7f8fc;border:1.5px solid #e5e7ef;border-radius:14px;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;margin-bottom:0;font-weight:700;font-size:15px;">'+
         '<span>👥 Colaboradores <span style="font-size:12px;font-weight:400;color:#999;">('+state.collaborators.length+')</span></span>'+
         '<span id="lca" style="color:#999;font-size:13px;">▼</span></button>'+
-      '<div id="lcl" style="display:none;flex-direction:column;gap:6px;max-height:320px;overflow-y:auto;padding:8px 4px 4px 0;border:1.5px solid #e5e7ef;border-top:none;border-radius:0 0 14px 14px;padding:8px;">'+
+      '<div id="lcl" style="display:none;flex-direction:column;gap:6px;height:300px;overflow-y:scroll;-webkit-overflow-scrolling:touch;border:1.5px solid #e5e7ef;border-top:none;border-radius:0 0 14px 14px;padding:8px;">'+
       state.collaborators.map(function(c){
         var alertDot=(state.messages[collabCK(c.id)]||[]).some(function(m){return m.type==="alert_request";});
         var pending=state.tasks.filter(function(t){return t.assignedTo===c.id&&t.status!=="completada";}).length;
@@ -815,7 +815,7 @@ function renderTasks(){
         '<button onclick="var l=document.getElementById(\'acl\');var a=document.getElementById(\'aca\');if(l.style.display===\'none\'){l.style.display=\'block\';a.textContent=\'▲\';}else{l.style.display=\'none\';a.textContent=\'▼\';}" style="width:100%;background:#f7f8fc;border:1.5px solid #e5e7ef;border-radius:12px;padding:11px 14px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-weight:700;font-size:14px;margin-bottom:0;">'+
           '<span>👥 Ver equipo <span style="font-size:12px;font-weight:400;color:#999;">('+state.collaborators.length+')</span></span>'+
           '<span id="aca" style="color:#999;font-size:13px;">▼</span></button>'+
-        '<div id="acl" style="display:none;border:1.5px solid #e5e7ef;border-top:none;border-radius:0 0 12px 12px;max-height:260px;overflow-y:auto;">'+allRow+collabRows+'</div>';
+        '<div id="acl" style="display:none;border:1.5px solid #e5e7ef;border-top:none;border-radius:0 0 12px 12px;height:260px;overflow-y:scroll;-webkit-overflow-scrolling:touch;">'+allRow+collabRows+'</div>';
     }else{
       collabListHTML='<p style="color:#ccc;font-size:13px;text-align:center;">Agrega tu equipo para comenzar</p>';
     }

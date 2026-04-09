@@ -10,6 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="AgendaTeam"/>
 <link rel="manifest" href="/manifest.json"/>
 <link rel="apple-touch-icon" href="/icon.svg"/>
+<link rel="icon" type="image/svg+xml" href="/icon.svg"/>
+<link rel="shortcut icon" href="/icon.svg"/>
 <title>AgendaTeam</title>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -321,7 +323,7 @@ function sendNotif(userKey,title,body){
 }
 
 function saveCloud(){
-  if(!db)return;
+  if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
     collaborators:state.collaborators.map(function(c){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
@@ -389,8 +391,11 @@ function taskDue(t){
     // Último día del mes actual
     d=new Date(now.getFullYear(),now.getMonth()+1,0);
   }else{
-    // Diaria: hoy
+    // Diaria (L-V): si es fin de semana, avanzar al próximo lunes
     d=new Date(now);
+    var dow=d.getDay();
+    if(dow===6){d.setDate(d.getDate()+2);}   // sábado → lunes
+    else if(dow===0){d.setDate(d.getDate()+1);} // domingo → lunes
   }
   if(t.endTime){
     var parts=t.endTime.split(":");
@@ -415,8 +420,9 @@ var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#
 
 var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
+var _cloudSynced=false; // protección: no guardar en Firestore antes de recibir datos de la nube
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
-var confirmCallback=null,aiLoading=false;
+var confirmCallback=null,aiLoading=false,_aiLastTs=0;
 var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
 var pinTarget=null,pinBuffer="";
@@ -431,11 +437,12 @@ function init(){
   state=loadLocal();
   document.getElementById("login-screen").classList.remove("hidden");
   setInterval(runAlerts,30000);
+  setInterval(runReminders,5*60000);
   setInterval(function(){if(currentUser&&currentTab==="tareas")renderTasks();},60000);
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;showMainLogin();startSync();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -446,9 +453,10 @@ function init(){
         state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
         saveLocal();
       }
+      _cloudSynced=true; // a partir de aquí saveCloud puede escribir con seguridad
       showMainLogin();
       startSync();
-    }).catch(function(){if(!done){done=true;clearTimeout(t);showMainLogin();}});
+    }).catch(function(){if(!done){done=true;_cloudSynced=true;clearTimeout(t);showMainLogin();}});
   }else{
     showMainLogin();
   }
@@ -608,7 +616,7 @@ function logout(){
 function aiNotify(ck,sys,userText){
   if(!state.messages[ck])state.messages[ck]=[];
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:200,system:sys,messages:[{role:"user",content:userText}]})
+    body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:120,system:sys,messages:[{role:"user",content:userText}]})
   }).then(function(r){return r.json();}).then(function(d){
     var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
     state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
@@ -618,8 +626,11 @@ function aiNotify(ck,sys,userText){
 
 function runAlerts(){
   var now=Date.now(),changed=false;
+  var _dowA=new Date().getDay(); // 0=dom, 6=sab
   state.tasks.forEach(function(task){
     if(task.status==="completada"||task.indefinite||!task.endDate)return;
+    // Tareas diarias sin fecha explícita no aplican fin de semana
+    if((task.frequency==="diaria"||!task.frequency)&&(_dowA===0||_dowA===6))return;
     var due=taskDue(task);
     var thresh=OT[task.frequency]||OT.diaria;
     var col=state.collaborators.find(function(c){return c.id===task.assignedTo;});
@@ -664,9 +675,80 @@ function runAlerts(){
   if(changed)saveLocal();
 }
 
+// ── RECORDATORIOS ESCALONADOS ──
+function runReminders(){
+  var now=Date.now(),changed=false;
+  var today=new Date().toISOString().slice(0,10);
+  var _dowR=new Date().getDay(); // 0=dom, 6=sab
+  // Limpiar recordatorios de días anteriores para no acumular el array
+  state.alerts=state.alerts.filter(function(a){
+    if(!a.type||a.type.indexOf("rem")<0)return true;
+    return a.date===today;
+  });
+  state.tasks.forEach(function(task){
+    if(task.status==="completada"||task.status==="cancelada")return;
+    // Tareas diarias no aplican fin de semana
+    if((task.frequency==="diaria"||!task.frequency)&&(_dowR===0||_dowR===6))return;
+    var due=taskDue(task);
+    var diff=due-now;
+    if(diff<=0||diff>91*60000)return; // ya venció o faltan más de 91 min
+    var isGroupTask=task.isGroup&&Array.isArray(task.assignedTo);
+    var assignees=isGroupTask?task.assignedTo:(task.assignedTo?[task.assignedTo]:[]);
+    assignees.filter(Boolean).forEach(function(collabId){
+      var col=state.collaborators.find(function(c){return c.id===collabId;});
+      if(!col)return;
+      var ck=isGroupTask&&task.groupKey?task.groupKey:collabCK(collabId);
+      var tname="\""+task.title+"\"";
+      var ttime=task.endTime?" a las "+task.endTime:"";
+      // Checkpoints: {umbral en min, id, useAI, mensaje directo, texto notif}
+      var cps=[
+        {min:90,id:"rem90",useAI:true,notif:"⏰ 1h 30min para entregar — prepara tu soporte."},
+        {min:60,id:"rem60",useAI:false,
+         msg:"⏰ *Recordatorio — queda 1 hora*\n\nFalta 1 hora para presentar el soporte de *"+tname+"*"+(task.endTime?"\n🕐 Hora límite: "+task.endTime:"")+". ¡Organiza tu tiempo y ten lista tu evidencia!",
+         notif:"⏰ 1 hora restante. ¡Prepara tu soporte!"},
+        {min:30,id:"rem30",useAI:true,notif:"🔔 ¡30 minutos! Presenta tu soporte ahora."},
+        {min:15,id:"rem15",useAI:false,
+         msg:"🚨 *¡15 minutos para el cierre!*\n\nLa tarea *"+tname+"* vence en 15 minutos"+(task.endTime?" ("+task.endTime+")":"")+". Ingresa a AgendaTeam y presenta tu soporte de inmediato.",
+         notif:"🚨 ¡15 minutos! Ingresa y reporta ya."},
+        {min:5,id:"rem5",useAI:false,
+         msg:"🔴 *¡URGENTE — 5 minutos!*\n\nEl tiempo para presentar *"+tname+"* está por agotarse. ¡Reporta AHORA antes de que cierre el ciclo!",
+         notif:"🔴 ¡5 minutos! Último aviso — reporta ya."}
+      ];
+      cps.forEach(function(cp){
+        if(diff>cp.min*60000)return; // aún no llega a este umbral
+        var rid=cp.id+"_"+task.id+"_"+collabId+"_"+today;
+        if(state.alerts.find(function(a){return a.id===rid;}))return; // ya enviado
+        state.alerts.push({id:rid,taskId:task.id,collabId:collabId,type:cp.id,date:today,ts:now});
+        if(cp.useAI){
+          var urgLevel=cp.min===90?"en 1 hora y 30 minutos":"en 30 minutos";
+          var tone=cp.min===90?"motivador y amable, menciona que debe organizar su tiempo":"urgente y directo, pídele que presente el soporte AHORA";
+          var sys="Eres el asistente de AgendaTeam. La tarea "+tname+" de "+col.name.split(" ")[0]+" vence "+urgLevel+ttime+". Envía un recordatorio "+tone+". Máximo 2 oraciones. Responde en español.";
+          aiNotify(ck,sys,"Recordatorio "+cp.min+" min antes del vencimiento.");
+        }else{
+          if(!state.messages[ck])state.messages[ck]=[];
+          state.messages[ck].push({id:Date.now()+Math.random(),from:"ai",text:cp.msg,ts:now});
+        }
+        sendNotif("collab_"+collabId,"📋 AgendaTeam — "+col.name.split(" ")[0],cp.notif+" ("+task.title+")");
+        changed=true;
+      });
+    });
+  });
+  if(changed){
+    saveLocal();
+    if(currentChatKey)renderChat();
+  }
+}
+
 // ── COUNTDOWN ──
 function timeCountdown(t){
   if(t.status==="completada")return"";
+  // Tareas diarias sin fecha explícita no aplican fin de semana
+  if(!t.endDate&&(t.frequency==="diaria"||!t.frequency)){
+    var _dow=new Date().getDay();
+    if(_dow===6||_dow===0){
+      return'<span class="badge" style="background:#f0f7ff;color:#4a90d9;font-weight:700;">📅 Retoma el lunes</span>';
+    }
+  }
   var due=taskDue(t);
   var diff=due-Date.now();
   var abs=Math.abs(diff);
@@ -1189,6 +1271,11 @@ function cloudinarySmall(url){
   if(!url||url.indexOf("res.cloudinary.com")<0)return url;
   return url.replace("/upload/","/upload/w_600,h_600,c_fill,q_80/");
 }
+// Transformación optimizada para visión de IA: 1024px, alta calidad, sin recorte
+function cloudinaryForAI(url){
+  if(!url||url.indexOf("res.cloudinary.com")<0)return url;
+  return url.replace("/upload/","/upload/w_1024,h_1024,c_limit,q_90,f_jpg/");
+}
 // Distancia en metros entre dos coords (Haversine)
 function haversineMeters(lat1,lng1,lat2,lng2){
   var R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
@@ -1310,34 +1397,38 @@ function validateTaskCompletion(taskId,report,attachments){
   // Buscar referencias en la base de datos que coincidan con la tarea
   var refs=state.references||[];
   var criteriaLow=(t.criteria+" "+t.title).toLowerCase();
-  var matchedRefs=refs.filter(function(r){
+  var allMatchedRefs=refs.filter(function(r){
     return criteriaLow.indexOf(r.name.toLowerCase())>=0||
       (r.category&&criteriaLow.indexOf(r.category.toLowerCase())>=0);
   });
+  // Solo usar referencias si coincide 1 ítem muy específico.
+  // Si coinciden muchos (EPP genérico), la IA ya los reconoce visualmente con imagen 1024px.
+  var matchedRefs=allMatchedRefs.length===1?allMatchedRefs:[];
   var refContext="";
   var refImageBlocks=[];
   if(matchedRefs.length>0){
-    refContext="\n\nBASE DE DATOS DE REFERENCIA (estándar oficial):\n"+
-      matchedRefs.map(function(r){
-        return"📌 "+r.name+(r.category?" ["+r.category+"]":"")+"\n"+r.description;
-      }).join("\n\n");
-    matchedRefs.forEach(function(r){
-      (r.imageUrls||[]).slice(0,2).forEach(function(img){
-        if(img.url)refImageBlocks.push({type:"image",source:{type:"url",url:img.url}});
-      });
-    });
+    refContext="\nREFERENCIA: "+matchedRefs[0].name+(matchedRefs[0].description?": "+matchedRefs[0].description.slice(0,150):"");
+    var img=(matchedRefs[0].imageUrls||[]).find(function(i){return i.url;});
+    if(img)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
   }
   // Imágenes de los soportes enviados
-  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,4).map(function(a){return{type:"image",source:{type:"url",url:a.url}};});
+  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,1).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
   var refCount=refImageBlocks.length,evCount=evImageBlocks.length;
   var imgNote="";
-  if(refCount>0||evCount>0){
-    imgNote="\n\nIMÁGENES ADJUNTAS:"+(refCount>0?"\n- Primeras "+refCount+" imágen(es): ESTÁNDAR DE REFERENCIA oficial (cómo debe verse).":"")+
-      (evCount>0?"\n- Siguientes "+evCount+" imágen(es): SOPORTES enviados por el colaborador. Compara con el estándar.":"");
+  var faceNote=t.faceRecognition?" Identidad facial ya verificada, no evaluar.":" ";
+  var gpsNote=t.requireLocation?" GPS ya validado, no evaluar ubicación visual.":" ";
+  var imgInstr="";
+  if(evCount>0&&refCount>0){
+    imgInstr=" IMÁGENES: primera(s) "+refCount+" = REFERENCIA (úsala SOLO si la evidencia es ambigua o no puedes determinar cumplimiento desde la imagen del colaborador). Siguiente(s) "+evCount+" = EVIDENCIA del colaborador. Evalúa primero con la evidencia; la referencia es último recurso.";
+  }else if(evCount>0){
+    imgInstr=" Imagen(es) adjunta(s): evidencia del colaborador.";
   }
-  var faceNote=t.faceRecognition?"\n\n⚠️ NOTA IMPORTANTE: La verificación de identidad facial (que la persona en la foto sea el colaborador correcto) ya fue realizada por un sistema biométrico separado ANTES de llegar aquí. NO necesitas verificar ni comentar sobre identidad de personas. Tu único rol es verificar el cumplimiento de los criterios de la tarea.":"";
-  var gpsNote=t.requireLocation?"\n\n⚠️ NOTA IMPORTANTE SOBRE UBICACIÓN: La validación de coordenadas GPS y proximidad geográfica ya fue realizada por el sistema ANTES de esta solicitud, comparando coordenadas exactas con el punto de referencia y el radio permitido. NO intentes determinar visualmente si el entorno de las fotos parece una bodega, proyecto, oficina u otro lugar. No evalúes ni comentes sobre la ubicación geográfica del entorno. Tu único rol es verificar el cumplimiento de los criterios específicos de la tarea.":"";
-  var sys="Eres el validador estricto de tareas de AgendaTeam. Evalúa CADA criterio de forma individual y detallada.\n\nTarea: \""+t.title+"\"\n\nCriterios a verificar:\n"+criteriaLines+"\n\nReporte del colaborador:\n\""+report+"\""+attInfo+refContext+imgNote+faceNote+gpsNote+"\n\nINSTRUCCIONES OBLIGATORIAS:\n1. Analiza CADA criterio por separado. Si hay listas de elementos dentro de un criterio (ej: prendas de uniforme, ítems de inventario), evalúa CADA elemento de la lista individualmente.\n2. Para cada criterio o elemento indica explícitamente:\n   ✓ PRESENTE/CUMPLIDO: [qué evidencia lo confirma]\n   ✗ FALTANTE/INCUMPLIDO: [qué falta exactamente, sé muy específico]\n3. "+(refCount>0?"Usa las imágenes de REFERENCIA para saber exactamente cómo debe verse el estándar. Compara las imágenes de soportes contra ese estándar.":"Si hay imágenes adjuntas, analiza su contenido vs los criterios (indumentaria, documentos, equipos, etc.) sin intentar identificar personas.")+"\n4. NO generalices. Di exactamente qué está presente y qué falta, pieza por pieza.\n5. Responde ÚNICAMENTE en JSON válido sin texto extra con este formato exacto:\n{\"aprobada\":true,\"razon\":\"✅ Todos los criterios cumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n\\nCriterio N — [nombre]:\\n✓ [sub-elemento]: [evidencia]\",\"criteriaResults\":[{\"criterio\":\"Nombre exacto del criterio 1\",\"cumplido\":true,\"detalle\":\"Breve evidencia\"},{\"criterio\":\"Nombre exacto del criterio N\",\"cumplido\":false,\"detalle\":\"Qué faltó\"}]}\no si hay incumplimientos:\n{\"aprobada\":false,\"razon\":\"❌ Criterios incumplidos.\",\"reporte\":\"📋 REPORTE PUNTO A PUNTO:\\n\\nCriterio 1 — [nombre]:\\n✓ [sub-elemento]: [evidencia]\\n✗ [sub-elemento]: [qué falta exactamente]\\n\\nCriterio N — [nombre]:\\n✗ [sub-elemento]: [qué falta]\",\"pendiente\":\"Resumen de lo que debe corregir para aprobar.\",\"criteriaResults\":[{\"criterio\":\"Nombre exacto del criterio 1\",\"cumplido\":true,\"detalle\":\"Evidencia\"},{\"criterio\":\"Nombre exacto del criterio N\",\"cumplido\":false,\"detalle\":\"Qué faltó exactamente\"}]}\nIMPORTANTE: criteriaResults debe tener UN objeto por cada criterio numerado de la lista, en el mismo orden.";
+  var sys="Validador AgendaTeam. Tarea:\""+t.title+"\"\nCriterios:\n"+criteriaLines+"\nReporte:\""+report.slice(0,300)+"\""+
+    (attachments.length?" Soportes:"+attachments.length+" archivo(s).":"")+
+    imgInstr+faceNote+gpsNote+
+    "\nResponde SOLO JSON sin texto extra:\n"+
+    "{\"aprobada\":true/false,\"razon\":\"breve\",\"reporte\":\"✓/✗ por criterio\",\"pendiente\":\"qué corregir si aplica\","+
+    "\"criteriaResults\":[{\"criterio\":\"nombre\",\"cumplido\":true/false,\"detalle\":\"breve\"}]}";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
@@ -1354,11 +1445,22 @@ function validateTaskCompletion(taskId,report,attachments){
   var allImgBlocks=refImageBlocks.concat(evImageBlocks);
   var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,system:sys,messages:[{role:"user",content:msgContent}]})
-  }).then(function(r){return r.json();}).then(function(d){
-    // Re-buscar t en state.tasks actual (onSnapshot pudo reemplazar el array durante la llamada a la IA)
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:sys,messages:[{role:"user",content:msgContent}]})
+  }).then(function(r){
+    var ct=r.headers.get("content-type")||"";
+    if(!ct.includes("json"))return r.text().then(function(){throw new Error("Servidor no disponible ("+r.status+"). Intenta de nuevo.");});
+    return r.json();
+  }).then(function(d){
     t=state.tasks.find(function(x){return x.id==taskId;});
     if(!t)return;
+    // Manejar errores de API (rate limit, etc.)
+    if(d.error){
+      t.status="en-progreso";
+      var em=d.error.type==="rate_limit_error"?"⏳ Límite de uso alcanzado. Espera 1 minuto e intenta de nuevo.":"⚠️ Error del servicio: "+d.error.message;
+      if(state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",text:em,ts:Date.now()});
+      delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+      saveLocal();if(db)saveCloud();render();return;
+    }
     var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
     var result={};
     try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){console.warn("JSON parse error:",e,raw);}
@@ -1401,12 +1503,14 @@ function validateTaskCompletion(taskId,report,attachments){
       setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
     }
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+    _aiLastTs=Date.now(); // cooldown tras validación
     saveLocal();if(db)saveCloud();render();
   }).catch(function(e){
     t=state.tasks.find(function(x){return x.id==taskId;})||t;
     t.status="en-progreso";
     if(state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+    _aiLastTs=Date.now();
     saveLocal();if(db)saveCloud();render();
   });
 }
@@ -2587,6 +2691,7 @@ function openGroupChat(taskId){
 
 function sendMsg(){
   if(aiLoading)return;
+  var _now=Date.now();if(_now-_aiLastTs<8000){toast("⏳ Espera un momento antes de enviar otro mensaje…","error");return;}
   var inp=document.getElementById("chat-in");
   if(!inp||!inp.value.trim())return;
   var isBoss=currentUser&&currentUser.type==="boss";
@@ -2606,17 +2711,17 @@ function sendMsg(){
     saveLocal();renderChat();
     aiLoading=true;
     var gnames=gcols.map(function(c){return c.name;}).join(", ");
-    var sys="Eres el asistente de AgendaTeam en el chat grupal de la tarea \""+gt.title+"\" ("+gt.frequency+"). Participantes: Manuel (jefe), "+gnames+". Facilita la coordinación del grupo, haz seguimiento del avance y mantén a todos enfocados en cumplir la tarea en los tiempos previstos. Responde en español, máximo 3 oraciones.";
-    var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
+    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel, "+gnames+". Facilita coordinación, máx 2 oraciones. Responde en español.";
+    var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-5,-1).map(function(m){
       var isHuman=m.from==="boss"||typeof m.from==="number";
-      return{role:isHuman?"user":"assistant",content:m.text};
+      return{role:isHuman?"user":"assistant",content:m.text.slice(0,200)};
     });
     var clean=[];for(var i=0;i<hist.length;i++){if(clean.length===0||hist[i].role!==clean[clean.length-1].role)clean.push(hist[i]);}
     var prev=clean.concat([{role:"user",content:"["+senderName+"]: "+text}]);
     fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:300,system:sys,messages:prev})
-    }).then(function(r){return r.json();}).then(function(d){
-      var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
+      body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:300,system:sys,messages:prev})
+    }).then(function(r){var ct=r.headers.get("content-type")||"";if(!ct.includes("json"))throw new Error("Servidor no disponible ("+r.status+").");return r.json();}).then(function(d){
+      var txt=d.error?(d.error.type==="rate_limit_error"?"⏳ Mucho tráfico en este momento. Espera 1 minuto e intenta de nuevo.":"⚠️ "+d.error.message):(d.content&&d.content[0]&&d.content[0].text)||"Sin respuesta.";
       state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
       aiLoading=false;saveLocal();renderChat();
     }).catch(function(e){
@@ -2636,67 +2741,46 @@ function sendMsg(){
   if(isBoss){sendNotif("collab_"+cc.id,"💬 Mensaje de Manuel",text.slice(0,80));}
   else{sendNotif("boss","💬 Mensaje de "+cc.name,text.slice(0,80));}
   saveLocal();renderChat();
-  aiLoading=true;
+  aiLoading=true;_aiLastTs=Date.now();
   var ct=state.tasks.filter(function(t){return taskBelongsTo(t,cc.id);});
-  var today=new Date().toLocaleDateString("es",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
-  // Construir detalle completo de cada tarea
-  var taskDetail=ct.map(function(t){
+  var today=new Date().toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
+  // Detalle compacto de tareas (máx tokens)
+  var taskDetail=ct.slice(0,8).map(function(t){
     var st=SC[t.status]?SC[t.status].l:t.status;
     var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";
-    var lines=["• "+t.title+" ["+FC[t.frequency].l+"] — Estado: "+st+(ov?" ⚠️VENCIDA":"")];
-    if(t.startDate)lines.push("  Inicio: "+t.startDate);
-    if(t.endDate)lines.push("  Entrega: "+t.endDate+(t.endTime?" "+t.endTime:""));
-    if(t.criteria)lines.push("  Criterios: "+t.criteria.slice(0,200));
-    if(t.notes)lines.push("  Notas: "+t.notes.slice(0,100));
-    var hist=(t.history||[]);
-    if(hist.length>0){
-      lines.push("  Historial de entregas ("+hist.length+" registro(s)):");
-      hist.slice(-5).forEach(function(h){
-        lines.push("    - "+h.date+": "+(h.approved?"✅ Aprobada":"❌ Rechazada")+(h.report?" — \""+h.report.slice(0,80)+"\"":" "));
-      });
-    }else{
-      lines.push("  Sin entregas registradas aún.");
-    }
-    return lines.join("\n");
-  }).join("\n\n")||"Sin tareas asignadas.";
+    var parts=[t.title+" ["+st+(ov?" ⚠️":"")+"]"];
+    if(t.endDate)parts.push("Entrega:"+t.endDate+(t.endTime?" "+t.endTime:""));
+    if(t.criteria)parts.push("Criterios:"+t.criteria.slice(0,100));
+    var lastH=(t.history||[]).slice(-2).map(function(h){return h.date+":"+(h.approved?"✅":"❌");}).join(", ");
+    if(lastH)parts.push("Historial:"+lastH);
+    return parts.join(" | ");
+  }).join("\n")||"Sin tareas.";
 
-  var totales="Total: "+ct.length+" | Pendientes: "+ct.filter(function(t){return t.status==="pendiente";}).length+
-    " | En progreso: "+ct.filter(function(t){return t.status==="en-progreso";}).length+
-    " | Validando: "+ct.filter(function(t){return t.status==="pendiente_validacion";}).length+
-    " | Completadas: "+ct.filter(function(t){return t.status==="completada";}).length+
-    " | Vencidas: "+ct.filter(function(t){return t.status!=="completada"&&!t.indefinite&&t.endDate&&taskDue(t)<Date.now();}).length;
+  var totales="Tot:"+ct.length+" Pend:"+ct.filter(function(t){return t.status==="pendiente";}).length+
+    " Prog:"+ct.filter(function(t){return t.status==="en-progreso";}).length+
+    " Comp:"+ct.filter(function(t){return t.status==="completada";}).length;
 
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
-  var escalNote=isEsc?"⚠️ HAY UN INCUMPLIMIENTO ACTIVO — presiona para obtener fecha y hora concreta de cumplimiento.\n\n":"";
+  var escalNote=isEsc?"⚠️ INCUMPLIMIENTO ACTIVO — pedir fecha concreta.\n":"";
 
-  var sys="Eres el asistente inteligente de AgendaTeam. Hoy es "+today+".\n\n"+
-    escalNote+
-    "Colaborador: "+cc.name+" — "+escH(cc.role||"Sin cargo")+".\n\n"+
-    "=== TAREAS ASIGNADAS ===\n"+taskDetail+"\n\n"+
-    "=== RESUMEN ===\n"+totales+"\n\n"+
-    "Puedes: responder preguntas sobre tareas, generar reportes de desempeño detallados (cumplimiento, puntualidad, tendencias), analizar el historial, y hacer seguimiento. "+
-    "Cuando te pidan un reporte genera uno estructurado con: resumen ejecutivo, cumplimiento por tarea, % de tareas a tiempo, observaciones y recomendaciones. "+
-    "Para preguntas simples responde en máximo 3 oraciones. Para reportes puede extenderse. Responde siempre en español.";
+  var sys="Asistente AgendaTeam. Hoy "+today+". "+escalNote+
+    cc.name+(cc.role?" ("+cc.role+")":"")+"\n"+
+    "TAREAS:\n"+taskDetail+"\n"+totales+"\n"+
+    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: resumen estructurado. "+
+    "Si el colaborador pide aclaración sobre validación/criterios: explica en detalle con el historial disponible.";
 
-  var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system"&&m.from!=="ai";}).slice(-12).map(function(m){
-    var name=m.from==="boss"?"Manuel":cc.name;
-    return{role:"user",content:"["+name+"]: "+m.text};
-  });
-  var aiHist=(state.messages[ck]||[]).filter(function(m){return m.from==="ai";}).slice(-6).map(function(m){
-    return{role:"assistant",content:m.text};
-  });
-  // Intercalar mensajes humanos y IA en orden cronológico
-  var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-14,-1).map(function(m){
+  // Historial de chat compacto (últimos 6 mensajes)
+  var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
     var isHuman=m.from==="boss"||typeof m.from==="number";
     var name=m.from==="boss"?"Manuel":cc.name;
-    return{role:isHuman?"user":"assistant",content:isHuman?"["+name+"]: "+m.text:m.text};
+    return{role:isHuman?"user":"assistant",content:isHuman?"["+name+"]: "+m.text.slice(0,300):m.text.slice(0,300)};
   });
   var clean=[];for(var i=0;i<allHist.length;i++){if(clean.length===0||allHist[i].role!==clean[clean.length-1].role)clean.push(allHist[i]);}
   var prev=clean.concat([{role:"user",content:(isBoss?"[Manuel]: ":"["+cc.name+"]: ")+text}]);
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1000,system:sys,messages:prev})
-  }).then(function(r){return r.json();}).then(function(d){
-    var txt=(d.content&&d.content[0]&&d.content[0].text)||(d.error?"⚠️ "+d.error.message:"Sin respuesta.");
+    body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:600,system:sys,messages:prev})
+  }).then(function(r){var ct=r.headers.get("content-type")||"";if(!ct.includes("json"))throw new Error("Servidor no disponible ("+r.status+").");return r.json();}).then(function(d){
+    var txt=d.error?(d.error.type==="rate_limit_error"?"⏳ Mucho tráfico ahora. Espera 1 minuto e intenta de nuevo.":"⚠️ "+d.error.message):(d.content&&d.content[0]&&d.content[0].text)||"Sin respuesta.";
     state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
     aiLoading=false;saveLocal();renderChat();
   }).catch(function(e){

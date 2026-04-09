@@ -2314,7 +2314,9 @@ function collabFormHTML(c){
 function handlePhoto(input){
   var f=input.files[0];if(!f)return;
   var p=document.getElementById("photo-preview");
+  var btn=document.querySelector(".sheet-body .btn-dark");
   if(p)p.innerHTML='<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:28px;">⏳</div>';
+  if(btn){btn.disabled=true;btn.textContent="Subiendo foto…";}
   var fd=new FormData();
   fd.append("file",f);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam_avatars");
   var xhr=new XMLHttpRequest();
@@ -2325,15 +2327,18 @@ function handlePhoto(input){
       if(r.secure_url){
         tempPhoto=r.secure_url;
         if(p)p.innerHTML='<img src="'+tempPhoto+'">';
-        console.log("Foto subida OK:",tempPhoto);
       }else{
-        console.error("Cloudinary error:",r.error&&r.error.message||JSON.stringify(r));
         toast("Error al subir foto: "+(r.error&&r.error.message||"respuesta inválida"),"error");
         if(p)p.innerHTML='<span>👤</span>';
       }
     }catch(e){toast("Error al subir foto","error");if(p)p.innerHTML='<span>👤</span>';}
+    if(btn){btn.disabled=false;btn.textContent="Guardar";}
   };
-  xhr.onerror=function(){toast("Error de red al subir foto","error");if(p)p.innerHTML='<span>👤</span>';};
+  xhr.onerror=function(){
+    toast("Error de red al subir foto","error");
+    if(p)p.innerHTML='<span>👤</span>';
+    if(btn){btn.disabled=false;btn.textContent="Guardar";}
+  };
   xhr.send(fd);
 }
 

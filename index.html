@@ -1426,9 +1426,11 @@ function validateTaskCompletion(taskId,report,attachments){
   var sys="Validador AgendaTeam. Tarea:\""+t.title+"\"\nCriterios:\n"+criteriaLines+"\nReporte:\""+report.slice(0,300)+"\""+
     (attachments.length?" Soportes:"+attachments.length+" archivo(s).":"")+
     imgInstr+faceNote+gpsNote+
-    "\nResponde SOLO JSON sin texto extra:\n"+
-    "{\"aprobada\":true/false,\"razon\":\"breve\",\"reporte\":\"✓/✗ por criterio\",\"pendiente\":\"qué corregir si aplica\","+
-    "\"criteriaResults\":[{\"criterio\":\"nombre\",\"cumplido\":true/false,\"detalle\":\"breve\"}]}";
+    "\nEVALÚA CADA CRITERIO INDIVIDUALMENTE. SIEMPRE incluye todos los criterios con su resultado. Responde SOLO JSON sin texto extra:\n"+
+    "{\"aprobada\":true/false,\"porcentaje\":0-100,\"razon\":\"resumen en 1 oración\","+
+    "\"criteriaResults\":[{\"criterio\":\"nombre exacto del criterio\",\"cumplido\":true/false,\"detalle\":\"si cumplido: evidencia que lo confirma. Si rechazado: razón exacta del fallo y qué falta.\"}],"+
+    "\"pasos\":[\"acción concreta para corregir (lista vacía si aprobada=true)\"]}"+
+    "\nOBLIGATORIO: criteriaResults debe tener una entrada por CADA criterio listado, sin excepción.";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
@@ -1445,7 +1447,7 @@ function validateTaskCompletion(taskId,report,attachments){
   var allImgBlocks=refImageBlocks.concat(evImageBlocks);
   var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:800,system:sys,messages:[{role:"user",content:msgContent}]})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){
     var ct=r.headers.get("content-type")||"";
     if(!ct.includes("json"))return r.text().then(function(){throw new Error("Servidor no disponible ("+r.status+"). Intenta de nuevo.");});
@@ -1461,17 +1463,22 @@ function validateTaskCompletion(taskId,report,attachments){
       delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
       saveLocal();if(db)saveCloud();render();return;
     }
-    var raw=(d.content&&d.content[0]&&d.content[0].text)||"{}";
+    var raw=(d.content&&d.content[0]&&d.content[0].text)||"";
     var result={};
-    try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){console.warn("JSON parse error:",e,raw);}
-    if(!result||typeof result.aprobada==="undefined"){console.warn("Respuesta IA inesperada:",raw);}
+    if(raw){try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};}catch(e){console.warn("JSON parse error:",e,raw);}}
+    if(!state.messages[ck])state.messages[ck]=[];
+    // Si la IA no devolvió una respuesta válida (API error, timeout, etc.)
+    if(!raw||typeof result.aprobada==="undefined"){
+      t.status="en-progreso";
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ El servicio de validación no respondió correctamente. Intenta reportar de nuevo en 1 minuto.",ts:Date.now()});
+      delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+      _aiLastTs=Date.now();
+      saveLocal();if(db)saveCloud();render();return;
+    }
     var approved=result.aprobada===true;
     if(approved){
-      // Aprobar
       var cs=cycleStart(t);
-      // Solo bloquear si ya hay una entrada APROBADA en este ciclo (entradas rechazadas no cuentan)
       var alreadyDone=(t.history||[]).some(function(h){return h.ts>=cs&&h.approved;});
-      // Si hay entrada rechazada del ciclo actual, la eliminamos para reemplazarla con la aprobada
       if(!alreadyDone){t.history=(t.history||[]).filter(function(h){return h.ts<cs||h.approved;});}
       if(!alreadyDone){
         if(!t.history)t.history=[];
@@ -1484,31 +1491,33 @@ function validateTaskCompletion(taskId,report,attachments){
       t.status="completada";
       var attLinks=attachments.length>0?"\n\n📎 Soportes:\n"+attachments.map(function(a){return getFileIcon(a.type,a.name)+" "+a.name;}).join("\n"):"";
       var razonOk=result.razon||result.reason||"✅ Aprobada.";
-      var reporteOk=result.reporte||result.report||"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+razonOk+(reporteOk?"\n\n"+reporteOk:"")+attLinks,ts:Date.now(),attachments:attachments});
+      var pctOk=typeof result.porcentaje==="number"?"📊 Cumplimiento: "+result.porcentaje+"%\n\n":"";
+      var crOk=(result.criteriaResults||[]).map(function(cr){return(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle:"");}).join("\n");
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+pctOk+razonOk+(crOk?"\n\n"+crOk:"")+attLinks,ts:Date.now(),attachments:attachments});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
-      // Rechazar → seguimiento
       if(!t.history)t.history=[];
       t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
-      var pendiente=result.pendiente||"";
-      var razonNok=result.razon||result.reason||"Sin detalle.";
-      var reporteNok=result.reporte||result.report||"";
-      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+razonNok+(reporteNok?"\n\n"+reporteNok:"")+(pendiente?"\n\n🔧 Para aprobar:\n"+pendiente:"")+"\n\n🔄 Corrige los puntos indicados y vuelve a reportar.",ts:Date.now()});
+      var razonNok=result.razon||result.reason||"Criterios no cumplidos.";
+      var pctNok=typeof result.porcentaje==="number"?"📊 Cumplimiento: "+result.porcentaje+"%\n\n":"";
+      var crNok=(result.criteriaResults||[]).map(function(cr){return(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle:"");}).join("\n");
+      var pasosNok=(result.pasos||[]).filter(function(p){return p;}).map(function(p){return"• "+p;}).join("\n");
+      state.messages[ck].push({id:Date.now(),from:"ai",text:"❌ Validación no aprobada.\n\n"+pctNok+razonNok+(crNok?"\n\n"+crNok:"")+(pasosNok?"\n\n🔧 Para aprobar:\n"+pasosNok:"")+"\n\n🔄 Corrige los puntos indicados y vuelve a reportar.",ts:Date.now()});
       sendNotif("boss","⚠️ Validación rechazada","\""+t.title+"\""+(col?" — "+col.name:"")+" no cumple los criterios.");
       if(col)sendNotif("collab_"+col.id,"❌ Reporte rechazado","\""+t.title+"\": "+razonNok.slice(0,80));
-      // Seguimiento programado
-      setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
+      // Seguimiento programado (máx 2 veces para no consumir tokens indefinidamente)
+      if(!(t._followUpCount>=2)){t._followUpCount=(t._followUpCount||0)+1;setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);}
     }
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
-    _aiLastTs=Date.now(); // cooldown tras validación
+    _aiLastTs=Date.now();
     saveLocal();if(db)saveCloud();render();
   }).catch(function(e){
     t=state.tasks.find(function(x){return x.id==taskId;})||t;
     t.status="en-progreso";
-    if(state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
+    if(!state.messages[ck])state.messages[ck]=[];
+    state.messages[ck].push({id:Date.now(),from:"ai",text:"⚠️ Error al validar: "+(e&&e.message||"Sin conexión")+". Intenta reportar de nuevo.",ts:Date.now()});
     delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
     _aiLastTs=Date.now();
     saveLocal();if(db)saveCloud();render();

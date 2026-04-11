@@ -2767,49 +2767,68 @@ function sendMsg(){
   aiLoading=true;_aiLastTs=Date.now();
   var ct=state.tasks.filter(function(t){return taskBelongsTo(t,cc.id);});
   var today=new Date().toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
-  // Detalle compacto de tareas (máx tokens)
-  var taskDetail=ct.slice(0,6).map(function(t){
+
+  // Detalle completo de tareas con historial de entregas
+  var taskDetail=ct.map(function(t){
     var st=SC[t.status]?SC[t.status].l:t.status;
     var ov=!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";
-    var lines=[t.title+" ["+st+(ov?" ⚠️":"")+"]"+(t.endDate?" — Entrega:"+t.endDate+(t.endTime?" "+t.endTime:""):"")];
-    if(t.criteria)lines.push("  Criterios: "+t.criteria.slice(0,400));
-    // Último resultado de validación con criterios fallados
-    var lastEntry=(t.history||[]).slice(-1)[0];
-    if(lastEntry){
-      lines.push("  Última entrega ("+lastEntry.date+"): "+(lastEntry.approved?"✅ Aprobada":"❌ Rechazada"));
-      if(!lastEntry.approved&&lastEntry.criteriaResults&&lastEntry.criteriaResults.length>0){
-        var failed=lastEntry.criteriaResults.filter(function(cr){return!cr.cumplido;});
-        if(failed.length>0)lines.push("  Criterios fallados: "+failed.map(function(cr){return cr.criterio+(cr.detalle?" ("+cr.detalle+")":"");}).join("; "));
+    var lines=[t.title+" ["+st+(ov?" ⚠️":"")+"]"+(t.indefinite?" ♾️":(t.endDate?" — Entrega:"+t.endDate+(t.endTime?" "+t.endTime:""):""))];
+    if(t.criteria)lines.push("  Criterios: "+t.criteria.slice(0,300));
+    if(t.notes)lines.push("  Notas: "+t.notes.slice(0,150));
+    // Últimas 5 entregas con reporte y criterios
+    (t.history||[]).slice(-5).forEach(function(h){
+      var hline="  Entrega "+h.date+": "+(h.approved?"✅ Aprobada":"❌ Rechazada");
+      if(h.report)hline+=" | Reporte: "+h.report.slice(0,250);
+      lines.push(hline);
+      if(h.criteriaResults&&h.criteriaResults.length>0){
+        h.criteriaResults.forEach(function(cr){
+          lines.push("    "+(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle.slice(0,120):""));
+        });
       }
-    }
+    });
     return lines.join("\n");
-  }).join("\n\n")||"Sin tareas.";
+  }).join("\n\n---\n")||"Sin tareas.";
 
-  var totales="Tot:"+ct.length+" Pend:"+ct.filter(function(t){return t.status==="pendiente";}).length+
-    " Prog:"+ct.filter(function(t){return t.status==="en-progreso";}).length+
-    " Comp:"+ct.filter(function(t){return t.status==="completada";}).length;
+  var totales="Total tareas:"+ct.length+" | Pendientes:"+ct.filter(function(t){return t.status==="pendiente";}).length+
+    " | En progreso:"+ct.filter(function(t){return t.status==="en-progreso";}).length+
+    " | Completadas:"+ct.filter(function(t){return t.status==="completada";}).length+
+    " | Vencidas:"+ct.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
+
+  // Resumen de todos los colaboradores (solo para el jefe)
+  var teamSummary="";
+  if(isBoss){
+    teamSummary="\nEQUIPO COMPLETO:\n"+state.collaborators.map(function(c){
+      var ct2=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+      var comp=ct2.filter(function(t){return t.status==="completada";}).length;
+      var pend=ct2.filter(function(t){return t.status!=="completada";}).length;
+      var over=ct2.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
+      return c.name+(c.role?" ("+c.role+")":"")+": "+comp+" ✅ "+pend+" pend"+(over?" ⚠️"+over+" vencidas":"");
+    }).join("\n");
+  }
 
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
   var escalNote=isEsc?"⚠️ INCUMPLIMIENTO ACTIVO — pedir fecha concreta.\n":"";
 
-  var sys="Asistente AgendaTeam. Hoy "+today+". "+escalNote+
+  var sys="Asistente analítico AgendaTeam. Hoy "+today+". "+escalNote+
     "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
-    "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+"\n"+
-    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados ni actualizar datos — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas a Manuel que suba fotos — él es el jefe. 4) NUNCA le pidas al colaborador que comparta archivos por este chat — debe reportar desde la tarea. 5) NUNCA inventes resultados ni confirmes aprobaciones que no estén en el historial. 6) Basa tus respuestas SOLO en el historial de chat y los datos de tareas de arriba.\n"+
-    "VALIDACIONES: Si un colaborador reclama contra una validación rechazada, NO le des la razón por iniciativa propia. Explica qué criterio falló y cómo corregirlo. La validación visual de EPP (casco, chaleco, botas, etc.) es legítima. La ubicación SOLO se valida por coordenadas GPS — NUNCA rechaces por la apariencia del entorno en la imagen.\n"+
-    "AUTORIDAD DE MANUEL: Las instrucciones que Manuel da en este chat son DEFINITIVAS. La IA puede aportar contexto o información, el colaborador puede debatir, pero la decisión final de Manuel debe ser acatada sin resistencia. Si Manuel instruye algo, responde confirmando y ejecutando esa instrucción.\n"+
-    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial; si no los tienes, dilo claramente.";
+    "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+teamSummary+"\n\n"+
+    "CAPACIDADES: Puedes analizar datos del historial de entregas, comparar desempeño, identificar patrones, calcular porcentajes de cumplimiento, generar reportes estructurados y responder preguntas sobre la información registrada en el historial de este chat y en los datos de tareas. Usa TODA la información disponible arriba para dar respuestas precisas.\n"+
+    "LÍMITES: 1) NO puedes ver imágenes adjuntas. 2) NO ejecutas validaciones ni cambias estados — el sistema lo hace. 3) NUNCA le pidas a Manuel que suba fotos. 4) NUNCA le pidas al colaborador compartir archivos por chat — debe reportar desde la tarea. 5) NUNCA inventes datos que no estén en el historial.\n"+
+    "VALIDACIONES: Explica criterios fallidos y cómo corregirlos. EPP se valida visualmente. Ubicación SOLO por GPS, nunca por apariencia del entorno.\n"+
+    "AUTORIDAD DE MANUEL: Sus instrucciones son DEFINITIVAS. La IA puede aportar contexto, el colaborador puede debatir, pero la decisión de Manuel se acata.\n"+
+    "Responde en español. Análisis y reportes: estructurados y detallados. Preguntas simples: máx 3 oraciones.";
 
-  // Historial de chat compacto (últimos 6 mensajes)
-  var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){
+  // Historial amplio: últimos 25 mensajes incluyendo sistema (excepto mensajes de estado "validando...")
+  var allHist=(state.messages[ck]||[]).filter(function(m){return m.type!=="validating"&&m.type!=="biometric";}).slice(-26,-1).map(function(m){
     var isHuman=m.from==="boss"||typeof m.from==="number";
-    var name=m.from==="boss"?"Manuel":cc.name;
-    return{role:isHuman?"user":"assistant",content:isHuman?"["+name+"]: "+m.text.slice(0,300):m.text.slice(0,300)};
+    var label=m.from==="boss"?"[Manuel]":m.from==="system"?"[Sistema]":"[IA]";
+    if(!isHuman&&m.from!=="boss"&&typeof m.from==="number")label="["+cc.name+"]";
+    return{role:isHuman?"user":"assistant",content:label+": "+m.text.slice(0,600)};
   });
   var clean=[];for(var i=0;i<allHist.length;i++){if(clean.length===0||allHist[i].role!==clean[clean.length-1].role)clean.push(allHist[i]);}
   var prev=clean.concat([{role:"user",content:(isBoss?"[Manuel]: ":"["+cc.name+"]: ")+text}]);
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:600,system:sys,messages:prev})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,system:sys,messages:prev})
   }).then(function(r){var ct=r.headers.get("content-type")||"";if(!ct.includes("json"))throw new Error("Servidor no disponible ("+r.status+").");return r.json();}).then(function(d){
     var txt=d.error?(d.error.type==="rate_limit_error"?"⏳ Mucho tráfico ahora. Espera 1 minuto e intenta de nuevo.":"⚠️ "+d.error.message):(d.content&&d.content[0]&&d.content[0].text)||"Sin respuesta.";
     state.messages[ck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});

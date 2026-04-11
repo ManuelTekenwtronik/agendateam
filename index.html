@@ -2794,16 +2794,41 @@ function sendMsg(){
     " | Completadas:"+ct.filter(function(t){return t.status==="completada";}).length+
     " | Vencidas:"+ct.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
 
-  // Resumen de todos los colaboradores (solo para el jefe)
+  // Analítica cruzada para el jefe: todos los colaboradores, todas las tareas, último mes
   var teamSummary="";
   if(isBoss){
-    teamSummary="\nEQUIPO COMPLETO:\n"+state.collaborators.map(function(c){
+    var ago30=Date.now()-30*24*3600000;
+    // Resumen de estado actual de equipo
+    teamSummary="\nEQUIPO COMPLETO (estado actual):\n"+state.collaborators.map(function(c){
       var ct2=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
       var comp=ct2.filter(function(t){return t.status==="completada";}).length;
       var pend=ct2.filter(function(t){return t.status!=="completada";}).length;
       var over=ct2.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
-      return c.name+(c.role?" ("+c.role+")":"")+": "+comp+" ✅ "+pend+" pend"+(over?" ⚠️"+over+" vencidas":"");
+      return c.name+(c.role?" ("+c.role+")":"")+": "+comp+"✅ "+pend+" pend"+(over?" ⚠️"+over+" vencidas":"");
     }).join("\n");
+    // Analítica último mes: por colaborador y tarea con desglose de criterios
+    var analytics=state.collaborators.map(function(c){
+      var ct2=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+      var taskStats=ct2.map(function(t){
+        var hist=(t.history||[]).filter(function(h){return h.ts>=ago30;});
+        if(!hist.length)return null;
+        var aprov=hist.filter(function(h){return h.approved;}).length;
+        var rechaz=hist.filter(function(h){return!h.approved;}).length;
+        var pct=Math.round(aprov/hist.length*100);
+        // Contar incumplimientos por criterio
+        var failMap={};
+        hist.filter(function(h){return!h.approved;}).forEach(function(h){
+          (h.criteriaResults||[]).filter(function(cr){return!cr.cumplido;}).forEach(function(cr){
+            failMap[cr.criterio]=(failMap[cr.criterio]||0)+1;
+          });
+        });
+        var failList=Object.keys(failMap).map(function(k){return k+"("+failMap[k]+"x)";}).join(", ");
+        return"  "+t.title+": "+hist.length+" entregas | ✅"+aprov+" ❌"+rechaz+" | "+pct+"% cumplimiento"+(failList?" | Criterios fallados: "+failList:"");
+      }).filter(Boolean);
+      if(!taskStats.length)return null;
+      return c.name+(c.role?" ("+c.role+")":"")+":\n"+taskStats.join("\n");
+    }).filter(Boolean);
+    if(analytics.length)teamSummary+="\n\nANALÍTICA ÚLTIMO MES (30 días) — datos pre-calculados para reportes:\n"+analytics.join("\n\n");
   }
 
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});

@@ -2775,10 +2775,14 @@ function sendMsg(){
       var ct3=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
       var comp3=ct3.filter(function(t){return t.status==="completada";}).length;
       var over3=ct3.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
-      var lines3=[c.name+(c.role?" ("+c.role+")":"")+": "+comp3+"✅ "+(ct3.length-comp3)+" pend"+(over3?" ⚠️"+over3+" vencidas":"")];
+      var indef3=ct3.filter(function(t){return t.indefinite;}).map(function(t){return t.title;});
+      var lines3=[c.name+(c.role?" ("+c.role+")":"")+": "+comp3+"✅ "+(ct3.length-comp3)+" pend"+(over3?" ⚠️"+over3+" vencidas":"")+(indef3.length?" | ♾️ indefinidas: "+indef3.join(", "):"")];
       ct3.forEach(function(t){
+        var st3=SC[t.status]?SC[t.status].l:t.status;
+        var tipo=t.indefinite?"♾️ Sin fecha fin":t.endDate?("📅 "+t.endDate+(t.endTime?" "+t.endTime:" (10:00 AM)")):"Sin fecha";
         var hist3=(t.history||[]).filter(function(h){return h.ts>=pvAgo30;});
-        if(!hist3.length)return;
+        var baseInfo="  "+t.title+" ["+st3+"] "+tipo+(t.frequency?" | "+t.frequency:"");
+        if(!hist3.length){lines3.push(baseInfo+" | Sin entregas en el período");return;}
         var aprov3=hist3.filter(function(h){return h.approved;}).length;
         var rechaz3=hist3.filter(function(h){return!h.approved;}).length;
         var pct3=Math.round(aprov3/hist3.length*100);
@@ -2790,8 +2794,7 @@ function sendMsg(){
         });
         var failList3=Object.keys(failMap3).map(function(k){return k+"("+failMap3[k]+"x)";}).join(", ");
         var lastRep=(hist3.slice(-1)[0]||{}).report||"";
-        lines3.push("  "+t.title+": "+hist3.length+" entregas ✅"+aprov3+" ❌"+rechaz3+" "+pct3+"%"+(failList3?" | Fallados: "+failList3:"")+(lastRep?" | Último reporte: "+lastRep.slice(0,150):""));
-        // Datos extraídos de imágenes (facturas, tablas, etc.)
+        lines3.push(baseInfo+": "+hist3.length+" entregas ✅"+aprov3+" ❌"+rechaz3+" "+pct3+"%"+(failList3?" | Fallados: "+failList3:"")+(lastRep?" | Último reporte: "+lastRep.slice(0,150):""));
         hist3.forEach(function(h){if(h.datos_extraidos)lines3.push("    📊 ["+h.date+"] Datos: "+h.datos_extraidos.slice(0,500));});
       });
       return lines3.join("\n");
@@ -2809,7 +2812,7 @@ function sendMsg(){
       "• Escalación: si pasa el umbral de tolerancia (diaria=2.4h, semanal=0.7días, mensual=3días) sin respuesta → 🚩 INCUMPLIMIENTO, jefe agregado al chat para mediación.\n"+
       "HORA POR DEFECTO: Toda tarea sin hora de entrega definida usa las 8:00 AM del último día hábil (L-V) del ciclo: diaria=hoy (o lunes si es finde), semanal=viernes de la semana, mensual=último viernes del mes. Esto aplica también para la cuenta regresiva de recordatorios.\n"+
       "Hora por defecto actualizada a 10:00 AM.\n"+
-      "IMPORTANTE sobre recordatorios: se activan cuando faltan ≤91 minutos para el vencimiento (calculado con la regla de 8 AM si no hay hora definida). Tareas indefinidas (sin fecha fin) y tareas completadas NO reciben recordatorios. Los recordatorios no funcionan si el app está cerrado.\n\n"+
+      "IMPORTANTE sobre recordatorios: se activan cuando faltan ≤91 minutos para el vencimiento. Las tareas indefinidas (sin fecha fin) SÍ reciben recordatorios escalonados — su vencimiento se calcula con la regla de 10 AM en el último día hábil del ciclo. Solo las tareas COMPLETADAS o CANCELADAS no reciben recordatorios. Los recordatorios no funcionan si el app está cerrado.\n\n"+
       "CAPACIDADES DE JARVIS: análisis cruzado, reportes por criterio/colaborador/tarea, tablas comparativas, tendencias, rankings, resúmenes ejecutivos, extracción de datos de imágenes validadas.\n\n"+
       "DATOS DEL EQUIPO (último mes):\n"+pvTeamData+"\n\n"+
       "Responde en español. Para reportes: usa tablas con | . Sé preciso y usa SOLO datos disponibles. Si Manuel pregunta algo sobre las políticas o el funcionamiento del sistema, respóndele con base en las políticas descritas arriba.";

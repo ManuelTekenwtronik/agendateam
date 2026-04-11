@@ -1434,7 +1434,8 @@ function validateTaskCompletion(taskId,report,attachments){
     "\nEVALÚA CADA CRITERIO INDIVIDUALMENTE. SIEMPRE incluye todos los criterios con su resultado. Responde SOLO JSON sin texto extra:\n"+
     "{\"aprobada\":true/false,\"porcentaje\":0-100,\"razon\":\"resumen en 1 oración\","+
     "\"criteriaResults\":[{\"criterio\":\"nombre exacto del criterio\",\"cumplido\":true/false,\"detalle\":\"si cumplido: evidencia que lo confirma. Si rechazado: razón exacta del fallo y qué falta.\"}],"+
-    "\"pasos\":[\"acción concreta para corregir (lista vacía si aprobada=true)\"]}"+
+    "\"pasos\":[\"acción concreta para corregir (lista vacía si aprobada=true)\"],"+
+    "\"datos_extraidos\":\"Si las imágenes contienen tablas, cifras, montos, fechas, nombres de clientes u otros datos estructurados: extráelos todos aquí en formato legible (ej: Cliente: NPAW | Monto: $1,280.00 USD | Fecha: 24/03/2026). Si no hay datos estructurados en las imágenes, deja vacío.\"}"+
     "\nOBLIGATORIO: criteriaResults debe tener una entrada por CADA criterio listado, sin excepción.";
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
@@ -1452,7 +1453,7 @@ function validateTaskCompletion(taskId,report,attachments){
   var allImgBlocks=refImageBlocks.concat(evImageBlocks);
   var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1200,system:sys,messages:[{role:"user",content:msgContent}]})
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1800,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){
     var ct=r.headers.get("content-type")||"";
     if(!ct.includes("json"))return r.text().then(function(){throw new Error("Servidor no disponible ("+r.status+"). Intenta de nuevo.");});
@@ -1490,7 +1491,7 @@ function validateTaskCompletion(taskId,report,attachments){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[]});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";
@@ -1499,10 +1500,11 @@ function validateTaskCompletion(taskId,report,attachments){
       var pctOk=typeof result.porcentaje==="number"?"📊 Cumplimiento: "+result.porcentaje+"%\n\n":"";
       var crOk=(result.criteriaResults||[]).map(function(cr){return(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle:"");}).join("\n");
       state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+pctOk+razonOk+(crOk?"\n\n"+crOk:"")+attLinks,ts:Date.now(),attachments:attachments});
+      if(result.datos_extraidos)state.messages[ck].push({id:Date.now()+1,from:"ai",type:"datos_extraidos",text:"📊 Datos extraídos de las imágenes:\n\n"+result.datos_extraidos,ts:Date.now()+1});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
     }else{
       if(!t.history)t.history=[];
-      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
+      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var razonNok=result.razon||result.reason||"Criterios no cumplidos.";
@@ -2779,6 +2781,8 @@ function sendMsg(){
         var failList3=Object.keys(failMap3).map(function(k){return k+"("+failMap3[k]+"x)";}).join(", ");
         var lastRep=(hist3.slice(-1)[0]||{}).report||"";
         lines3.push("  "+t.title+": "+hist3.length+" entregas ✅"+aprov3+" ❌"+rechaz3+" "+pct3+"%"+(failList3?" | Fallados: "+failList3:"")+(lastRep?" | Último reporte: "+lastRep.slice(0,150):""));
+        // Datos extraídos de imágenes (facturas, tablas, etc.)
+        hist3.forEach(function(h){if(h.datos_extraidos)lines3.push("    📊 ["+h.date+"] Datos: "+h.datos_extraidos.slice(0,500));});
       });
       return lines3.join("\n");
     }).join("\n\n");
@@ -2874,6 +2878,7 @@ function sendMsg(){
           lines.push("    "+(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle.slice(0,120):""));
         });
       }
+      if(h.datos_extraidos)lines.push("    📊 Datos: "+h.datos_extraidos.slice(0,400));
     });
     return lines.join("\n");
   }).join("\n\n---\n")||"Sin tareas.";

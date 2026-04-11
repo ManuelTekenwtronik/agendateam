@@ -375,33 +375,43 @@ function startSync(){
 }
 var OT={diaria:2.4*3600000,semanal:.7*86400000,mensual:3*86400000};
 var CD={diaria:86400000,semanal:7*86400000,mensual:30*86400000};
+function lastWeekday(d){
+  // Retrocede d hasta el viernes si cae en sábado o domingo
+  var wd=d.getDay();
+  if(wd===0)d.setDate(d.getDate()-2); // domingo → viernes
+  else if(wd===6)d.setDate(d.getDate()-1); // sábado → viernes
+  return d;
+}
 function taskDue(t){
   // Si tiene fecha fin explícita
   if(t.endDate){
-    return t.endTime?new Date(t.endDate+'T'+t.endTime).getTime():new Date(t.endDate).getTime()+86399000;
+    if(t.endTime)return new Date(t.endDate+'T'+t.endTime).getTime();
+    // Sin hora: usar 8:00 AM por defecto
+    return new Date(t.endDate+'T08:00').getTime();
   }
-  // Sin fecha fin: calcular último día del ciclo actual con hora de entrega
+  // Sin fecha fin: último día HÁBIL del ciclo a las 8:00 AM (o la hora definida)
   var now=new Date();
   var d;
   if(t.frequency==="semanal"){
-    // Último día de la semana actual (domingo=0, lunes=1...; usamos domingo como fin)
-    var day=now.getDay();var diff=day===0?0:7-day;
-    d=new Date(now);d.setDate(now.getDate()+diff);
+    // Cierre de ciclo = viernes de la semana actual a las 8 AM
+    var day=now.getDay(); // 0=dom,1=lun,...,5=vie,6=sab
+    var diffToFri=day===0?-2:day===6?-1:5-day; // días hasta el viernes de esta semana
+    d=new Date(now);d.setDate(now.getDate()+diffToFri);
   }else if(t.frequency==="mensual"){
-    // Último día del mes actual
-    d=new Date(now.getFullYear(),now.getMonth()+1,0);
+    // Último día hábil del mes actual
+    d=lastWeekday(new Date(now.getFullYear(),now.getMonth()+1,0));
   }else{
-    // Diaria (L-V): si es fin de semana, avanzar al próximo lunes
+    // Diaria: hoy si es L-V; si es fin de semana, el próximo lunes
     d=new Date(now);
     var dow=d.getDay();
-    if(dow===6){d.setDate(d.getDate()+2);}   // sábado → lunes
-    else if(dow===0){d.setDate(d.getDate()+1);} // domingo → lunes
+    if(dow===6){d.setDate(d.getDate()+2);}
+    else if(dow===0){d.setDate(d.getDate()+1);}
   }
   if(t.endTime){
     var parts=t.endTime.split(":");
     d.setHours(Number(parts[0]),Number(parts[1]),0,0);
   }else{
-    d.setHours(23,59,0,0);
+    d.setHours(8,0,0,0); // Default: 8:00 AM
   }
   return d.getTime();
 }
@@ -2797,7 +2807,8 @@ function sendMsg(){
       "• Recordatorio 5 min: mensaje directo ('¡URGENTE — reporta YA!').\n"+
       "• Al vencer: alerta de incumplimiento en el chat del colaborador pidiendo nueva fecha.\n"+
       "• Escalación: si pasa el umbral de tolerancia (diaria=2.4h, semanal=0.7días, mensual=3días) sin respuesta → 🚩 INCUMPLIMIENTO, jefe agregado al chat para mediación.\n"+
-      "IMPORTANTE sobre recordatorios: solo se activan si la tarea tiene hora de entrega definida (campo 'hora de entrega') y faltan ≤91 minutos para ese límite. Tareas sin hora específica solo reciben la alerta al vencer. Tareas indefinidas (sin fecha fin) y tareas completadas NO reciben recordatorios. Los recordatorios no funcionan si el app está cerrado.\n\n"+
+      "HORA POR DEFECTO: Toda tarea sin hora de entrega definida usa las 8:00 AM del último día hábil (L-V) del ciclo: diaria=hoy (o lunes si es finde), semanal=viernes de la semana, mensual=último viernes del mes. Esto aplica también para la cuenta regresiva de recordatorios.\n"+
+      "IMPORTANTE sobre recordatorios: se activan cuando faltan ≤91 minutos para el vencimiento (calculado con la regla de 8 AM si no hay hora definida). Tareas indefinidas (sin fecha fin) y tareas completadas NO reciben recordatorios. Los recordatorios no funcionan si el app está cerrado.\n\n"+
       "CAPACIDADES DE JARVIS: análisis cruzado, reportes por criterio/colaborador/tarea, tablas comparativas, tendencias, rankings, resúmenes ejecutivos, extracción de datos de imágenes validadas.\n\n"+
       "DATOS DEL EQUIPO (último mes):\n"+pvTeamData+"\n\n"+
       "Responde en español. Para reportes: usa tablas con | . Sé preciso y usa SOLO datos disponibles. Si Manuel pregunta algo sobre las políticas o el funcionamiento del sistema, respóndele con base en las políticas descritas arriba.";

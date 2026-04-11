@@ -387,7 +387,7 @@ function taskDue(t){
   if(t.endDate){
     if(t.endTime)return new Date(t.endDate+'T'+t.endTime).getTime();
     // Sin hora: usar 8:00 AM por defecto
-    return new Date(t.endDate+'T08:00').getTime();
+    return new Date(t.endDate+'T10:00').getTime();
   }
   // Sin fecha fin: último día HÁBIL del ciclo a las 8:00 AM (o la hora definida)
   var now=new Date();
@@ -411,7 +411,7 @@ function taskDue(t){
     var parts=t.endTime.split(":");
     d.setHours(Number(parts[0]),Number(parts[1]),0,0);
   }else{
-    d.setHours(8,0,0,0); // Default: 8:00 AM
+    d.setHours(10,0,0,0); // Default: 10:00 AM
   }
   return d.getTime();
 }
@@ -2808,6 +2808,7 @@ function sendMsg(){
       "• Al vencer: alerta de incumplimiento en el chat del colaborador pidiendo nueva fecha.\n"+
       "• Escalación: si pasa el umbral de tolerancia (diaria=2.4h, semanal=0.7días, mensual=3días) sin respuesta → 🚩 INCUMPLIMIENTO, jefe agregado al chat para mediación.\n"+
       "HORA POR DEFECTO: Toda tarea sin hora de entrega definida usa las 8:00 AM del último día hábil (L-V) del ciclo: diaria=hoy (o lunes si es finde), semanal=viernes de la semana, mensual=último viernes del mes. Esto aplica también para la cuenta regresiva de recordatorios.\n"+
+      "Hora por defecto actualizada a 10:00 AM.\n"+
       "IMPORTANTE sobre recordatorios: se activan cuando faltan ≤91 minutos para el vencimiento (calculado con la regla de 8 AM si no hay hora definida). Tareas indefinidas (sin fecha fin) y tareas completadas NO reciben recordatorios. Los recordatorios no funcionan si el app está cerrado.\n\n"+
       "CAPACIDADES DE JARVIS: análisis cruzado, reportes por criterio/colaborador/tarea, tablas comparativas, tendencias, rankings, resúmenes ejecutivos, extracción de datos de imágenes validadas.\n\n"+
       "DATOS DEL EQUIPO (último mes):\n"+pvTeamData+"\n\n"+

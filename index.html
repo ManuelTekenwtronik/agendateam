@@ -1421,7 +1421,7 @@ function validateTaskCompletion(taskId,report,attachments){
   var refCount=refImageBlocks.length,evCount=evImageBlocks.length;
   var imgNote="";
   var faceNote=t.faceRecognition?" Identidad facial ya verificada, no evaluar.":" ";
-  var gpsNote=t.requireLocation?" GPS ya validado, no evaluar ubicación visual.":" ";
+  var gpsNote=(t.requireLocation?" GPS ya validado.":" ")+" NUNCA rechaces por la apariencia visual del entorno (si parece casa, oficina, calle, bodega u otro lugar) — los colaboradores trabajan en campo en todo tipo de ubicaciones con clientes. La ubicación SOLO se valida por coordenadas GPS, no por el aspecto del inmueble o entorno en la imagen.";
   var imgInstr="";
   if(evCount>0&&refCount>0){
     imgInstr=" IMÁGENES: primera(s) "+refCount+" imagen(es) = REFERENCIA de BD (muestra cómo debe verse cada EPP/elemento correctamente). Siguiente(s) "+evCount+" imagen(es) = EVIDENCIA del colaborador. Compara la evidencia contra la referencia para validar cada criterio.";
@@ -2732,7 +2732,8 @@ function sendMsg(){
     var gnames=gcols.map(function(c){return c.name;}).join(", ");
     var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel (JEFE), "+gnames+" (COLABORADORES).\n"+
       "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones ni cambiar estados — el sistema lo hace automáticamente. 3) NUNCA pidas a nadie que comparta archivos por chat — deben reportar desde la tarea. 4) Si no tienes la información, dilo claramente. 5) Basa tus respuestas SOLO en el historial de texto visible.\n"+
-      "VALIDACIONES: Si alguien reclama contra una validación rechazada, NO le des la razón. Explica qué criterio falló y cómo corregirlo. Las validaciones son automáticas y definitivas.\n"+
+      "VALIDACIONES: EPP se valida visualmente. Ubicación SOLO por coordenadas GPS, nunca por apariencia del entorno. Si alguien reclama un rechazo, explica el criterio fallido sin ceder por iniciativa propia.\n"+
+      "AUTORIDAD DE MANUEL: Sus instrucciones en este chat son DEFINITIVAS. La IA puede aportar contexto, los colaboradores pueden debatir, pero la decisión de Manuel se acata sin resistencia.\n"+
       "Facilita coordinación, máx 2 oraciones. Responde en español.";
     var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-5,-1).map(function(m){
       var isHuman=m.from==="boss"||typeof m.from==="number";
@@ -2795,7 +2796,8 @@ function sendMsg(){
     "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
     "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+"\n"+
     "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados ni actualizar datos — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas a Manuel que suba fotos — él es el jefe. 4) NUNCA le pidas al colaborador que comparta archivos por este chat — debe reportar desde la tarea. 5) NUNCA inventes resultados ni confirmes aprobaciones que no estén en el historial. 6) Basa tus respuestas SOLO en el historial de chat y los datos de tareas de arriba.\n"+
-    "VALIDACIONES: Si un colaborador reclama contra una validación rechazada, NO le des la razón ni cambies la posición del sistema. Las validaciones son automáticas y definitivas. Explica qué criterio falló y cómo corregirlo. La validación visual de EPP (casco, chaleco, botas, etc.) y de entorno (bodega, sitio correcto) es legítima y complementa el GPS — ambos criterios son válidos y necesarios.\n"+
+    "VALIDACIONES: Si un colaborador reclama contra una validación rechazada, NO le des la razón por iniciativa propia. Explica qué criterio falló y cómo corregirlo. La validación visual de EPP (casco, chaleco, botas, etc.) es legítima. La ubicación SOLO se valida por coordenadas GPS — NUNCA rechaces por la apariencia del entorno en la imagen.\n"+
+    "AUTORIDAD DE MANUEL: Las instrucciones que Manuel da en este chat son DEFINITIVAS. La IA puede aportar contexto o información, el colaborador puede debatir, pero la decisión final de Manuel debe ser acatada sin resistencia. Si Manuel instruye algo, responde confirmando y ejecutando esa instrucción.\n"+
     "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial; si no los tienes, dilo claramente.";
 
   // Historial de chat compacto (últimos 6 mensajes)

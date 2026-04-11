@@ -1391,25 +1391,30 @@ function validateTaskCompletion(taskId,report,attachments){
   var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
   if(!ck){t.status="en-progreso";delete t.pendingReport;delete t.pendingAttachments;saveLocal();render();toast("Error: canal de chat no encontrado","error");return;}
   var attInfo=attachments.length>0?"\nSoportes adjuntados ("+attachments.length+"): "+attachments.map(function(a){return a.name+(a.type?" ["+a.type+"]":"");}).join(", "):"\nNo se adjuntaron soportes.";
-  var criteriaLines=t.criteria.split(/\n/).filter(function(s){return s.trim();});
-  if(criteriaLines.length<=1)criteriaLines=t.criteria.split(/\./).filter(function(s){return s.trim();});
+  var rawCriteria=t.criteria||"";
+  var criteriaLines=rawCriteria.split(/\n/).filter(function(s){return s.trim();});
+  if(criteriaLines.length<=1)criteriaLines=rawCriteria.split(/\./).filter(function(s){return s.trim();});
+  // Si no hay criterios explícitos, usar las notas de la tarea como criterio base
+  if(criteriaLines.length===0&&t.notes)criteriaLines=[t.notes];
+  if(criteriaLines.length===0)criteriaLines=["Verificar que el reporte cumple con lo solicitado en la tarea: "+t.title];
   criteriaLines=criteriaLines.map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
   // Buscar referencias en la base de datos que coincidan con la tarea
   var refs=state.references||[];
-  var criteriaLow=(t.criteria+" "+t.title).toLowerCase();
+  var criteriaLow=(rawCriteria+" "+t.title+" "+(t.notes||"")).toLowerCase();
   var allMatchedRefs=refs.filter(function(r){
     return criteriaLow.indexOf(r.name.toLowerCase())>=0||
       (r.category&&criteriaLow.indexOf(r.category.toLowerCase())>=0);
   });
-  // Solo usar referencias si coincide 1 ítem muy específico.
-  // Si coinciden muchos (EPP genérico), la IA ya los reconoce visualmente con imagen 1024px.
-  var matchedRefs=allMatchedRefs.length===1?allMatchedRefs:[];
+  // Usar todas las referencias coincidentes (hasta 3) para mejor reconocimiento visual (EPP, etc.)
+  var matchedRefs=allMatchedRefs.slice(0,3);
   var refContext="";
   var refImageBlocks=[];
   if(matchedRefs.length>0){
-    refContext="\nREFERENCIA: "+matchedRefs[0].name+(matchedRefs[0].description?": "+matchedRefs[0].description.slice(0,150):"");
-    var img=(matchedRefs[0].imageUrls||[]).find(function(i){return i.url;});
-    if(img)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
+    refContext="\nREFERENCIAS BD ("+matchedRefs.length+"): "+matchedRefs.map(function(r){return r.name+(r.description?": "+r.description.slice(0,100):"");}).join(" | ");
+    matchedRefs.forEach(function(r){
+      var img=(r.imageUrls||[]).find(function(i){return i.url;});
+      if(img&&refImageBlocks.length<3)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
+    });
   }
   // Imágenes de los soportes enviados
   var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,5).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
@@ -1419,7 +1424,7 @@ function validateTaskCompletion(taskId,report,attachments){
   var gpsNote=t.requireLocation?" GPS ya validado, no evaluar ubicación visual.":" ";
   var imgInstr="";
   if(evCount>0&&refCount>0){
-    imgInstr=" IMÁGENES: primera(s) "+refCount+" = REFERENCIA (úsala SOLO si la evidencia es ambigua o no puedes determinar cumplimiento desde la imagen del colaborador). Siguiente(s) "+evCount+" = EVIDENCIA del colaborador. Evalúa primero con la evidencia; la referencia es último recurso.";
+    imgInstr=" IMÁGENES: primera(s) "+refCount+" imagen(es) = REFERENCIA de BD (muestra cómo debe verse cada EPP/elemento correctamente). Siguiente(s) "+evCount+" imagen(es) = EVIDENCIA del colaborador. Compara la evidencia contra la referencia para validar cada criterio.";
   }else if(evCount>0){
     imgInstr=" Se adjuntan "+evCount+" imagen(es) de evidencia del colaborador. Evalúa CADA una por separado según el criterio que corresponda.";
   }
@@ -2786,10 +2791,10 @@ function sendMsg(){
   var escalNote=isEsc?"⚠️ INCUMPLIMIENTO ACTIVO — pedir fecha concreta.\n":"";
 
   var sys="Asistente AgendaTeam. Hoy "+today+". "+escalNote+
-    cc.name+(cc.role?" ("+cc.role+")":"")+"\n"+
-    "TAREAS:\n"+taskDetail+"\n"+totales+"\n"+
-    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados de tareas ni actualizar datos del sistema — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas al usuario que comparta archivos, confirme ubicaciones o realice acciones que el sistema hace solo. 4) Si no tienes datos suficientes para responder, dilo claramente — NUNCA inventes información ni confirmes resultados que no están en el historial. 5) Basa tus respuestas SOLO en el historial de chat y los datos de tareas proporcionados arriba.\n"+
-    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial del chat; si no los tienes, dilo. Si piden aclaración sobre validación: explica con el historial disponible.";
+    "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
+    "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+"\n"+
+    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados de tareas ni actualizar datos — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas a Manuel que suba fotos o evidencias — él es el jefe, no el colaborador. 4) NUNCA le pidas al colaborador que comparta archivos por este chat — debe usar el botón de reportar en la tarea. 5) NUNCA inventes resultados de validación ni confirmes aprobaciones que no aparecen en el historial. 6) Basa tus respuestas SOLO en el historial de chat y los datos de tareas de arriba.\n"+
+    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial; si no los tienes, dilo claramente.";
 
   // Historial de chat compacto (últimos 6 mensajes)
   var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){

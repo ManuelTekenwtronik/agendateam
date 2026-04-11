@@ -2730,8 +2730,9 @@ function sendMsg(){
     saveLocal();renderChat();
     aiLoading=true;
     var gnames=gcols.map(function(c){return c.name;}).join(", ");
-    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel, "+gnames+".\n"+
-      "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones ni cambiar estados — el sistema lo hace automáticamente. 3) NUNCA le pidas al usuario que comparta archivos, confirme datos o haga acciones que el sistema debe hacer solo. 4) Si no tienes la información, dilo claramente en lugar de inventar o prometer. 5) Basa tus respuestas SOLO en el historial de texto visible en el chat.\n"+
+    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel (JEFE), "+gnames+" (COLABORADORES).\n"+
+      "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones ni cambiar estados — el sistema lo hace automáticamente. 3) NUNCA pidas a nadie que comparta archivos por chat — deben reportar desde la tarea. 4) Si no tienes la información, dilo claramente. 5) Basa tus respuestas SOLO en el historial de texto visible.\n"+
+      "VALIDACIONES: Si alguien reclama contra una validación rechazada, NO le des la razón. Explica qué criterio falló y cómo corregirlo. Las validaciones son automáticas y definitivas.\n"+
       "Facilita coordinación, máx 2 oraciones. Responde en español.";
     var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-5,-1).map(function(m){
       var isHuman=m.from==="boss"||typeof m.from==="number";
@@ -2793,7 +2794,8 @@ function sendMsg(){
   var sys="Asistente AgendaTeam. Hoy "+today+". "+escalNote+
     "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
     "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+"\n"+
-    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados de tareas ni actualizar datos — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas a Manuel que suba fotos o evidencias — él es el jefe, no el colaborador. 4) NUNCA le pidas al colaborador que comparta archivos por este chat — debe usar el botón de reportar en la tarea. 5) NUNCA inventes resultados de validación ni confirmes aprobaciones que no aparecen en el historial. 6) Basa tus respuestas SOLO en el historial de chat y los datos de tareas de arriba.\n"+
+    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados ni actualizar datos — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas a Manuel que suba fotos — él es el jefe. 4) NUNCA le pidas al colaborador que comparta archivos por este chat — debe reportar desde la tarea. 5) NUNCA inventes resultados ni confirmes aprobaciones que no estén en el historial. 6) Basa tus respuestas SOLO en el historial de chat y los datos de tareas de arriba.\n"+
+    "VALIDACIONES: Si un colaborador reclama contra una validación rechazada, NO le des la razón ni cambies la posición del sistema. Las validaciones son automáticas y definitivas. Explica qué criterio falló y cómo corregirlo. La validación visual de EPP (casco, chaleco, botas, etc.) y de entorno (bodega, sitio correcto) es legítima y complementa el GPS — ambos criterios son válidos y necesarios.\n"+
     "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial; si no los tienes, dilo claramente.";
 
   // Historial de chat compacto (últimos 6 mensajes)

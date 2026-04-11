@@ -640,7 +640,7 @@ function runAlerts(){
     // Pre-warning: 2h before due, while not yet overdue
     if(now>=due-2*3600000&&now<due&&!state.alerts.find(function(a){return a.id===wid;})){
       state.alerts.push({id:wid,taskId:task.id,collabId:task.assignedTo,type:"pre_warn",ts:now});
-      var sys="Eres el asistente de AgendaTeam. La tarea \""+task.title+"\" de "+col.name+" vence en menos de 2 horas. Pregúntale amablemente por qué aún no ha completado la tarea y pídele que confirme una nueva fecha y hora de culminación si no podrá completarla a tiempo. Responde en español, máximo 3 oraciones.";
+      var sys="Eres JARVIS, asistente de AgendaTeam. La tarea \""+task.title+"\" de "+col.name+" vence en menos de 2 horas. Pregúntale amablemente por qué aún no ha completado la tarea y pídele que confirme una nueva fecha y hora de culminación si no podrá completarla a tiempo. Responde en español, máximo 3 oraciones.";
       aiNotify(ck,sys,"Alerta pre-vencimiento de tarea.");
       changed=true;
     }
@@ -722,7 +722,7 @@ function runReminders(){
         if(cp.useAI){
           var urgLevel=cp.min===90?"en 1 hora y 30 minutos":"en 30 minutos";
           var tone=cp.min===90?"motivador y amable, menciona que debe organizar su tiempo":"urgente y directo, pídele que presente el soporte AHORA";
-          var sys="Eres el asistente de AgendaTeam. La tarea "+tname+" de "+col.name.split(" ")[0]+" vence "+urgLevel+ttime+". Envía un recordatorio "+tone+". Máximo 2 oraciones. Responde en español.";
+          var sys="Eres JARVIS, asistente de AgendaTeam. La tarea "+tname+" de "+col.name.split(" ")[0]+" vence "+urgLevel+ttime+". Envía un recordatorio "+tone+". Máximo 2 oraciones. Responde en español.";
           aiNotify(ck,sys,"Recordatorio "+cp.min+" min antes del vencimiento.");
         }else{
           if(!state.messages[ck])state.messages[ck]=[];
@@ -1379,7 +1379,7 @@ async function _finishSubmit(taskId,report,attachments){
   t.pendingReport=report;
   t.pendingAttachments=attachments;
   saveLocal();render();
-  toast("Enviado para validación IA 🤖");
+  toast("Enviado para validación JARVIS 🤖");
   validateTaskCompletion(taskId,report,attachments);
 }
 
@@ -1544,10 +1544,10 @@ function aiFollowUp(taskId){
       text:"🚩 La tarea \""+t.title+"\" presenta un incumplimiento inevitable. Se ha notificado a Manuel para que dicte medidas correctivas o de sanción."});
     sendNotif("boss","🚩 Incumplimiento inevitable","\""+t.title+"\""+(col?" — "+col.name:"")+" requiere tu decisión sobre medidas correctivas.");
     // Pedir a Manuel que dicte medidas en el chat
-    var sys3="Eres el asistente de AgendaTeam. La tarea \""+t.title+"\" asignada a "+(col?col.name:"el colaborador")+" no se pudo completar a tiempo y no cumple los criterios de validación. Notifica a Manuel que debe dictar medidas correctivas o de sanción, y pídele que las especifique en este chat. Sé directo y profesional. Máximo 3 oraciones.";
+    var sys3="Eres JARVIS, asistente de AgendaTeam. La tarea \""+t.title+"\" asignada a "+(col?col.name:"el colaborador")+" no se pudo completar a tiempo y no cumple los criterios de validación. Notifica a Manuel que debe dictar medidas correctivas o de sanción, y pídele que las especifique en este chat. Sé directo y profesional. Máximo 3 oraciones.";
     aiNotify(ck,sys3,"Incumplimiento inevitable — solicitar medidas a Manuel.");
   }else{
-    var sys4="Eres el asistente de seguimiento de AgendaTeam. La tarea \""+t.title+"\" de "+(col?col.name:"el colaborador")+" fue rechazada en validación y aún no está completa. Pregunta por el avance, recuérdales los criterios pendientes y presiona para que se tome acción inmediata. Máximo 3 oraciones. En español.";
+    var sys4="Eres JARVIS, asistente de seguimiento de AgendaTeam. La tarea \""+t.title+"\" de "+(col?col.name:"el colaborador")+" fue rechazada en validación y aún no está completa. Pregunta por el avance, recuérdales los criterios pendientes y presiona para que se tome acción inmediata. Máximo 3 oraciones. En español.";
     aiNotify(ck,sys4,"Seguimiento de tarea rechazada.");
     if(col)sendNotif("collab_"+col.id,"🔔 Seguimiento pendiente","\""+t.title+"\": aún requiere tu atención.");
     setTimeout(function(){aiFollowUp(taskId);},OT[t.frequency||"diaria"]/2);
@@ -2630,7 +2630,7 @@ function renderChat(){
       '<button onclick="currentChatKey=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>'+
       '<div style="font-size:28px;">👥</div>'+
       '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+(gt?escH(gt.title):"Chat grupal")+'</div>'+
-      '<div style="font-size:12px;color:#999;">'+escH(gnames)+' · 🤖 IA</div></div></div>'+
+      '<div style="font-size:12px;color:#999;">'+escH(gnames)+' · 🤖 JARVIS</div></div></div>'+
       '<div id="chat-msgs" class="scroll" style="flex:1;">'+gHTML+'</div>'+
       '<div class="chat-input-row"><input class="chat-input" id="chat-in" placeholder="Escribe un mensaje…" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey)sendMsg()">'+
       '<button class="chat-send" onclick="sendMsg()">➤</button></div></div>';
@@ -2652,8 +2652,8 @@ function renderChat(){
       '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f2f7;flex-shrink:0;">'+
       '<button onclick="currentChatKey=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>'+
       '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#4a6cf7,#9b59b6);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🤖</div>'+
-      '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">IA Analítica <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 8px;border-radius:99px;font-weight:700;">🔒 Privado</span></div>'+
-      '<div style="font-size:12px;color:#999;">Solo visible para ti · Análisis, reportes y consultas</div></div></div>'+
+      '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">JARVIS <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 8px;border-radius:99px;font-weight:700;">🔒 Privado</span></div>'+
+      '<div style="font-size:12px;color:#999;">Solo visible para ti · JARVIS a tu disposición</div></div></div>'+
       '<div id="chat-msgs" class="scroll" style="flex:1;">'+pvHTML+'</div>'+
       '<div class="chat-input-row"><input class="chat-input" id="chat-in" placeholder="Pide un análisis, reporte o consulta…" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey)sendMsg()">'+
       '<button class="chat-send" onclick="sendMsg()">➤</button></div></div>';
@@ -2668,8 +2668,8 @@ function renderChat(){
     var pvLastMsg=(state.messages["boss_private"]||[]).slice(-1)[0];
     var privateBtn=isBoss?'<button onclick="currentChatKey=\'boss_private\';renderChat()" style="background:linear-gradient(135deg,#f0f2ff,#ede8ff);border:1.5px solid #c5c0ff;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:14px;">'+
       '<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#4a6cf7,#9b59b6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🤖</div>'+
-      '<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:15px;">IA Analítica <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 7px;border-radius:99px;">🔒 Privado</span></div>'+
-      '<div style="font-size:12px;color:#888;margin-top:2px;">Reportes, análisis y consultas del equipo</div>'+
+      '<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:15px;">JARVIS <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 7px;border-radius:99px;">🔒 Privado</span></div>'+
+      '<div style="font-size:12px;color:#888;margin-top:2px;">JARVIS · Análisis privado del equipo</div>'+
       '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(pvLastMsg?escH(pvLastMsg.text.replace(/\n/g," ").slice(0,46))+"...":"Inicia una consulta…")+'</div></div>'+
       '<span style="font-size:22px;color:#ccc;">›</span></button>':"";
     var items=list.map(function(c){
@@ -2679,7 +2679,7 @@ function renderChat(){
       return'<button onclick="openChat('+c.id+')" style="background:'+(fl?"#fff5f5":"#fff")+';border:1.5px solid '+(fl?"#ffcccc":"#eee")+';border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:10px;">'+
         '<div style="position:relative;">'+avHTML(c,44)+(fl?'<div style="position:absolute;top:-4px;right:-4px;font-size:16px;">🚩</div>':'')+'</div>'+
         '<div style="flex:1;min-width:0;"><div style="font-weight:700;font-size:15px;">'+escH(c.name)+(fl?' <span style="font-size:11px;background:#ffe5e5;color:#e74c3c;padding:3px 8px;border-radius:99px;">Incumplimiento</span>':'')+'</div>'+
-        '<div style="font-size:12px;color:#aaa;margin-top:2px;">👔 Manuel · 👤 Colaborador · 🤖 IA</div>'+
+        '<div style="font-size:12px;color:#aaa;margin-top:2px;">👔 Manuel · 👤 Colaborador · 🤖 JARVIS</div>'+
         '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(lm?escH(lm.text.replace(/\n/g," ").slice(0,46))+"...":"Sin mensajes")+'</div></div>'+
         '<span style="font-size:22px;color:#ccc;">›</span></button>';
     }).join("")||(state.collaborators.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;">Agrega colaboradores primero</div>':"");
@@ -2721,7 +2721,7 @@ function renderChat(){
     (isBoss?'<button onclick="currentChatCollab=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>':'')+
     avHTML(cc,40)+
     '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">'+escH(cc.name)+(fl?' 🚩':'')+'</div>'+
-    '<div style="font-size:12px;color:#999;">👔 Manuel · 👤 Colaborador · 🤖 IA</div></div>'+
+    '<div style="font-size:12px;color:#999;">👔 Manuel · 👤 Colaborador · 🤖 JARVIS</div></div>'+
     '</div>'+
     '<div id="chat-msgs" class="scroll" style="flex:1;">'+msgsHTML+'</div>'+
     '<div class="chat-input-row">'+
@@ -2786,7 +2786,7 @@ function sendMsg(){
       });
       return lines3.join("\n");
     }).join("\n\n");
-    var pvSys="Eres el asistente analítico privado de Manuel, administrador de AgendaTeam. Hoy "+pvToday+".\n"+
+    var pvSys="Eres JARVIS, asistente analítico privado de Manuel, administrador de AgendaTeam. Hoy "+pvToday+".\n"+
       "Tienes acceso completo a los datos del equipo. Puedes generar reportes detallados, tablas comparativas, análisis de cumplimiento, identificar patrones de incumplimiento, comparar colaboradores y responder cualquier consulta estratégica sobre el equipo.\n"+
       "Este chat es PRIVADO — solo Manuel puede verlo, los colaboradores no tienen acceso.\n\n"+
       "DATOS DEL EQUIPO (último mes):\n"+pvTeamData+"\n\n"+
@@ -2823,7 +2823,7 @@ function sendMsg(){
     saveLocal();renderChat();
     aiLoading=true;
     var gnames=gcols.map(function(c){return c.name;}).join(", ");
-    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel (JEFE), "+gnames+" (COLABORADORES).\n"+
+    var sys="Eres JARVIS, asistente de AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel (JEFE), "+gnames+" (COLABORADORES).\n"+
       "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones ni cambiar estados — el sistema lo hace automáticamente. 3) NUNCA pidas a nadie que comparta archivos por chat — deben reportar desde la tarea. 4) Si no tienes la información, dilo claramente. 5) Basa tus respuestas SOLO en el historial de texto visible.\n"+
       "VALIDACIONES: EPP se valida visualmente. Ubicación SOLO por coordenadas GPS, nunca por apariencia del entorno. Si alguien reclama un rechazo, explica el criterio fallido sin ceder por iniciativa propia.\n"+
       "AUTORIDAD DE MANUEL: Sus instrucciones en este chat son DEFINITIVAS. La IA puede aportar contexto, los colaboradores pueden debatir, pero la decisión de Manuel se acata sin resistencia.\n"+
@@ -2928,7 +2928,7 @@ function sendMsg(){
   var isEsc=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===cc.id;});
   var escalNote=isEsc?"⚠️ INCUMPLIMIENTO ACTIVO — pedir fecha concreta.\n":"";
 
-  var sys="Asistente analítico AgendaTeam. Hoy "+today+". "+escalNote+
+  var sys="Eres JARVIS, asistente analítico de AgendaTeam. Hoy "+today+". "+escalNote+
     "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
     "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+teamSummary+"\n\n"+
     "CAPACIDADES: Puedes analizar datos del historial de entregas, comparar desempeño, identificar patrones, calcular porcentajes de cumplimiento, generar reportes estructurados y responder preguntas sobre la información registrada en el historial de este chat y en los datos de tareas. Usa TODA la información disponible arriba para dar respuestas precisas.\n"+

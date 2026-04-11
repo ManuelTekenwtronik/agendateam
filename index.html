@@ -1412,7 +1412,7 @@ function validateTaskCompletion(taskId,report,attachments){
     if(img)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
   }
   // Imágenes de los soportes enviados
-  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,1).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
+  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,5).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
   var refCount=refImageBlocks.length,evCount=evImageBlocks.length;
   var imgNote="";
   var faceNote=t.faceRecognition?" Identidad facial ya verificada, no evaluar.":" ";
@@ -1421,7 +1421,7 @@ function validateTaskCompletion(taskId,report,attachments){
   if(evCount>0&&refCount>0){
     imgInstr=" IMÁGENES: primera(s) "+refCount+" = REFERENCIA (úsala SOLO si la evidencia es ambigua o no puedes determinar cumplimiento desde la imagen del colaborador). Siguiente(s) "+evCount+" = EVIDENCIA del colaborador. Evalúa primero con la evidencia; la referencia es último recurso.";
   }else if(evCount>0){
-    imgInstr=" Imagen(es) adjunta(s): evidencia del colaborador.";
+    imgInstr=" Se adjuntan "+evCount+" imagen(es) de evidencia del colaborador. Evalúa CADA una por separado según el criterio que corresponda.";
   }
   var sys="Validador AgendaTeam. Tarea:\""+t.title+"\"\nCriterios:\n"+criteriaLines+"\nReporte:\""+report.slice(0,300)+"\""+
     (attachments.length?" Soportes:"+attachments.length+" archivo(s).":"")+
@@ -2725,7 +2725,9 @@ function sendMsg(){
     saveLocal();renderChat();
     aiLoading=true;
     var gnames=gcols.map(function(c){return c.name;}).join(", ");
-    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel, "+gnames+". Facilita coordinación, máx 2 oraciones. Responde en español.";
+    var sys="Asistente AgendaTeam. Tarea grupal: \""+gt.title+"\". Participantes: Manuel, "+gnames+".\n"+
+      "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones ni cambiar estados — el sistema lo hace automáticamente. 3) NUNCA le pidas al usuario que comparta archivos, confirme datos o haga acciones que el sistema debe hacer solo. 4) Si no tienes la información, dilo claramente en lugar de inventar o prometer. 5) Basa tus respuestas SOLO en el historial de texto visible en el chat.\n"+
+      "Facilita coordinación, máx 2 oraciones. Responde en español.";
     var hist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-5,-1).map(function(m){
       var isHuman=m.from==="boss"||typeof m.from==="number";
       return{role:isHuman?"user":"assistant",content:m.text.slice(0,200)};
@@ -2786,8 +2788,8 @@ function sendMsg(){
   var sys="Asistente AgendaTeam. Hoy "+today+". "+escalNote+
     cc.name+(cc.role?" ("+cc.role+")":"")+"\n"+
     "TAREAS:\n"+taskDetail+"\n"+totales+"\n"+
-    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: resumen estructurado. "+
-    "Si el colaborador pide aclaración sobre validación/criterios: explica en detalle con el historial disponible.";
+    "LÍMITES ESTRICTOS: 1) NO puedes ver imágenes adjuntas. 2) NO puedes ejecutar validaciones, cambiar estados de tareas ni actualizar datos del sistema — AgendaTeam lo hace automáticamente. 3) NUNCA le pidas al usuario que comparta archivos, confirme ubicaciones o realice acciones que el sistema hace solo. 4) Si no tienes datos suficientes para responder, dilo claramente — NUNCA inventes información ni confirmes resultados que no están en el historial. 5) Basa tus respuestas SOLO en el historial de chat y los datos de tareas proporcionados arriba.\n"+
+    "Responde en español. Preguntas simples: máx 3 oraciones. Si piden reporte: usa SOLO datos visibles en el historial del chat; si no los tienes, dilo. Si piden aclaración sobre validación: explica con el historial disponible.";
 
   // Historial de chat compacto (últimos 6 mensajes)
   var allHist=(state.messages[ck]||[]).filter(function(m){return m.from!=="system";}).slice(-7,-1).map(function(m){

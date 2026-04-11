@@ -2636,9 +2636,40 @@ function renderChat(){
     return;
   }
 
+  // ── Chat privado jefe + IA ──
+  if(currentChatKey==="boss_private"){
+    var pvmsgs=state.messages["boss_private"]||[];
+    var pvHTML=pvmsgs.map(function(m){
+      var isMe=m.from==="boss";
+      var tstr=new Date(m.ts).toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"});
+      var av=isMe?"":'<div class="msg-avatar" style="background:#4a6cf7;">🤖</div>';
+      return'<div class="msg-row'+(isMe?" me":"")+'">'+av+'<div class="msg-bubble '+(isMe?"me":"ai")+'">'+escH(m.text)+'<div class="msg-time">'+tstr+'</div></div></div>';
+    }).join("")||'<div style="text-align:center;color:#ccc;font-size:14px;padding-top:40px;"><div style="font-size:36px;margin-bottom:8px;">🔒</div>Chat privado — solo tú y la IA.<br>Pide análisis, reportes o consultas del equipo.</div>';
+    document.getElementById("content").innerHTML=
+      '<div class="card" style="display:flex;flex-direction:column;height:calc(100vh - 230px);">'+
+      '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid #f0f2f7;flex-shrink:0;">'+
+      '<button onclick="currentChatKey=null;renderChat()" style="background:#f0f2f7;border:none;border-radius:10px;width:38px;height:38px;font-size:20px;cursor:pointer;flex-shrink:0;">←</button>'+
+      '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#4a6cf7,#9b59b6);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">🤖</div>'+
+      '<div style="flex:1;"><div style="font-weight:800;font-size:15px;">IA Analítica <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 8px;border-radius:99px;font-weight:700;">🔒 Privado</span></div>'+
+      '<div style="font-size:12px;color:#999;">Solo visible para ti · Análisis, reportes y consultas</div></div></div>'+
+      '<div id="chat-msgs" class="scroll" style="flex:1;">'+pvHTML+'</div>'+
+      '<div class="chat-input-row"><input class="chat-input" id="chat-in" placeholder="Pide un análisis, reporte o consulta…" onkeydown="if(event.key===\'Enter\'&&!event.shiftKey)sendMsg()">'+
+      '<button class="chat-send" onclick="sendMsg()">➤</button></div></div>';
+    var cm=document.getElementById("chat-msgs");if(cm)cm.scrollTop=cm.scrollHeight;
+    return;
+  }
+
   if(!currentChatCollab&&!currentChatKey){
     // Lista de conversaciones
     var list=isBoss?state.collaborators:state.collaborators.filter(function(c){return c.id===myId;});
+    // Botón de chat privado (solo jefe)
+    var pvLastMsg=(state.messages["boss_private"]||[]).slice(-1)[0];
+    var privateBtn=isBoss?'<button onclick="currentChatKey=\'boss_private\';renderChat()" style="background:linear-gradient(135deg,#f0f2ff,#ede8ff);border:1.5px solid #c5c0ff;border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:14px;cursor:pointer;text-align:left;width:100%;margin-bottom:14px;">'+
+      '<div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#4a6cf7,#9b59b6);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🤖</div>'+
+      '<div style="flex:1;min-width:0;"><div style="font-weight:800;font-size:15px;">IA Analítica <span style="font-size:11px;background:#eef0ff;color:#4a6cf7;padding:3px 7px;border-radius:99px;">🔒 Privado</span></div>'+
+      '<div style="font-size:12px;color:#888;margin-top:2px;">Reportes, análisis y consultas del equipo</div>'+
+      '<div style="font-size:13px;color:#999;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(pvLastMsg?escH(pvLastMsg.text.replace(/\n/g," ").slice(0,46))+"...":"Inicia una consulta…")+'</div></div>'+
+      '<span style="font-size:22px;color:#ccc;">›</span></button>':"";
     var items=list.map(function(c){
       var ck=collabCK(c.id);
       var fl=state.alerts.some(function(a){return a.type==="escalated"&&a.collabId===c.id;});
@@ -2664,7 +2695,7 @@ function renderChat(){
         '<span style="font-size:22px;color:#ccc;">›</span></button>';
     }).join("");
     var groupSection=groupItems?'<div style="font-weight:800;font-size:13px;color:#4a6cf7;margin:14px 0 8px;">👥 Chats grupales</div>'+groupItems:"";
-    document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Chat del equipo</div>'+items+groupSection+'</div>';
+    document.getElementById("content").innerHTML='<div class="card"><div style="font-weight:800;font-size:15px;margin-bottom:14px;">💬 Chat del equipo</div>'+privateBtn+items+groupSection+'</div>';
     return;
   }
   // Vista de conversación individual
@@ -2716,6 +2747,64 @@ function sendMsg(){
   var isBoss=currentUser&&currentUser.type==="boss";
   var text=inp.value.trim();inp.value="";
   var isGroupChat=currentChatKey&&currentChatKey.indexOf("group_")===0;
+  var isPrivate=currentChatKey==="boss_private";
+
+  // ── Chat privado Manuel + IA ──
+  if(isPrivate){
+    var pvck="boss_private";
+    if(!state.messages[pvck])state.messages[pvck]=[];
+    state.messages[pvck].push({id:Date.now(),from:"boss",text:text,ts:Date.now()});
+    saveLocal();renderChat();
+    aiLoading=true;_aiLastTs=Date.now();
+    var pvToday=new Date().toLocaleDateString("es",{weekday:"long",day:"numeric",month:"long"});
+    var pvAgo30=Date.now()-30*24*3600000;
+    // Analítica completa de TODO el equipo
+    var pvTeamData=state.collaborators.map(function(c){
+      var ct3=state.tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+      var comp3=ct3.filter(function(t){return t.status==="completada";}).length;
+      var over3=ct3.filter(function(t){return!t.indefinite&&t.endDate&&taskDue(t)<Date.now()&&t.status!=="completada";}).length;
+      var lines3=[c.name+(c.role?" ("+c.role+")":"")+": "+comp3+"✅ "+(ct3.length-comp3)+" pend"+(over3?" ⚠️"+over3+" vencidas":"")];
+      ct3.forEach(function(t){
+        var hist3=(t.history||[]).filter(function(h){return h.ts>=pvAgo30;});
+        if(!hist3.length)return;
+        var aprov3=hist3.filter(function(h){return h.approved;}).length;
+        var rechaz3=hist3.filter(function(h){return!h.approved;}).length;
+        var pct3=Math.round(aprov3/hist3.length*100);
+        var failMap3={};
+        hist3.filter(function(h){return!h.approved;}).forEach(function(h){
+          (h.criteriaResults||[]).filter(function(cr){return!cr.cumplido;}).forEach(function(cr){
+            failMap3[cr.criterio]=(failMap3[cr.criterio]||0)+1;
+          });
+        });
+        var failList3=Object.keys(failMap3).map(function(k){return k+"("+failMap3[k]+"x)";}).join(", ");
+        var lastRep=(hist3.slice(-1)[0]||{}).report||"";
+        lines3.push("  "+t.title+": "+hist3.length+" entregas ✅"+aprov3+" ❌"+rechaz3+" "+pct3+"%"+(failList3?" | Fallados: "+failList3:"")+(lastRep?" | Último reporte: "+lastRep.slice(0,150):""));
+      });
+      return lines3.join("\n");
+    }).join("\n\n");
+    var pvSys="Eres el asistente analítico privado de Manuel, administrador de AgendaTeam. Hoy "+pvToday+".\n"+
+      "Tienes acceso completo a los datos del equipo. Puedes generar reportes detallados, tablas comparativas, análisis de cumplimiento, identificar patrones de incumplimiento, comparar colaboradores y responder cualquier consulta estratégica sobre el equipo.\n"+
+      "Este chat es PRIVADO — solo Manuel puede verlo, los colaboradores no tienen acceso.\n\n"+
+      "DATOS DEL EQUIPO (último mes):\n"+pvTeamData+"\n\n"+
+      "CAPACIDADES: análisis cruzado, tablas por criterio/colaborador/tarea, tendencias, porcentajes, rankings, reportes de incumplimiento, resúmenes ejecutivos.\n"+
+      "Responde en español. Para reportes: usa tablas con formato de texto (columnas con | ). Sé preciso y usa SOLO los datos disponibles arriba.";
+    var pvHist=(state.messages[pvck]||[]).slice(-21,-1).map(function(m){
+      return{role:m.from==="boss"?"user":"assistant",content:m.text.slice(0,800)};
+    });
+    var pvClean=[];for(var i=0;i<pvHist.length;i++){if(pvClean.length===0||pvHist[i].role!==pvClean[pvClean.length-1].role)pvClean.push(pvHist[i]);}
+    var pvPrev=pvClean.concat([{role:"user",content:text}]);
+    fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,system:pvSys,messages:pvPrev})
+    }).then(function(r){var ct=r.headers.get("content-type")||"";if(!ct.includes("json"))throw new Error("Servidor no disponible ("+r.status+").");return r.json();}).then(function(d){
+      var txt=d.error?(d.error.type==="rate_limit_error"?"⏳ Mucho tráfico. Espera 1 minuto.":"⚠️ "+d.error.message):(d.content&&d.content[0]&&d.content[0].text)||"Sin respuesta.";
+      state.messages[pvck].push({id:Date.now(),from:"ai",text:txt,ts:Date.now()});
+      aiLoading=false;saveLocal();renderChat();
+    }).catch(function(e){
+      state.messages[pvck].push({id:Date.now(),from:"ai",text:"⚠️ Error: "+(e&&e.message||"Sin red"),ts:Date.now()});
+      aiLoading=false;saveLocal();renderChat();
+    });
+    return;
+  }
 
   if(isGroupChat){
     var ck=currentChatKey;

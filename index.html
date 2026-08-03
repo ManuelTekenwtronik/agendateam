@@ -1360,11 +1360,39 @@ function pendValidCount(){return(state.attendance||[]).filter(function(a){return
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
-// Estandarización: "ALMUERZO", "Almuerzo", "almuerzo" = UNA sola actividad
+// Estandarización de actividades: variantes/sinónimos = UNA sola (almorzar/almuercito/almuerzo = "Almuerzo")
 function normActName(s){return String(s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9 ]/g,"").replace(/\s+/g," ");}
-function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var k=normActName(a.name);if(k&&!m[k])m[k]=a.name.trim();});return m;}
+var ACT_ALIASES={
+  "Almuerzo":["almuerzo","almuerzos","almorzar","almorzando","almuercito","almuersito","almuerso","almuerzito","hora de almuerzo","ir a almorzar","lonche","almuerz"]
+};
+function _aliasMap(){var r={};Object.keys(ACT_ALIASES).forEach(function(c){r[normActName(c)]=c;(ACT_ALIASES[c]||[]).forEach(function(al){r[normActName(al)]=c;});});return r;}
+function _lev(a,b){var m=a.length,n=b.length,d=[],i,j;for(i=0;i<=m;i++)d[i]=[i];for(j=0;j<=n;j++)d[0][j]=j;for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
+function canonName(name){var al=_aliasMap();return al[normActName(name)]||String(name||"").trim();}
+function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
-function standardizeName(name){var k=normActName(name);var m=canonicalActivities();return m[k]||name.trim();}
+function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
+// Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · resto alfabético
+function activityOptions(cid){
+  var set={},list=[];
+  function add(n){if(!n)return;var k=normActName(n);if(!set[k]){set[k]=1;list.push(n);}}
+  add(lastUsedActivity(cid));
+  add("Almuerzo");
+  canonicalActivityNames().forEach(add);
+  return list;
+}
+function standardizeName(name){
+  var k=normActName(name);if(!k)return String(name||"").trim();
+  var al=_aliasMap();if(al[k])return al[k];
+  var canon=canonicalActivities();if(canon[k])return canon[k];
+  // fuzzy sólo para typos de nombres largos (evita fusionar palabras cortas distintas)
+  if(k.length>=6){
+    var best=null,bestD=99;
+    Object.keys(al).forEach(function(ak){var dd=_lev(k,ak);if(dd<bestD){bestD=dd;best=al[ak];}});
+    Object.keys(canon).forEach(function(ck){var dd=_lev(k,ck);if(dd<bestD){bestD=dd;best=canon[ck];}});
+    if(best&&bestD<=2)return best;
+  }
+  return String(name||"").trim();
+}
 function actSelChanged(v){var w=document.getElementById("act-new-wrap");if(w)w.style.display=(v==="__new__")?"block":"none";}
 function iniciarActividad(){
   var sel=document.getElementById("act-select"),name="";
@@ -1399,7 +1427,7 @@ function cerrarActividad(id){
 function actRow(a){
   var dur=(a.endTs||Date.now())-a.startTs;
   return'<div style="padding:10px 0;border-bottom:1px solid #f0f2f7;">'+
-    '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(a.name)+'</span><span style="font-size:13px;font-weight:700;white-space:nowrap;color:'+(a.endTs?"#27ae60":"#f5a623")+';">'+fmtDur(dur)+(a.endTs?"":" ⏱")+'</span></div>'+
+    '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(canonName(a.name))+'</span><span style="font-size:13px;font-weight:700;white-space:nowrap;color:'+(a.endTs?"#27ae60":"#f5a623")+';">'+fmtDur(dur)+(a.endTs?"":" ⏱")+'</span></div>'+
     '<div style="font-size:12px;color:#999;margin-top:2px;">'+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+'</div>'+
     '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+'</div></div>';
 }
@@ -1414,14 +1442,14 @@ function renderActividades(){
     h+='<div style="font-size:13px;color:#777;margin-bottom:12px;">Inició '+fmtTime(running.startTs)+' · '+locLabel(running.startLoc)+'</div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="cerrarActividad('+running.id+')">⏹️ Cerrar actividad</button>';
   }else{
-    var names=canonicalActivityNames(),noNames=names.length===0;
+    var opts=activityOptions(cid);
     h+='<div class="field" style="margin-bottom:10px;"><label>Actividad / Tarea</label>'+
        '<select id="act-select" onchange="actSelChanged(this.value)">'+
-         '<option value=""'+(noNames?'':' selected')+'>— Elige una actividad —</option>'+
-         names.map(function(n){return'<option value="'+escH(n)+'">'+escH(n)+'</option>';}).join("")+
-         '<option value="__new__"'+(noNames?' selected':'')+'>➕ Nueva actividad…</option>'+
+         '<option value="" selected>— Elige una actividad —</option>'+
+         opts.map(function(n){return'<option value="'+escH(n)+'">'+escH(n)+'</option>';}).join("")+
+         '<option value="__new__">➕ Nueva actividad…</option>'+
        '</select></div>';
-    h+='<div class="field" id="act-new-wrap" style="margin-bottom:10px;display:'+(noNames?'block':'none')+';"><label>Nombre de la actividad</label><input id="act-name" placeholder="Escribe la actividad…" autocomplete="off"/></div>';
+    h+='<div class="field" id="act-new-wrap" style="margin-bottom:10px;display:none;"><label>Nombre de la actividad</label><input id="act-name" placeholder="Escribe la actividad…" autocomplete="off"/></div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="iniciarActividad()">▶️ Iniciar</button>';
   }
   h+='</div>';
@@ -2664,7 +2692,7 @@ function inPeriod(dateStr){
   if(repPeriod==="mes")return diff<=31;
   return true;
 }
-function allActivityNames(){var m={};(state.activities||[]).forEach(function(a){if(a.name)m[a.name]=true;});return Object.keys(m).sort();}
+function allActivityNames(){var m={};(state.activities||[]).forEach(function(a){if(a.name){var cn=canonName(a.name);m[normActName(cn)]=cn;}});return Object.keys(m).map(function(k){return m[k];}).sort();}
 function repStat(color,val,lbl){return'<div style="text-align:center;background:#f7f8fc;border-radius:12px;padding:12px 6px;border-top:3px solid '+color+';"><div style="font-weight:800;font-size:18px;">'+val+'</div><div style="font-size:10px;color:#999;font-weight:600;margin-top:3px;">'+lbl+'</div></div>';}
 function barRow(name,ms,total,n,color){
   var pct=total?Math.round(ms/total*100):0;
@@ -2675,7 +2703,7 @@ function barRow(name,ms,total,n,color){
 function individualReportHTML(cid,cname){
   var ents=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&inPeriod(a.date);});
   var total=ents.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
-  var byName={};ents.forEach(function(a){(byName[a.name]=byName[a.name]||{ms:0,n:0});byName[a.name].ms+=(a.endTs||Date.now())-a.startTs;byName[a.name].n++;});
+  var byName={};ents.forEach(function(a){var cn=canonName(a.name);(byName[cn]=byName[cn]||{ms:0,n:0});byName[cn].ms+=(a.endTs||Date.now())-a.startTs;byName[cn].n++;});
   var names=Object.keys(byName).sort(function(x,y){return byName[y].ms-byName[x].ms;});
   var att=(state.attendance||[]).filter(function(x){return String(x.collabId)===String(cid)&&inPeriod(x.date);});
   var workedMs=att.reduce(function(s,x){return s+((x.inTime&&x.outTime)?(x.outTime-x.inTime):0);},0);
@@ -2688,7 +2716,7 @@ function individualReportHTML(cid,cname){
   return h;
 }
 function activityReportHTML(name){
-  var ents=(state.activities||[]).filter(function(a){return a.name===name&&inPeriod(a.date);});
+  var ents=(state.activities||[]).filter(function(a){return canonName(a.name)===name&&inPeriod(a.date);});
   var total=ents.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
   var byCol={};ents.forEach(function(a){(byCol[a.collabName]=byCol[a.collabName]||{ms:0,n:0});byCol[a.collabName].ms+=(a.endTs||Date.now())-a.startTs;byCol[a.collabName].n++;});
   var cols=Object.keys(byCol).sort(function(x,y){return byCol[y].ms-byCol[x].ms;});

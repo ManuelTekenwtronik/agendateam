@@ -164,6 +164,14 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 /* ── CANDADO DE UBICACIÓN ── */
 #geo-gate{position:fixed;inset:0;background:linear-gradient(160deg,#1a1d2e 0%,#2d3561 60%,#3d4a8a 100%);display:flex;align-items:center;justify-content:center;padding:24px;z-index:500;overflow-y:auto;}
 
+/* ── PRUEBA DE VIDA (cámara en vivo) ── */
+#live-overlay{position:fixed;inset:0;background:#000;z-index:700;display:flex;align-items:center;justify-content:center;}
+.live-box{width:100%;max-width:480px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px;}
+#live-video{width:100%;max-height:58vh;border-radius:22px;background:#111;transform:scaleX(-1);object-fit:cover;}
+.live-msg{color:#fff;font-weight:800;font-size:19px;text-align:center;min-height:28px;line-height:1.3;}
+#live-actions{width:100%;}
+.live-cancel{background:rgba(255,255,255,.14);color:#fff;border:none;border-radius:12px;padding:12px;font-weight:700;cursor:pointer;width:100%;font-family:inherit;font-size:14px;}
+
 /* ── MENU DE INICIO (botones grandes) ── */
 #menu-screen{position:fixed;inset:0;background:linear-gradient(160deg,#eef0f7 0%,#e3e7f5 100%);z-index:250;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .menu-wrap{max-width:540px;margin:0 auto;padding:0 16px 40px;}
@@ -203,6 +211,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
   <div id="content" class="scroll"></div>
 </div>
 <input type="file" id="att-cam" accept="image/*" capture="user" style="display:none">
+<div id="live-overlay" class="hidden"></div>
 <div id="toast"></div>
 <div id="report-dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,18,35,.55);z-index:9001;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px);">
   <div id="report-dialog-box" style="background:#fff;border-radius:24px;padding:26px 22px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.2);"></div>
@@ -1103,11 +1112,106 @@ function attendancePhoto(kind){
   if(kind==="in"&&rec&&rec.inTime){toast("Ya marcaste ingreso hoy","error");return;}
   if(kind==="out"&&(!rec||!rec.inTime)){toast("Primero marca tu ingreso","error");return;}
   if(kind==="out"&&rec&&rec.outTime){toast("Ya marcaste salida hoy","error");return;}
+  if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){startLiveness(kind);return;}
+  // Respaldo si no hay cámara en vivo: captura simple (sin prueba de vida)
   var inp=document.getElementById("att-cam");
-  if(!inp){registrarAsistencia(kind,"");return;}
+  if(!inp){registrarAsistencia(kind,"",null);return;}
   inp.value="";
   inp.onchange=function(){var f=inp.files&&inp.files[0];inp.onchange=null;if(f)processAttendancePhoto(kind,f);};
   inp.click();
+}
+// ── PRUEBA DE VIDA (liveness activo con reto aleatorio) ──
+var _liveStream=null,_liveFrame1=null,_liveFrame2=null;
+var LIVE_CHALLENGES=[
+  {id:"ojos",instr:"CIERRA los ojos 👀"},
+  {id:"boca",instr:"ABRE bien la boca 😮"},
+  {id:"derecha",instr:"Gira la cabeza a tu DERECHA ➡️"},
+  {id:"izquierda",instr:"Gira la cabeza a tu IZQUIERDA ⬅️"}
+];
+function startLiveness(kind){
+  var ch=LIVE_CHALLENGES[Math.floor(Math.random()*LIVE_CHALLENGES.length)];
+  _liveFrame1=null;_liveFrame2=null;
+  var ov=document.getElementById("live-overlay");
+  ov.classList.remove("hidden");
+  ov.innerHTML='<div class="live-box">'+
+    '<video id="live-video" autoplay playsinline muted></video>'+
+    '<div id="live-msg" class="live-msg">Preparando cámara…</div>'+
+    '<div id="live-actions"></div>'+
+    '<button class="live-cancel" onclick="cancelLiveness()">Cancelar</button>'+
+  '</div>';
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false}).then(function(stream){
+    _liveStream=stream;var v=document.getElementById("live-video");if(v)v.srcObject=stream;
+    var m=document.getElementById("live-msg");if(m)m.textContent="Mira a la cámara con la cara neutral";
+    var a=document.getElementById("live-actions");if(a)a.innerHTML='<button class="btn btn-blue btn-block" onclick="liveStep2(\''+kind+'\',\''+ch.id+'\')">Comenzar</button>';
+  }).catch(function(){toast("No se pudo abrir la cámara — revisa permisos","error");cancelLiveness();});
+}
+function grabFrame(){
+  var v=document.getElementById("live-video");
+  if(!v||!v.videoWidth)return null;
+  var MAX=640,sc=Math.min(MAX/v.videoWidth,MAX/v.videoHeight,1);
+  var cv=document.createElement("canvas");
+  cv.width=Math.round(v.videoWidth*sc);cv.height=Math.round(v.videoHeight*sc);
+  cv.getContext("2d").drawImage(v,0,0,cv.width,cv.height);
+  return cv.toDataURL("image/jpeg",.85);
+}
+function liveStep2(kind,chId){
+  _liveFrame1=grabFrame();
+  if(!_liveFrame1){toast("Cámara no lista, intenta de nuevo","error");return;}
+  var ch=LIVE_CHALLENGES.filter(function(c){return c.id===chId;})[0];
+  var msg=document.getElementById("live-msg"),acts=document.getElementById("live-actions");
+  if(acts)acts.innerHTML="";
+  var n=3;if(msg)msg.textContent=ch.instr+"  ("+n+")";
+  var t=setInterval(function(){
+    n--;
+    if(n<=0){clearInterval(t);if(msg)msg.textContent="Capturando…";_liveFrame2=grabFrame();processLiveness(kind,chId);}
+    else if(msg)msg.textContent=ch.instr+"  ("+n+")";
+  },1000);
+}
+function stopLiveStream(){if(_liveStream){_liveStream.getTracks().forEach(function(t){t.stop();});_liveStream=null;}}
+function closeLiveOverlay(){stopLiveStream();var ov=document.getElementById("live-overlay");if(ov){ov.classList.add("hidden");ov.innerHTML="";}}
+function cancelLiveness(){closeLiveOverlay();toast("Marcado cancelado");}
+function verifyLive(chId,d1,d2){
+  if(!d1||!d2||!d1.faceFound||!d2.faceFound)return null;
+  if(chId==="ojos")return d1.eyesOpen===true&&d2.eyesOpen===false;
+  if(chId==="boca")return d1.mouthOpen===false&&d2.mouthOpen===true;
+  var y1=(d1.headpose&&d1.headpose.yaw_angle)||0,y2=(d2.headpose&&d2.headpose.yaw_angle)||0;
+  if(chId==="derecha"||chId==="izquierda")return Math.abs(y2-y1)>14;
+  return false;
+}
+function processLiveness(kind,chId){
+  stopLiveStream();
+  var msg=document.getElementById("live-msg");if(msg)msg.textContent="Verificando prueba de vida…";
+  if(!_liveFrame1||!_liveFrame2){toast("No se capturaron las fotos","error");cancelLiveness();return;}
+  uploadDataUrl(_liveFrame1,"agendateam_asistencia",function(url1){
+    if(!url1){toast("Error al subir la foto — intenta de nuevo","error");closeLiveOverlay();return;}
+    uploadDataUrl(_liveFrame2,"agendateam_asistencia",function(url2){
+      Promise.all([faceDetect(url1),faceDetect(url2||url1)]).then(function(r){
+        var d1=r[0],d2=r[1],live={challenge:chId,skipped:false,live:false};
+        if((d1&&d1.skipped)||(d2&&d2.skipped))live.skipped=true;
+        else{var v=verifyLive(chId,d1,d2);if(v===null)live.skipped=true;else live.live=v;}
+        closeLiveOverlay();
+        registrarAsistencia(kind,url1,live);
+      });
+    });
+  });
+}
+function uploadDataUrl(dataUrl,folder,cb){
+  var fd=new FormData();
+  fd.append("file",dataUrl);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder",folder);
+  var xhr=new XMLHttpRequest();
+  xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/image/upload");
+  xhr.onload=function(){var url="";try{url=JSON.parse(xhr.responseText).secure_url||"";}catch(e){}cb(url);};
+  xhr.onerror=function(){cb("");};
+  xhr.send(fd);
+}
+function faceDetect(url){
+  return fetch("/.netlify/functions/facedetect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageUrl:cloudinarySmall(url)})}).then(function(r){return r.json();}).catch(function(){return{skipped:true};});
+}
+function liveBadge(live){
+  if(!live)return"";
+  if(live.skipped)return' <span style="font-size:11px;color:#f5a623;font-weight:700;">🫥 vida s/verif.</span>';
+  if(live.live)return' <span style="font-size:11px;color:#27ae60;font-weight:700;">🟢 vida ✓</span>';
+  return' <span style="font-size:11px;color:#e74c3c;font-weight:700;">🚫 sin prueba de vida</span>';
 }
 function processAttendancePhoto(kind,f){
   toast("⏳ Subiendo foto…");
@@ -1118,19 +1222,19 @@ function processAttendancePhoto(kind,f){
   xhr.onload=function(){
     var url="";try{var r=JSON.parse(xhr.responseText);url=r.secure_url||"";}catch(e){}
     if(!url){toast("Error al subir la foto — intenta de nuevo","error");return;}
-    registrarAsistencia(kind,url);
+    registrarAsistencia(kind,url,null);
   };
   xhr.onerror=function(){toast("Error de red al subir la foto","error");};
   xhr.send(fd);
 }
 function attById(id){return(state.attendance||[]).find(function(x){return String(x.id)===String(id);});}
-function registrarAsistencia(kind,photoUrl){
+function registrarAsistencia(kind,photoUrl,live){
   var cid=myUid();if(!cid)return;
   var rec=todayAttendance(cid);
   if(!rec){rec={id:Date.now(),collabId:cid,collabName:myName(),date:todayKey()};state.attendance.push(rec);}
   var recId=rec.id;
-  if(kind==="in"){rec.inTime=Date.now();rec.inPhoto=photoUrl||null;}
-  else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;}
+  if(kind==="in"){rec.inTime=Date.now();rec.inPhoto=photoUrl||null;rec.inLive=live||null;}
+  else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;rec.outLive=live||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
   getGeo(function(loc){
     var r=attById(recId);if(!r)return; // re-buscar el registro vivo (onSnapshot pudo reemplazar el arreglo)
@@ -1157,9 +1261,12 @@ function registrarAsistencia(kind,photoUrl){
 function evalAttendanceFlags(rec,kind){
   var face=kind==="in"?rec.inFace:rec.outFace;
   var site=kind==="in"?rec.inSite:rec.outSite;
+  var live=kind==="in"?rec.inLive:rec.outLive;
   var reasons=[];
   // Rostro que no coincide = rojo (identidad)
   if(face&&!face.skipped&&!face.matched)reasons.push({t:"Rostro no coincide"+(face.confidence?" ("+face.confidence+"%)":""),lvl:"red"});
+  // Sin prueba de vida = rojo (posible suplantación con foto)
+  if(live&&!live.skipped&&live.live===false)reasons.push({t:"Sin prueba de vida (posible suplantación)",lvl:"red"});
   // Ubicación: BODEGA TKTK ok · otro sitio = amarillo · ninguno = rojo
   if(site){
     if(site.status==="yellow")reasons.push({t:"Marcó desde "+site.name+" (no es BODEGA TKTK)",lvl:"yellow"});
@@ -1184,15 +1291,15 @@ function renderIngreso(){
   var isBoss=isAdmin(),cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
   var h=sectionHead("🕐 Ingreso / Salida","Hoy "+tk);
   h+='<div class="card"><div style="font-weight:700;margin-bottom:4px;">Mi jornada de hoy</div>';
-  h+='<div style="font-size:11px;color:#999;margin-bottom:10px;">📷 Se toma foto (cámara) para verificar identidad · 📍 BODEGA TKTK = ✓ · otro sitio = 🟡 · ninguno = 🔴</div>';
+  h+='<div style="font-size:11px;color:#999;margin-bottom:10px;">📷 Cámara en vivo con prueba de vida (sigue la instrucción) · 🤖 rostro · 📍 BODEGA TKTK=✓ · otro sitio=🟡 · ninguno=🔴</div>';
   h+='<div style="display:flex;gap:10px;margin-bottom:12px;">'+
     '<div style="flex:1;text-align:center;background:#f0fff8;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">INGRESO</div><div style="font-size:22px;font-weight:800;color:#27ae60;">'+(rec&&rec.inTime?fmtTime(rec.inTime):"—")+'</div></div>'+
     '<div style="flex:1;text-align:center;background:#fff5f5;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">SALIDA</div><div style="font-size:22px;font-weight:800;color:#e74c3c;">'+(rec&&rec.outTime?fmtTime(rec.outTime):"—")+'</div></div>'+
   '</div>';
   if(rec&&(rec.inPhoto||rec.outPhoto)){
     h+='<div style="display:flex;gap:16px;margin-bottom:10px;">';
-    if(rec.inPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">INGRESO</div>'+photoThumb(rec.inPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.inFace)+'</div></div>';
-    if(rec.outPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">SALIDA</div>'+photoThumb(rec.outPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.outFace)+'</div></div>';
+    if(rec.inPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">INGRESO</div>'+photoThumb(rec.inPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.inFace)+liveBadge(rec.inLive)+'</div></div>';
+    if(rec.outPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">SALIDA</div>'+photoThumb(rec.outPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.outFace)+liveBadge(rec.outLive)+'</div></div>';
     h+='</div>';
   }
   if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+siteStr(rec.inSite)+'</div>';
@@ -1209,7 +1316,7 @@ function renderIngreso(){
     if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Nadie del equipo ha marcado aún.</div>';
     else h+=todays.map(function(a){
       return'<div class="card" style="padding:14px;'+(a.needsValidation?'border-left:4px solid '+flagBorder(a.flagLevel)+';':'')+'"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+(a.needsValidation?' '+flagIcon(a.flagLevel):'')+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div>'+
-        '<div style="display:flex;gap:10px;margin-top:8px;align-items:center;">'+(a.inPhoto?photoThumb(a.inPhoto)+faceBadge(a.inFace):'')+(a.outPhoto?photoThumb(a.outPhoto)+faceBadge(a.outFace):'')+'</div>'+
+        '<div style="display:flex;gap:10px;margin-top:8px;align-items:center;">'+(a.inPhoto?photoThumb(a.inPhoto)+faceBadge(a.inFace)+liveBadge(a.inLive):'')+(a.outPhoto?photoThumb(a.outPhoto)+faceBadge(a.outFace)+liveBadge(a.outLive):'')+'</div>'+
         '<div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+siteStr(a.inSite)+'</div></div>';
     }).join("");
   }
@@ -1229,7 +1336,7 @@ function valCard(a,actionable){
   return'<div class="card" style="border-left:4px solid '+(actionable?flagBorder(a.flagLevel):"#ccc")+';">'+
     '<div style="display:flex;justify-content:space-between;"><b>'+flagIcon(a.flagLevel)+' '+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div>'+
     '<div style="font-size:13px;margin:6px 0;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div>'+
-    '<div style="display:flex;gap:12px;margin:8px 0;">'+(a.inPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">INGRESO</div>'+photoThumb(a.inPhoto)+'<div>'+faceBadge(a.inFace)+'</div></div>':'')+(a.outPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">SALIDA</div>'+photoThumb(a.outPhoto)+'<div>'+faceBadge(a.outFace)+'</div></div>':'')+'</div>'+
+    '<div style="display:flex;gap:12px;margin:8px 0;">'+(a.inPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">INGRESO</div>'+photoThumb(a.inPhoto)+'<div>'+faceBadge(a.inFace)+liveBadge(a.inLive)+'</div></div>':'')+(a.outPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">SALIDA</div>'+photoThumb(a.outPhoto)+'<div>'+faceBadge(a.outFace)+liveBadge(a.outLive)+'</div></div>':'')+'</div>'+
     '<div style="font-size:11px;color:#777;">Ingreso: '+locLabel(a.inLoc)+siteStr(a.inSite)+'</div>'+
     (a.outLoc?'<div style="font-size:11px;color:#777;">Salida: '+locLabel(a.outLoc)+siteStr(a.outSite)+'</div>':'')+
     '<div style="'+flagStyle(a.flagLevel)+'border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;font-weight:600;">'+flagIcon(a.flagLevel)+' '+flagsText(a)+'</div>'+

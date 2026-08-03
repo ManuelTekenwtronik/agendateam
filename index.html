@@ -1360,12 +1360,18 @@ function pendValidCount(){return(state.attendance||[]).filter(function(a){return
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
+// Estandarización: "ALMUERZO", "Almuerzo", "almuerzo" = UNA sola actividad
+function normActName(s){return String(s||"").trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9 ]/g,"").replace(/\s+/g," ");}
+function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var k=normActName(a.name);if(k&&!m[k])m[k]=a.name.trim();});return m;}
+function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
+function standardizeName(name){var k=normActName(name);var m=canonicalActivities();return m[k]||name.trim();}
 function actSelChanged(v){var w=document.getElementById("act-new-wrap");if(w)w.style.display=(v==="__new__")?"block":"none";}
 function iniciarActividad(){
   var sel=document.getElementById("act-select"),name="";
   if(sel&&sel.value&&sel.value!=="__new__")name=sel.value.trim();
   else{var inp=document.getElementById("act-name");name=(inp?inp.value:"").trim();}
   if(!name){toast("Elige o escribe una actividad","error");return;}
+  name=standardizeName(name); // reusar la actividad existente si el nombre es equivalente (ALMUERZO=Almuerzo)
   var cid=myUid();if(!cid)return;
   // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
   var prev=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
@@ -1408,7 +1414,7 @@ function renderActividades(){
     h+='<div style="font-size:13px;color:#777;margin-bottom:12px;">Inició '+fmtTime(running.startTs)+' · '+locLabel(running.startLoc)+'</div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="cerrarActividad('+running.id+')">⏹️ Cerrar actividad</button>';
   }else{
-    var names=myActivityNames(cid),noNames=names.length===0;
+    var names=canonicalActivityNames(),noNames=names.length===0;
     h+='<div class="field" style="margin-bottom:10px;"><label>Actividad / Tarea</label>'+
        '<select id="act-select" onchange="actSelChanged(this.value)">'+
          '<option value=""'+(noNames?'':' selected')+'>— Elige una actividad —</option>'+

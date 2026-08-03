@@ -1360,9 +1360,12 @@ function pendValidCount(){return(state.attendance||[]).filter(function(a){return
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
+function actSelChanged(v){var w=document.getElementById("act-new-wrap");if(w)w.style.display=(v==="__new__")?"block":"none";}
 function iniciarActividad(){
-  var inp=document.getElementById("act-name"),name=(inp?inp.value:"").trim();
-  if(!name){toast("Escribe o elige una actividad","error");return;}
+  var sel=document.getElementById("act-select"),name="";
+  if(sel&&sel.value&&sel.value!=="__new__")name=sel.value.trim();
+  else{var inp=document.getElementById("act-name");name=(inp?inp.value:"").trim();}
+  if(!name){toast("Elige o escribe una actividad","error");return;}
   var cid=myUid();if(!cid)return;
   // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
   var prev=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
@@ -1405,10 +1408,14 @@ function renderActividades(){
     h+='<div style="font-size:13px;color:#777;margin-bottom:12px;">Inició '+fmtTime(running.startTs)+' · '+locLabel(running.startLoc)+'</div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="cerrarActividad('+running.id+')">⏹️ Cerrar actividad</button>';
   }else{
-    var names=myActivityNames(cid);
+    var names=myActivityNames(cid),noNames=names.length===0;
     h+='<div class="field" style="margin-bottom:10px;"><label>Actividad / Tarea</label>'+
-       '<input id="act-name" list="act-names" placeholder="Escribe o elige una…" autocomplete="off"/>'+
-       '<datalist id="act-names">'+names.map(function(n){return'<option value="'+escH(n)+'"></option>';}).join("")+'</datalist></div>';
+       '<select id="act-select" onchange="actSelChanged(this.value)">'+
+         '<option value=""'+(noNames?'':' selected')+'>— Elige una actividad —</option>'+
+         names.map(function(n){return'<option value="'+escH(n)+'">'+escH(n)+'</option>';}).join("")+
+         '<option value="__new__"'+(noNames?' selected':'')+'>➕ Nueva actividad…</option>'+
+       '</select></div>';
+    h+='<div class="field" id="act-new-wrap" style="margin-bottom:10px;display:'+(noNames?'block':'none')+';"><label>Nombre de la actividad</label><input id="act-name" placeholder="Escribe la actividad…" autocomplete="off"/></div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="iniciarActividad()">▶️ Iniciar</button>';
   }
   h+='</div>';

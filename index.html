@@ -1189,11 +1189,22 @@ function processLiveness(kind,chId){
         var d1=r[0],d2=r[1],live={challenge:chId,skipped:false,live:false};
         if((d1&&d1.skipped)||(d2&&d2.skipped))live.skipped=true;
         else{var v=verifyLive(chId,d1,d2);if(v===null)live.skipped=true;else live.live=v;}
-        closeLiveOverlay();
-        registrarAsistencia(kind,url1,live);
+        // NO registrar si no pasa la prueba de vida
+        if(live.live){closeLiveOverlay();registrarAsistencia(kind,url1,live);}
+        else livenessFailed(kind,live.skipped);
       });
     });
   });
+}
+function livenessFailed(kind,skipped){
+  var ov=document.getElementById("live-overlay");if(!ov)return;
+  ov.classList.remove("hidden");
+  ov.innerHTML='<div class="live-box">'+
+    '<div style="font-size:56px;">🚫</div>'+
+    '<div class="live-msg">'+(skipped?"No se detectó tu rostro o no se pudo verificar la prueba de vida.":"No pasaste la prueba de vida.")+'<br><span style="font-size:14px;color:#ffb3b3;">No se puede registrar el '+(kind==="in"?"ingreso":"salida")+'.</span></div>'+
+    '<div id="live-actions" style="width:100%;"><button class="btn btn-blue btn-block" onclick="startLiveness(\''+kind+'\')">🔄 Intentar de nuevo</button></div>'+
+    '<button class="live-cancel" onclick="closeLiveOverlay()">Cancelar</button>'+
+  '</div>';
 }
 function uploadDataUrl(dataUrl,folder,cb){
   var fd=new FormData();

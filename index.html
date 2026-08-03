@@ -2038,7 +2038,7 @@ function appendReportRows(task,rows,ck,approvedIncomplete){
         var v=(r.extracted||{})[c];return c+": "+(v!=null?v:"—");}).join(" | ");
     }).join("\n");
     state.messages[ck].push({id:Date.now(),from:"ai",type:"report_done",ts:Date.now(),
-      text:"📊 Reporte actualizado — "+n+" fila(s) agregada(s)"+(incomplete?" ("+incomplete+" incompleta(s)"+( approvedIncomplete?", autorizado":"")+")")+".\n"+rowSummary});
+      text:"📊 Reporte actualizado — "+n+" fila(s) agregada(s)"+(incomplete?" ("+incomplete+" incompleta(s)"+( approvedIncomplete?", autorizado":"")+")":"")+".\n"+rowSummary});
   }
   saveLocal();if(db)saveCloud();render();
 }

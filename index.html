@@ -1462,14 +1462,28 @@ function checkNamedSite(loc,siteName){
   var d=Math.round(haversineMeters(loc.lat,loc.lng,l.lat,l.lng));
   return{name:l.name,dist:d,radius:l.radius||200,within:d<=(l.radius||200)};
 }
+// Bases desde las que SÍ se puede trabajar en otro proyecto sin alarma: BODEGA TKTK y BODEGA NICARAGUA
+function atWorkBase(loc){
+  if(!loc||loc.lat==null)return null;var hit=null;
+  (state.locations||[]).forEach(function(l){
+    if(l.lat==null||!(/bodega\s*tktk/i.test(l.name||"")||/bodega\s*nicaragua/i.test(l.name||"")))return;
+    var d=haversineMeters(loc.lat,loc.lng,l.lat,l.lng);
+    if(d<=(l.radius||200)&&(!hit||d<hit.dist))hit={name:l.name,dist:Math.round(d)};
+  });
+  return hit;
+}
+function clearActFlag(e){e.needsValidation=false;e.flagLevel=null;e.flags=[];(state.alerts||[]).forEach(function(al){if(al.type==="activity_flag"&&String(al.actId)===String(e.id))al.resolved=true;});}
 function evalActivitySite(e){
   var chk=checkNamedSite(e.startLoc,e.project);e.siteCheck=chk;
-  if(chk&&chk.within===false){
-    e.flags=[chk.noloc?("Sin ubicación para validar "+e.project):("Fuera de "+chk.name+" ("+chk.dist+"m)")];
-    e.needsValidation=true;e.flagLevel="red";
-    if(e.validation!=="aprobado"&&e.validation!=="rechazado")e.validation="pendiente";
-    if(!e._alerted){e._alerted=true;crearAlertaActividad(e);}
-  }else if(chk&&chk.within===true){e.flags=[];e.needsValidation=false;e.flagLevel=null;}
+  if(!chk){clearActFlag(e);e.fromBase=null;return;}
+  if(chk.within===true){clearActFlag(e);e.fromBase=null;return;} // está en el sitio elegido
+  var base=atWorkBase(e.startLoc); // no está en el sitio: ¿está en una bodega base?
+  if(base){clearActFlag(e);e.fromBase=base.name;return;} // permitido: trabaja desde la bodega
+  e.fromBase=null;
+  e.flags=[chk.noloc?("Sin ubicación para validar "+e.project):("Fuera de "+chk.name+" ("+chk.dist+"m)")];
+  e.needsValidation=true;e.flagLevel="red";
+  if(e.validation!=="aprobado"&&e.validation!=="rechazado")e.validation="pendiente";
+  if(!e._alerted){e._alerted=true;crearAlertaActividad(e);}
 }
 function crearAlertaActividad(e){
   if(!state.alerts)state.alerts=[];
@@ -1486,12 +1500,18 @@ function cerrarActividad(id){
   getGeo(function(loc){var e=actById(entId)||ent;e.endLoc=loc||e.endLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
   toast("⏹️ "+ent.name+" · "+fmtDur(ent.endTs-ent.startTs));
 }
+function actSiteStr(a){
+  if(!a.siteCheck)return'';
+  if(a.siteCheck.within)return siteStr({status:"ok",name:a.siteCheck.name,dist:a.siteCheck.dist});
+  if(a.fromBase)return' · <span style="color:#4a6cf7;font-weight:700;">🏢 desde '+escH(a.fromBase)+'</span>';
+  return siteStr({status:"red",name:a.siteCheck.name,dist:a.siteCheck.dist});
+}
 function actRow(a){
   var dur=(a.endTs||Date.now())-a.startTs;
   return'<div style="padding:10px 0;border-bottom:1px solid #f0f2f7;">'+
     '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(canonName(a.name))+'</span><span style="font-size:13px;font-weight:700;white-space:nowrap;color:'+(a.endTs?"#27ae60":"#f5a623")+';">'+fmtDur(dur)+(a.endTs?"":" ⏱")+'</span></div>'+
     '<div style="font-size:12px;color:#999;margin-top:2px;">'+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+'</div>'+
-    '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+(a.siteCheck?siteStr({status:a.siteCheck.within?"ok":"red",name:a.siteCheck.name,dist:a.siteCheck.dist}):'')+'</div>'+
+    '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+actSiteStr(a)+'</div>'+
     (a.needsValidation?'<div style="'+flagStyle("red")+'border-radius:8px;padding:5px 8px;margin-top:4px;font-size:11px;font-weight:600;">🔴 '+escH((a.flags||[]).join(" · "))+(a.validation==="aprobado"?" — ✔ aprobado":a.validation==="rechazado"?" — ✖ rechazado":"")+'</div>':'')+
   '</div>';
 }

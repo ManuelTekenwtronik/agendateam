@@ -1063,16 +1063,19 @@ function isAdmin(){return currentUser&&(currentUser.type==="boss"||currentUser.t
 function myUid(){if(!currentUser)return null;if(currentUser.type==="boss")return"boss";if(currentUser.type==="validador")return"validador";return currentUser.id;}
 function myName(){if(!currentUser)return"";if(currentUser.type==="boss")return"Manuel";if(currentUser.type==="validador")return"Validador";return currentUser.name;}
 function todayAttendance(cid){var tk=todayKey();return(state.attendance||[]).find(function(a){return a.collabId===cid&&a.date===tk;});}
-// Oficina oficial para asistencia = BODEGA TKTK (CLARO ZONA 6 es sitio de cliente, no cuenta)
-function officeLocation(){
-  var locs=(state.locations||[]);
-  return locs.find(function(l){return /bodega\s*tktk/i.test(l.name||"");})||null;
-}
-function checkOffice(loc){
-  if(!loc||loc.lat==null)return null;
-  var o=officeLocation();if(!o)return null;
-  var d=Math.round(haversineMeters(loc.lat,loc.lng,o.lat,o.lng));
-  return{name:o.name,dist:d,radius:o.radius||200,within:d<=(o.radius||200)};
+// Sitio de la marca: BODEGA TKTK = ok (verde) · otro sitio registrado = amarillo · ninguno = rojo
+function checkSite(loc){
+  if(!loc||loc.lat==null)return{status:"red",name:null,dist:null};
+  var locs=(state.locations||[]),inside=null;
+  locs.forEach(function(l){
+    if(l.lat==null)return;
+    var d=haversineMeters(loc.lat,loc.lng,l.lat,l.lng);
+    if(d<=(l.radius||200)&&(!inside||d<inside.dist))inside={name:l.name,dist:Math.round(d),office:/bodega\s*tktk/i.test(l.name||"")};
+  });
+  if(inside)return{status:inside.office?"ok":"yellow",name:inside.name,dist:inside.dist};
+  var nearest=null;
+  locs.forEach(function(l){if(l.lat==null)return;var d=haversineMeters(loc.lat,loc.lng,l.lat,l.lng);if(!nearest||d<nearest.dist)nearest={name:l.name,dist:Math.round(d)};});
+  return{status:"red",name:nearest?nearest.name:null,dist:nearest?nearest.dist:null};
 }
 function faceBadge(face){
   if(!face)return"";
@@ -1081,7 +1084,16 @@ function faceBadge(face){
   return' <span style="font-size:11px;color:#e74c3c;font-weight:700;">❌ no coincide</span>';
 }
 function photoThumb(url){return url?'<img src="'+cloudinarySmall(url)+'" style="width:42px;height:42px;border-radius:8px;object-fit:cover;flex-shrink:0;">':'';}
-function officeStr(o){if(!o)return"";return o.within?' · <span style="color:#27ae60;font-weight:700;">✓ en '+escH(o.name)+'</span>':' · <span style="color:#e74c3c;font-weight:700;">'+o.dist+'m de '+escH(o.name)+'</span>';}
+function siteStr(s){
+  if(!s)return"";
+  if(s.status==="ok")return' · <span style="color:#27ae60;font-weight:700;">✓ '+escH(s.name)+'</span>';
+  if(s.status==="yellow")return' · <span style="color:#d99400;font-weight:700;">🟡 '+escH(s.name)+' '+s.dist+'m</span>';
+  return' · <span style="color:#e74c3c;font-weight:700;">🔴 '+(s.name?"fuera · cerca "+escH(s.name)+" "+s.dist+"m":"fuera de todo sitio")+'</span>';
+}
+function flagsText(rec){return((rec.inFlags||[]).concat(rec.outFlags||[])).map(function(r){return escH(r.t);}).join(" · ");}
+function flagStyle(level){return level==="red"?"background:#fff5f5;color:#c0392b;":"background:#fffbe8;color:#a67c00;";}
+function flagIcon(level){return level==="red"?"🔴":"🟡";}
+function flagBorder(level){return level==="red"?"#e74c3c":"#e0a800";}
 // Marcado con cámara (solo cámara, no galería) → foto → rostro → oficina → alerta si no coincide
 function marcarIngreso(){attendancePhoto("in");}
 function marcarSalida(){attendancePhoto("out");}
@@ -1119,8 +1131,8 @@ function registrarAsistencia(kind,photoUrl){
   else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
   getGeo(function(loc){
-    if(kind==="in"){rec.inLoc=loc||rec.inLoc||null;rec.inOffice=checkOffice(rec.inLoc);}
-    else{rec.outLoc=loc||rec.outLoc||null;rec.outOffice=checkOffice(rec.outLoc);}
+    if(kind==="in"){rec.inLoc=loc||rec.inLoc||null;rec.inSite=checkSite(rec.inLoc);}
+    else{rec.outLoc=loc||rec.outLoc||null;rec.outSite=checkSite(rec.outLoc);}
     evalAttendanceFlags(rec,kind);
     saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
   });
@@ -1140,29 +1152,35 @@ function registrarAsistencia(kind,photoUrl){
 }
 function evalAttendanceFlags(rec,kind){
   var face=kind==="in"?rec.inFace:rec.outFace;
-  var off=kind==="in"?rec.inOffice:rec.outOffice;
-  var loc=kind==="in"?rec.inLoc:rec.outLoc;
+  var site=kind==="in"?rec.inSite:rec.outSite;
   var reasons=[];
-  if(face&&!face.skipped&&!face.matched)reasons.push("Rostro no coincide"+(face.confidence?" ("+face.confidence+"%)":""));
-  if(off&&off.within===false)reasons.push("Fuera de "+off.name+" ("+off.dist+"m)");
-  else if(loc==null&&(face||off!==undefined))reasons.push("Sin ubicación");
+  // Rostro que no coincide = rojo (identidad)
+  if(face&&!face.skipped&&!face.matched)reasons.push({t:"Rostro no coincide"+(face.confidence?" ("+face.confidence+"%)":""),lvl:"red"});
+  // Ubicación: BODEGA TKTK ok · otro sitio = amarillo · ninguno = rojo
+  if(site){
+    if(site.status==="yellow")reasons.push({t:"Marcó desde "+site.name+" (no es BODEGA TKTK)",lvl:"yellow"});
+    else if(site.status==="red")reasons.push({t:(site.name?"Fuera de todo sitio · cerca "+site.name+" "+site.dist+"m":"Sin ubicación / fuera de todo sitio"),lvl:"red"});
+  }
   if(kind==="in")rec.inFlags=reasons;else rec.outFlags=reasons;
   var all=(rec.inFlags||[]).concat(rec.outFlags||[]);
   rec.needsValidation=all.length>0;
+  rec.flagLevel=all.some(function(r){return r.lvl==="red";})?"red":(all.length?"yellow":null);
   if(rec.needsValidation&&rec.validation!=="aprobado"&&rec.validation!=="rechazado")rec.validation="pendiente";
   var af=kind==="in"?"_alertedIn":"_alertedOut";
   if(reasons.length&&!rec[af]){rec[af]=true;crearAlertaValidacion(rec,kind,reasons);}
 }
 function crearAlertaValidacion(rec,kind,reasons){
   if(!state.alerts)state.alerts=[];
-  state.alerts.push({id:Date.now()+"_"+kind,type:"attendance_flag",attId:rec.id,kind:kind,collabName:rec.collabName,date:rec.date,reasons:reasons,ts:Date.now(),resolved:false});
-  try{sendNotif("boss","🚩 Asistencia por validar",rec.collabName+" ("+(kind==="in"?"ingreso":"salida")+"): "+reasons.join(", "));}catch(e){}
+  var txt=reasons.map(function(r){return r.t;});
+  var lvl=reasons.some(function(r){return r.lvl==="red";})?"red":"yellow";
+  state.alerts.push({id:Date.now()+"_"+kind,type:"attendance_flag",attId:rec.id,kind:kind,level:lvl,collabName:rec.collabName,date:rec.date,reasons:txt,ts:Date.now(),resolved:false});
+  try{sendNotif("boss",(lvl==="red"?"🔴":"🟡")+" Asistencia por validar",rec.collabName+" ("+(kind==="in"?"ingreso":"salida")+"): "+txt.join(", "));}catch(e){}
 }
 function renderIngreso(){
   var isBoss=isAdmin(),cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
   var h=sectionHead("🕐 Ingreso / Salida","Hoy "+tk);
   h+='<div class="card"><div style="font-weight:700;margin-bottom:4px;">Mi jornada de hoy</div>';
-  h+='<div style="font-size:11px;color:#999;margin-bottom:10px;">📷 Se toma foto (cámara) para verificar identidad · 📍 debes estar en BODEGA TKTK</div>';
+  h+='<div style="font-size:11px;color:#999;margin-bottom:10px;">📷 Se toma foto (cámara) para verificar identidad · 📍 BODEGA TKTK = ✓ · otro sitio = 🟡 · ninguno = 🔴</div>';
   h+='<div style="display:flex;gap:10px;margin-bottom:12px;">'+
     '<div style="flex:1;text-align:center;background:#f0fff8;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">INGRESO</div><div style="font-size:22px;font-weight:800;color:#27ae60;">'+(rec&&rec.inTime?fmtTime(rec.inTime):"—")+'</div></div>'+
     '<div style="flex:1;text-align:center;background:#fff5f5;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">SALIDA</div><div style="font-size:22px;font-weight:800;color:#e74c3c;">'+(rec&&rec.outTime?fmtTime(rec.outTime):"—")+'</div></div>'+
@@ -1173,9 +1191,9 @@ function renderIngreso(){
     if(rec.outPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">SALIDA</div>'+photoThumb(rec.outPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.outFace)+'</div></div>';
     h+='</div>';
   }
-  if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+officeStr(rec.inOffice)+'</div>';
-  if(rec&&rec.outTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Salida: '+locLabel(rec.outLoc)+officeStr(rec.outOffice)+'</div>';
-  if(rec&&rec.needsValidation)h+='<div style="background:#fff5f5;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:12px;color:#c0392b;font-weight:600;">🚩 '+((rec.inFlags||[]).concat(rec.outFlags||[]).map(escH).join(" · "))+' — '+(rec.validation==="aprobado"?"✔ aprobado":rec.validation==="rechazado"?"✖ rechazado":"pendiente de validación")+'</div>';
+  if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+siteStr(rec.inSite)+'</div>';
+  if(rec&&rec.outTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Salida: '+locLabel(rec.outLoc)+siteStr(rec.outSite)+'</div>';
+  if(rec&&rec.needsValidation)h+='<div style="'+flagStyle(rec.flagLevel)+'border-radius:10px;padding:8px 10px;margin-top:8px;font-size:12px;font-weight:600;">'+flagIcon(rec.flagLevel)+' '+flagsText(rec)+' — '+(rec.validation==="aprobado"?"✔ aprobado":rec.validation==="rechazado"?"✖ rechazado":"pendiente de validación")+'</div>';
   h+='<div style="margin-top:12px;">';
   if(!rec||!rec.inTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="marcarIngreso()">📷 Marcar ingreso</button>';
   else if(!rec.outTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="marcarSalida()">📷 Marcar salida</button>';
@@ -1186,9 +1204,9 @@ function renderIngreso(){
     h+='<div style="font-weight:800;font-size:15px;margin:18px 4px 10px;">Equipo hoy</div>';
     if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Nadie del equipo ha marcado aún.</div>';
     else h+=todays.map(function(a){
-      return'<div class="card" style="padding:14px;'+(a.needsValidation?'border-left:4px solid #e74c3c;':'')+'"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+(a.needsValidation?' 🚩':'')+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div>'+
+      return'<div class="card" style="padding:14px;'+(a.needsValidation?'border-left:4px solid '+flagBorder(a.flagLevel)+';':'')+'"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+(a.needsValidation?' '+flagIcon(a.flagLevel):'')+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div>'+
         '<div style="display:flex;gap:10px;margin-top:8px;align-items:center;">'+(a.inPhoto?photoThumb(a.inPhoto)+faceBadge(a.inFace):'')+(a.outPhoto?photoThumb(a.outPhoto)+faceBadge(a.outFace):'')+'</div>'+
-        '<div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+officeStr(a.inOffice)+'</div></div>';
+        '<div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+siteStr(a.inSite)+'</div></div>';
     }).join("");
   }
   document.getElementById("content").innerHTML=h;
@@ -1203,15 +1221,14 @@ function renderValidacion(){
   document.getElementById("content").innerHTML=h;
 }
 function valCard(a,actionable){
-  var reasons=(a.inFlags||[]).concat(a.outFlags||[]);
   var estado=a.validation==="aprobado"?'<span style="color:#27ae60;font-weight:700;">✔ Aprobado por '+escH(a.validatedBy||"")+'</span>':a.validation==="rechazado"?'<span style="color:#e74c3c;font-weight:700;">✖ Rechazado por '+escH(a.validatedBy||"")+'</span>':'';
-  return'<div class="card" style="border-left:4px solid '+(actionable?"#e74c3c":"#ccc")+';">'+
-    '<div style="display:flex;justify-content:space-between;"><b>'+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div>'+
+  return'<div class="card" style="border-left:4px solid '+(actionable?flagBorder(a.flagLevel):"#ccc")+';">'+
+    '<div style="display:flex;justify-content:space-between;"><b>'+flagIcon(a.flagLevel)+' '+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div>'+
     '<div style="font-size:13px;margin:6px 0;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div>'+
     '<div style="display:flex;gap:12px;margin:8px 0;">'+(a.inPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">INGRESO</div>'+photoThumb(a.inPhoto)+'<div>'+faceBadge(a.inFace)+'</div></div>':'')+(a.outPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">SALIDA</div>'+photoThumb(a.outPhoto)+'<div>'+faceBadge(a.outFace)+'</div></div>':'')+'</div>'+
-    '<div style="font-size:11px;color:#777;">Ingreso: '+locLabel(a.inLoc)+officeStr(a.inOffice)+'</div>'+
-    (a.outLoc?'<div style="font-size:11px;color:#777;">Salida: '+locLabel(a.outLoc)+officeStr(a.outOffice)+'</div>':'')+
-    '<div style="background:#fff5f5;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;color:#c0392b;font-weight:600;">🚩 '+reasons.map(escH).join(" · ")+'</div>'+
+    '<div style="font-size:11px;color:#777;">Ingreso: '+locLabel(a.inLoc)+siteStr(a.inSite)+'</div>'+
+    (a.outLoc?'<div style="font-size:11px;color:#777;">Salida: '+locLabel(a.outLoc)+siteStr(a.outSite)+'</div>':'')+
+    '<div style="'+flagStyle(a.flagLevel)+'border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;font-weight:600;">'+flagIcon(a.flagLevel)+' '+flagsText(a)+'</div>'+
     (actionable?
       '<div style="display:flex;gap:8px;">'+
         '<button class="btn btn-sm" style="flex:1;background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="validarAsistencia('+a.id+',true)">✔ Aprobar</button>'+

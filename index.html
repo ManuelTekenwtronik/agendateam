@@ -1123,25 +1123,29 @@ function processAttendancePhoto(kind,f){
   xhr.onerror=function(){toast("Error de red al subir la foto","error");};
   xhr.send(fd);
 }
+function attById(id){return(state.attendance||[]).find(function(x){return String(x.id)===String(id);});}
 function registrarAsistencia(kind,photoUrl){
   var cid=myUid();if(!cid)return;
   var rec=todayAttendance(cid);
   if(!rec){rec={id:Date.now(),collabId:cid,collabName:myName(),date:todayKey()};state.attendance.push(rec);}
+  var recId=rec.id;
   if(kind==="in"){rec.inTime=Date.now();rec.inPhoto=photoUrl||null;}
   else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
   getGeo(function(loc){
-    if(kind==="in"){rec.inLoc=loc||rec.inLoc||null;rec.inSite=checkSite(rec.inLoc);}
-    else{rec.outLoc=loc||rec.outLoc||null;rec.outSite=checkSite(rec.outLoc);}
-    evalAttendanceFlags(rec,kind);
+    var r=attById(recId);if(!r)return; // re-buscar el registro vivo (onSnapshot pudo reemplazar el arreglo)
+    if(kind==="in"){r.inLoc=loc||r.inLoc||null;r.inSite=checkSite(r.inLoc);}
+    else{r.outLoc=loc||r.outLoc||null;r.outSite=checkSite(r.outLoc);}
+    evalAttendanceFlags(r,kind);
     saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
   });
   var profile=currentUser&&currentUser.photo;
   if(profile&&photoUrl){
     checkFaceIdentity(profile,photoUrl).then(function(res){
+      var r=attById(recId);if(!r)return; // re-buscar el registro vivo antes de escribir el resultado facial
       var face={matched:!!(res&&res.matched),confidence:Math.round((res&&res.confidence)||0),skipped:!!(res&&res.skipped)};
-      if(kind==="in")rec.inFace=face;else rec.outFace=face;
-      evalAttendanceFlags(rec,kind);
+      if(kind==="in")r.inFace=face;else r.outFace=face;
+      evalAttendanceFlags(r,kind);
       saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
       if(face.skipped)toast("⚠️ Rostro no verificado");
       else if(face.matched)toast("✅ Identidad verificada ("+face.confidence+"%)");

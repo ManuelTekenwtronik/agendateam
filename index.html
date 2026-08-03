@@ -160,14 +160,29 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 .chat-input:focus{border-color:#4a6cf7;background:#fff;}
 .chat-send{background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;border:none;border-radius:50%;width:46px;height:46px;font-size:20px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 8px rgba(26,29,46,.4);transition:transform .1s;}
 .chat-send:active{transform:scale(.92);}
+
+/* ── MENU DE INICIO (botones grandes) ── */
+#menu-screen{position:fixed;inset:0;background:linear-gradient(160deg,#eef0f7 0%,#e3e7f5 100%);z-index:250;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+.menu-wrap{max-width:540px;margin:0 auto;padding:0 16px 40px;}
+.menu-header{height:58px;display:flex;align-items:center;justify-content:space-between;}
+.menu-header .logo{color:#1a1d2e;}
+.menu-greet{font-weight:800;font-size:25px;color:#1a1d2e;margin:12px 4px 22px;letter-spacing:-.6px;}
+.menu-greet span{display:block;font-weight:600;font-size:14px;color:#8a90a8;margin-top:5px;letter-spacing:0;}
+.menu-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.menu-card{background:#fff;border:none;border-top:4px solid var(--mc,#4a6cf7);border-radius:22px;padding:28px 14px;cursor:pointer;box-shadow:0 4px 16px rgba(26,29,46,.08);display:flex;flex-direction:column;align-items:center;gap:12px;transition:transform .12s,box-shadow .12s;font-family:inherit;}
+.menu-card:active{transform:scale(.96);box-shadow:0 2px 8px rgba(26,29,46,.12);}
+.menu-ico{font-size:42px;line-height:1;}
+.menu-lbl{font-weight:800;font-size:15px;color:#1a1d2e;text-align:center;letter-spacing:-.2px;}
 </style>
 </head>
 <body>
 <div id="login-screen" class="hidden"></div>
+<div id="menu-screen" class="hidden"></div>
 <div id="app" class="hidden">
   <div id="header">
     <div class="logo"><div class="logo-dot"></div>AgendaTeam</div>
     <div style="display:flex;align-items:center;gap:10px;">
+      <button onclick="goMenu()" title="Menú" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">🏠</button>
       <div id="flag-badge" class="hidden" style="background:#e74c3c;color:#fff;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700;"></div>
       <button id="notif-btn" onclick="requestNotifPermission()" title="Activar notificaciones" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">🔔</button>
       <div id="user-av" class="hidden"></div>
@@ -345,7 +360,7 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[],attendance:state.attendance||[],activities:state.activities||[]
   };
   window._pendingSave=true;
   db.collection("at").doc("data").set(fc).then(function(){
@@ -376,7 +391,7 @@ function startSync(){
     });
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
-    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]},d);
+    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
     state.tasks=state.tasks.map(function(t){
       var ls=localStatuses[t.id];
       var lh=localHistories[t.id]||[];
@@ -460,7 +475,7 @@ var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
-var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]};
+var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var _cloudSynced=false; // protección: no guardar en Firestore antes de recibir datos de la nube
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
@@ -469,7 +484,7 @@ var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
 var pinTarget=null,pinBuffer="";
 
-function loadLocal(){var def={collaborators:[],tasks:[],messages:{},alerts:[],references:[],referenceFolders:[]};try{var r=localStorage.getItem(SK);return r?Object.assign(def,JSON.parse(r)):def;}catch(e){return def;}}
+function loadLocal(){var def={collaborators:[],tasks:[],messages:{},alerts:[],references:[],referenceFolders:[],attendance:[],activities:[]};try{var r=localStorage.getItem(SK);return r?Object.assign(def,JSON.parse(r)):def;}catch(e){return def;}}
 function saveLocal(){
   try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
   if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(saveCloud,1500);}
@@ -491,7 +506,7 @@ function init(){
         var d=snap.data();
         var pm={};
         state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-        state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[]},d);
+        state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],attendance:[],activities:[]},d);
         state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
         saveLocal();
       }
@@ -628,10 +643,9 @@ function showPinLogin(target){
 function loginBoss(){
   currentUser={type:"boss"};
   document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
   document.getElementById("user-av").classList.add("hidden");
   if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();
-  render();
+  goMenu();
 }
 
 function loginCollab(id){
@@ -639,19 +653,62 @@ function loginCollab(id){
   if(!c)return;
   currentUser=Object.assign({type:"collab"},c);
   document.getElementById("login-screen").classList.add("hidden");
-  document.getElementById("app").classList.remove("hidden");
   document.getElementById("user-av").innerHTML=avHTML(c,30);
   document.getElementById("user-av").classList.remove("hidden");
   if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();
-  render();
+  goMenu();
 }
 
 function logout(){
-  currentUser=null;currentTab="tareas";currentChatCollab=null;
+  currentUser=null;currentTab="menu";currentChatCollab=null;
   filterFreq="todas";filterStat="todas";filterCollab="todas";
   pinBuffer="";pinTarget=null;
   document.getElementById("app").classList.add("hidden");
+  document.getElementById("menu-screen").classList.add("hidden");
   showMainLogin();
+}
+
+// ── MENÚ DE INICIO + NAVEGACIÓN ──
+function goMenu(){
+  currentTab="menu";
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("app").classList.add("hidden");
+  document.getElementById("menu-screen").classList.remove("hidden");
+  renderMenu();
+}
+function openSection(tab){
+  currentTab=tab;
+  document.getElementById("menu-screen").classList.add("hidden");
+  document.getElementById("app").classList.remove("hidden");
+  render();
+  document.getElementById("content").scrollTop=0;
+}
+function renderMenu(){
+  if(!currentUser)return;
+  var isBoss=currentUser.type==="boss";
+  var name=isBoss?"Manuel":(currentUser.name?currentUser.name.split(" ")[0]:"");
+  var items=[
+    ["estadisticas","📊","Estadísticas","#5a8fe0"],
+    ["tareas","📋","Tareas","#4a6cf7"],
+    ["ingreso","🕐","Ingreso / Salida","#27ae60"],
+    ["actividades","📝","Actividades","#f5a623"],
+    ["reportes","📈","Reportes","#9b59b6"]
+  ];
+  if(isBoss){items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);}
+  document.getElementById("menu-screen").innerHTML=
+    '<div class="menu-wrap">'+
+      '<div class="menu-header">'+
+        '<div class="logo"><div class="logo-dot"></div>AgendaTeam</div>'+
+        '<button class="btn btn-sm" style="background:#2d3561;color:#fff;" onclick="logout()">Salir</button>'+
+      '</div>'+
+      '<div class="menu-greet">Hola, '+escH(name)+' 👋<span>¿Qué quieres hacer?</span></div>'+
+      '<div class="menu-grid">'+
+        items.map(function(it){
+          return'<button class="menu-card" style="--mc:'+it[3]+'" onclick="openSection(\''+it[0]+'\')">'+
+            '<div class="menu-ico">'+it[1]+'</div><div class="menu-lbl">'+it[2]+'</div></button>';
+        }).join("")+
+      '</div>'+
+    '</div>';
 }
 
 // ── ALERTS ──
@@ -839,7 +896,10 @@ function timelineHTML(task){
 }
 
 // ── RENDER ──
-function render(){renderHeader();renderTabs();renderStats();renderContent();}
+function render(){
+  if(currentTab==="menu"){if(currentUser)renderMenu();return;}
+  renderHeader();renderTabs();renderStats();renderContent();
+}
 
 function renderHeader(){
   var flags=state.alerts.filter(function(a){return a.type==="escalated";}).length;
@@ -874,10 +934,200 @@ function renderStats(){
 }
 
 function renderContent(){
-  if(currentTab==="tareas")renderTasks();
-  else if(currentTab==="base")renderBase();
-  else if(currentTab==="reportes")renderReportes();
+  var t=currentTab;
+  var classic=(t==="tareas"||t==="chat"||t==="base"||t==="reportes");
+  var tabsEl=document.getElementById("tabs"),statsEl=document.getElementById("stats");
+  if(tabsEl)tabsEl.style.display=classic?"":"none";
+  if(statsEl)statsEl.style.display=(t==="tareas")?"":"none";
+  if(t==="tareas")renderTasks();
+  else if(t==="base")renderBase();
+  else if(t==="reportes")renderReportes();
+  else if(t==="estadisticas")renderEstadisticas();
+  else if(t==="ingreso")renderIngreso();
+  else if(t==="actividades")renderActividades();
   else renderChat();
+}
+
+// ── UBICACIÓN OBLIGATORIA (todo registro lleva GPS) ──
+function getGeo(cb){
+  if(!navigator.geolocation){cb(null);return;}
+  navigator.geolocation.getCurrentPosition(function(pos){
+    var coord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
+    cb(coord);
+    fetch("https://nominatim.openstreetmap.org/reverse?lat="+coord.lat+"&lon="+coord.lng+"&format=json&accept-language=es",{headers:{"User-Agent":"AgendaTeam/1.0"}})
+      .then(function(r){return r.json();}).then(function(geo){
+        if(geo&&geo.address){
+          var a=geo.address;
+          var parts=[a.road||a.pedestrian||a.footway||"",a.neighbourhood||a.suburb||a.quarter||a.city_district||"",a.city||a.town||a.village||a.municipality||"",a.state||""].filter(Boolean);
+          coord.address=parts.slice(0,3).join(", ");
+          cb(coord,true);
+        }
+      }).catch(function(){});
+  },function(){cb(null);},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+}
+// ── HELPERS ──
+function pad2(n){return(n<10?"0":"")+n;}
+function todayKey(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}
+function fmtTime(ts){if(!ts)return"—";var d=new Date(ts);return pad2(d.getHours())+":"+pad2(d.getMinutes());}
+function fmtDur(ms){if(!ms||ms<0)return"0m";var m=Math.floor(ms/60000),h=Math.floor(m/60);m=m%60;return(h>0?h+"h ":"")+m+"m";}
+function locLabel(loc){
+  if(!loc||loc.lat==null)return'<span style="color:#e74c3c;font-weight:600;">📍 sin ubicación</span>';
+  var t=loc.address||(Number(loc.lat).toFixed(5)+", "+Number(loc.lng).toFixed(5));
+  return'<a href="https://www.google.com/maps?q='+loc.lat+','+loc.lng+'" target="_blank" style="color:#4a6cf7;text-decoration:none;">📍 '+escH(t)+'</a>';
+}
+function miniRow(ico,label,val){
+  return'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f4f5fa;"><span style="color:#666;">'+ico+' '+label+'</span><span style="font-weight:800;color:#1a1d2e;">'+escH(String(val))+'</span></div>';
+}
+function sectionHead(title,sub){
+  return'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">'+
+    '<button class="btn btn-gray btn-sm" style="border-radius:10px;" onclick="goMenu()">← Menú</button>'+
+    '<div><div style="font-weight:800;font-size:18px;letter-spacing:-.3px;">'+title+'</div>'+
+    (sub?'<div style="font-size:12px;color:#999;">'+sub+'</div>':'')+'</div></div>';
+}
+
+// ── INGRESO / SALIDA (asistencia con ubicación) ──
+function myUid(){return currentUser&&currentUser.type==="boss"?"boss":(currentUser?currentUser.id:null);}
+function myName(){return currentUser&&currentUser.type==="boss"?"Manuel":(currentUser?currentUser.name:"");}
+function todayAttendance(cid){var tk=todayKey();return(state.attendance||[]).find(function(a){return a.collabId===cid&&a.date===tk;});}
+function marcarIngreso(){
+  var cid=myUid();if(!cid)return;
+  var rec=todayAttendance(cid);
+  if(rec&&rec.inTime){toast("Ya marcaste ingreso hoy","error");return;}
+  if(!rec){rec={id:Date.now(),collabId:cid,collabName:myName(),date:todayKey(),inTime:Date.now(),inLoc:null,outTime:null,outLoc:null};state.attendance.push(rec);}
+  else rec.inTime=Date.now();
+  saveLocal();if(db)saveCloud();renderIngreso();
+  toast("📍 Registrando ingreso…");
+  getGeo(function(loc){rec.inLoc=loc||rec.inLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();});
+  toast("✅ Ingreso "+fmtTime(rec.inTime));
+}
+function marcarSalida(){
+  var cid=myUid();if(!cid)return;
+  var rec=todayAttendance(cid);
+  if(!rec||!rec.inTime){toast("Primero marca tu ingreso","error");return;}
+  if(rec.outTime){toast("Ya marcaste salida hoy","error");return;}
+  rec.outTime=Date.now();
+  saveLocal();if(db)saveCloud();renderIngreso();
+  toast("📍 Registrando salida…");
+  getGeo(function(loc){rec.outLoc=loc||rec.outLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();});
+  toast("✅ Salida "+fmtTime(rec.outTime)+" · "+fmtDur(rec.outTime-rec.inTime));
+}
+function renderIngreso(){
+  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
+  var h=sectionHead("🕐 Ingreso / Salida","Hoy "+tk);
+  h+='<div class="card"><div style="font-weight:700;margin-bottom:12px;">Mi jornada de hoy</div>';
+  h+='<div style="display:flex;gap:10px;margin-bottom:12px;">'+
+    '<div style="flex:1;text-align:center;background:#f0fff8;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">INGRESO</div><div style="font-size:22px;font-weight:800;color:#27ae60;">'+(rec&&rec.inTime?fmtTime(rec.inTime):"—")+'</div></div>'+
+    '<div style="flex:1;text-align:center;background:#fff5f5;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">SALIDA</div><div style="font-size:22px;font-weight:800;color:#e74c3c;">'+(rec&&rec.outTime?fmtTime(rec.outTime):"—")+'</div></div>'+
+  '</div>';
+  if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+'</div>';
+  if(rec&&rec.outTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Salida: '+locLabel(rec.outLoc)+'</div>';
+  h+='<div style="margin-top:12px;">';
+  if(!rec||!rec.inTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="marcarIngreso()">Marcar ingreso</button>';
+  else if(!rec.outTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="marcarSalida()">Marcar salida</button>';
+  else h+='<div style="text-align:center;color:#27ae60;font-weight:700;padding:8px;">✅ Jornada completa · '+fmtDur(rec.outTime-rec.inTime)+'</div>';
+  h+='</div></div>';
+  if(isBoss){
+    var todays=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss";});
+    h+='<div style="font-weight:800;font-size:15px;margin:18px 4px 10px;">Equipo hoy</div>';
+    if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Nadie del equipo ha marcado aún.</div>';
+    else h+=todays.map(function(a){
+      return'<div class="card" style="padding:14px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div><div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+'</div></div>';
+    }).join("");
+  }
+  document.getElementById("content").innerHTML=h;
+}
+
+// ── ACTIVIDADES (horas por tarea, con ubicación) ──
+function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
+function iniciarActividad(){
+  var inp=document.getElementById("act-name"),name=(inp?inp.value:"").trim();
+  if(!name){toast("Escribe o elige una actividad","error");return;}
+  var cid=myUid();if(!cid)return;
+  if((state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;})){toast("Cierra la actividad en curso primero","error");return;}
+  var ent={id:Date.now(),collabId:cid,collabName:myName(),name:name,date:todayKey(),startTs:Date.now(),endTs:null,startLoc:null,endLoc:null};
+  state.activities.push(ent);
+  saveLocal();if(db)saveCloud();renderActividades();
+  toast("📍 Registrando ubicación…");
+  getGeo(function(loc){ent.startLoc=loc||ent.startLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
+  toast("▶️ "+name+" iniciada");
+}
+function cerrarActividad(id){
+  var ent=(state.activities||[]).find(function(a){return a.id===id;});
+  if(!ent||ent.endTs)return;
+  ent.endTs=Date.now();
+  saveLocal();if(db)saveCloud();renderActividades();
+  toast("📍 Registrando ubicación…");
+  getGeo(function(loc){ent.endLoc=loc||ent.endLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
+  toast("⏹️ "+ent.name+" · "+fmtDur(ent.endTs-ent.startTs));
+}
+function actRow(a){
+  var dur=(a.endTs||Date.now())-a.startTs;
+  return'<div style="padding:10px 0;border-bottom:1px solid #f0f2f7;">'+
+    '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(a.name)+'</span><span style="font-size:13px;font-weight:700;white-space:nowrap;color:'+(a.endTs?"#27ae60":"#f5a623")+';">'+fmtDur(dur)+(a.endTs?"":" ⏱")+'</span></div>'+
+    '<div style="font-size:12px;color:#999;margin-top:2px;">'+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+'</div>'+
+    '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+'</div></div>';
+}
+function renderActividades(){
+  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),tk=todayKey();
+  var h=sectionHead("📝 Actividades","Horas por tarea · "+tk);
+  var running=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
+  h+='<div class="card">';
+  if(running){
+    h+='<div style="font-size:12px;color:#f5a623;font-weight:800;margin-bottom:6px;">▶️ EN CURSO</div>';
+    h+='<div style="font-weight:800;font-size:17px;margin-bottom:4px;">'+escH(running.name)+'</div>';
+    h+='<div style="font-size:13px;color:#777;margin-bottom:12px;">Inició '+fmtTime(running.startTs)+' · '+locLabel(running.startLoc)+'</div>';
+    h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="cerrarActividad('+running.id+')">⏹️ Cerrar actividad</button>';
+  }else{
+    var names=myActivityNames(cid);
+    h+='<div class="field" style="margin-bottom:10px;"><label>Actividad / Tarea</label>'+
+       '<input id="act-name" list="act-names" placeholder="Escribe o elige una…" autocomplete="off"/>'+
+       '<datalist id="act-names">'+names.map(function(n){return'<option value="'+escH(n)+'"></option>';}).join("")+'</datalist></div>';
+    h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="iniciarActividad()">▶️ Iniciar</button>';
+  }
+  h+='</div>';
+  if(isBoss){
+    var todays=(state.activities||[]).filter(function(a){return a.date===tk;});
+    h+='<div style="font-weight:800;font-size:15px;margin:18px 4px 10px;">Productividad de hoy</div>';
+    if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Sin actividades registradas hoy.</div>';
+    else{
+      var groups={};todays.forEach(function(a){(groups[a.collabName]=groups[a.collabName]||[]).push(a);});
+      h+=Object.keys(groups).map(function(cn){
+        var arr=groups[cn],total=arr.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+        return'<div class="card"><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><b>'+escH(cn)+'</b><span style="color:#4a6cf7;font-weight:800;">'+fmtDur(total)+'</span></div>'+arr.map(actRow).join("")+'</div>';
+      }).join("");
+    }
+  }else{
+    var mine=(state.activities||[]).filter(function(a){return a.collabId===cid&&a.date===tk;});
+    var total=mine.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+    h+='<div style="display:flex;justify-content:space-between;align-items:center;margin:18px 4px 10px;"><span style="font-weight:800;font-size:15px;">Mis actividades de hoy</span><span style="color:#4a6cf7;font-weight:800;">'+fmtDur(total)+'</span></div>';
+    if(!mine.length)h+='<div class="card" style="text-align:center;color:#999;">Aún no registras actividades hoy.</div>';
+    else h+='<div class="card">'+mine.map(actRow).join("")+'</div>';
+  }
+  document.getElementById("content").innerHTML=h;
+}
+
+// ── ESTADÍSTICAS (resumen de todo) ──
+function renderEstadisticas(){
+  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),tk=todayKey();
+  var tasks=isBoss?state.tasks:state.tasks.filter(function(t){return taskBelongsTo(t,currentUser.id);});
+  var h=sectionHead("📊 Estadísticas","Resumen general");
+  var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
+  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">'+cards.map(function(s){return'<div class="stat-card" style="border-top:3px solid '+s[0]+';padding:16px;"><div class="stat-num" style="font-size:26px;">'+s[1]+'</div><div class="stat-lbl">'+s[2]+'</div></div>';}).join("")+'</div>';
+  var att=(state.attendance||[]).filter(function(a){return a.date===tk&&(isBoss?a.collabId!=="boss":a.collabId===cid);});
+  var acts=(state.activities||[]).filter(function(a){return a.date===tk&&(isBoss?true:a.collabId===cid);});
+  var totalMs=acts.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+  h+='<div class="card"><div style="font-weight:700;margin-bottom:8px;">Hoy · '+tk+'</div>';
+  h+=miniRow("🕐","Asistencia",isBoss?(att.length+" con ingreso"):(att.length&&att[0].inTime?("Ingreso "+fmtTime(att[0].inTime)):"Sin ingreso"));
+  h+=miniRow("📝","Actividades",acts.length+" registro(s)");
+  h+=miniRow("⏱️","Horas registradas",fmtDur(totalMs));
+  h+='</div>';
+  var withReports=tasks.filter(function(t){return t.reportData&&t.reportData.length;});
+  var totalRows=withReports.reduce(function(s,t){return s+t.reportData.length;},0);
+  h+='<div class="card"><div style="font-weight:700;margin-bottom:8px;">Reportes</div>';
+  h+=miniRow("📈","Tareas con reporte",withReports.length);
+  h+=miniRow("📋","Filas de datos",totalRows);
+  h+='</div>';
+  document.getElementById("content").innerHTML=h;
 }
 
 function taskBelongsTo(task,uid){

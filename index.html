@@ -178,11 +178,15 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
     <button class="tab-btn active" onclick="switchTab('tareas')">📋 Tareas</button>
     <button class="tab-btn" onclick="switchTab('chat')" id="chat-tab-btn">💬 Chat</button>
     <button class="tab-btn" onclick="switchTab('base')" id="base-tab-btn" style="display:none;">📚 Base</button>
+    <button class="tab-btn" onclick="switchTab('reportes')" id="reportes-tab-btn" style="display:none;">📊 Reportes</button>
   </div>
   <div id="stats"></div>
   <div id="content" class="scroll"></div>
 </div>
 <div id="toast"></div>
+<div id="report-dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,18,35,.55);z-index:9001;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px);">
+  <div id="report-dialog-box" style="background:#fff;border-radius:24px;padding:26px 22px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.2);"></div>
+</div>
 <div id="confirm-overlay" style="display:none;flex-direction:column;">
   <div class="confirm-box">
     <div style="font-size:36px;margin-bottom:10px">⚠️</div>
@@ -228,28 +232,40 @@ var _evidenceCoords=[]; // coords paralelas por archivo: {lat,lng,acc} o null
 function uploadEvidence(taskId,files,coordsList,onProgress,onDone,onError){
   var urls=[],total=files.length,done=0;
   if(!total){onDone([]);return;}
+  // Progreso total: acumular bytes de todos los archivos
+  var filesSizes=Array.from(files).map(function(f){return f.size||0;});
+  var totalBytes=filesSizes.reduce(function(a,b){return a+b;},0)||1;
+  var loadedByFile=new Array(total).fill(0);
   Array.from(files).forEach(function(file,idx){
     var fileCoord=(coordsList&&coordsList[idx])||null;
-    var isImg=file.type.indexOf("image")>=0||file.type.indexOf("video")>=0;
-    var resource=isImg?(file.type.indexOf("video")>=0?"video":"image"):"raw";
+    var ftype=file.type||"";
+    var fname=file.name||"";
+    var fext=(fname.split(".").pop()||"").toLowerCase();
+    var isImg=ftype.indexOf("image")>=0||ftype.indexOf("video")>=0||["jpg","jpeg","png","gif","webp","heic","heif"].indexOf(fext)>=0;
+    var isVid=ftype.indexOf("video")>=0||["mp4","mov","avi","webm"].indexOf(fext)>=0;
+    var resource=isImg?(isVid?"video":"image"):"raw";
     var fd=new FormData();
     fd.append("file",file);
     fd.append("upload_preset",CLOUDINARY_PRESET);
     fd.append("folder","agendateam/evidence/"+taskId);
     var xhr=new XMLHttpRequest();
     xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
-    xhr.upload.onprogress=function(e){if(e.lengthComputable)onProgress&&onProgress(Math.round(e.loaded/e.total*100));};
+    xhr.upload.onprogress=function(e){
+      if(e.lengthComputable){loadedByFile[idx]=e.loaded;var tot=loadedByFile.reduce(function(a,b){return a+b;},0);onProgress&&onProgress(Math.round(tot/totalBytes*100));}
+    };
     xhr.onload=function(){
       var res=JSON.parse(xhr.responseText);
       if(res.secure_url){
-        var att={url:res.secure_url,name:file.name,type:file.type,size:file.size,public_id:res.public_id};
+        // Normalizar type: si vino vacío, usar el del servidor o derivar de extensión
+        var resolvedType=ftype||res.resource_type+"/"+res.format||"image/jpeg";
+        var att={url:res.secure_url,name:fname,type:resolvedType,size:file.size,public_id:res.public_id};
         if(fileCoord)att.coords=fileCoord;
         urls.push(att);
         done++;
         if(done===total)onDone(urls);
       }else{onError(res.error&&res.error.message||"Error Cloudinary");}
     };
-    xhr.onerror=function(){onError("Error de red al subir "+file.name);};
+    xhr.onerror=function(){onError("Error de red al subir "+fname);};
     xhr.send(fd);
   });
 }
@@ -329,7 +345,7 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
   };
   window._pendingSave=true;
   db.collection("at").doc("data").set(fc).then(function(){
@@ -351,12 +367,15 @@ function startSync(){
     var d=snap.data();
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-    // Preservar status e historial local para evitar que onSnapshot sobreescriba cambios no guardados
-    var localStatuses={},localHistories={};
+    // Preservar status, historial, requiredEvidence y mensajes locales para evitar que onSnapshot sobreescriba cambios no guardados
+    var localStatuses={},localHistories={},localReqEvidence={};
     state.tasks.forEach(function(t){
       localStatuses[t.id]=t.status;
       localHistories[t.id]=t.history||[];
+      if(t.requiredEvidence)localReqEvidence[t.id]=t.requiredEvidence;
     });
+    // Guardar mensajes locales antes de reemplazar el estado
+    var localMessages=state.messages||{};
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[]},d);
     state.tasks=state.tasks.map(function(t){
       var ls=localStatuses[t.id];
@@ -365,7 +384,20 @@ function startSync(){
       if(ls&&ls!==t.status&&(ls==="completada"||t.status==="pendiente_validacion"))t.status=ls;
       // Preservar historial si el local tiene más entradas (aún no sincronizadas con Firestore)
       if(lh.length>(t.history||[]).length)t.history=lh;
+      // Preservar requiredEvidence local si Firestore aún no tiene la versión actualizada
+      var lre=localReqEvidence[t.id];
+      if(lre&&(!t.requiredEvidence||(lre.photo&&!t.requiredEvidence.photo)||(lre.image&&!t.requiredEvidence.image)||(lre.document&&!t.requiredEvidence.document)))t.requiredEvidence=lre;
       return t;
+    });
+    // Fusionar mensajes locales que aún no llegaron a Firestore (evita race condition del validador)
+    Object.keys(localMessages).forEach(function(key){
+      var localMsgs=localMessages[key]||[];
+      var remoteMsgs=state.messages[key]||[];
+      var remoteIds={};remoteMsgs.forEach(function(m){remoteIds[m.id]=true;});
+      var pendingLocal=localMsgs.filter(function(m){return!remoteIds[m.id];});
+      if(pendingLocal.length){
+        state.messages[key]=(remoteMsgs.concat(pendingLocal)).sort(function(a,b){return(a.ts||0)-(b.ts||0);});
+      }
     });
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
     // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
@@ -437,7 +469,7 @@ var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
 var pinTarget=null,pinBuffer="";
 
-function loadLocal(){try{var r=localStorage.getItem(SK);return r?Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[]},JSON.parse(r)):{collaborators:[],tasks:[],messages:{},alerts:[],references:[]};}catch(e){return{collaborators:[],tasks:[],messages:{},alerts:[],references:[]};}}
+function loadLocal(){var def={collaborators:[],tasks:[],messages:{},alerts:[],references:[],referenceFolders:[]};try{var r=localStorage.getItem(SK);return r?Object.assign(def,JSON.parse(r)):def;}catch(e){return def;}}
 function saveLocal(){
   try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
   if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(saveCloud,1500);}
@@ -825,6 +857,8 @@ function renderTabs(){
   btns[1].innerHTML="💬 Chat"+(flags>0&&isBoss?'<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#e74c3c;margin-left:4px;vertical-align:middle;"></span>':"");
   var bb=document.getElementById("base-tab-btn");
   if(bb){bb.style.display=isBoss?"":"none";bb.className="tab-btn"+(currentTab==="base"?" active":"");}
+  var rb=document.getElementById("reportes-tab-btn");
+  if(rb){rb.style.display=isBoss?"":"none";rb.className="tab-btn"+(currentTab==="reportes"?" active":"");}
 }
 
 function switchTab(t){currentTab=t;renderContent();renderTabs();}
@@ -842,6 +876,7 @@ function renderStats(){
 function renderContent(){
   if(currentTab==="tareas")renderTasks();
   else if(currentTab==="base")renderBase();
+  else if(currentTab==="reportes")renderReportes();
   else renderChat();
 }
 
@@ -1001,6 +1036,7 @@ function taskHTML(t){
     (isBoss&&t.requiredEvidence&&t.requiredEvidence.image?'<span class="badge" style="background:#5a8fe0;color:#fff;">🖼️ Imagen</span>':"")+
     (isBoss&&t.requiredEvidence&&t.requiredEvidence.document?'<span class="badge" style="background:#27ae60;color:#fff;">📄 Documento</span>':"")+
     (isBoss&&t.faceRecognition?'<span class="badge" style="background:#e74c3c;color:#fff;">🙂 Facial</span>':"")+
+    (t.photoCount?'<span class="badge" style="background:#4a6cf7;color:#fff;">📷 '+(t.photoProgress&&t.photoProgress.length||0)+'/'+t.photoCount+' fotos</span>':"")+
     dateInfo+'</div>'+
     (t.notes?'<div style="font-size:13px;color:#888;background:#f9f9fb;padding:7px 10px;border-radius:10px;margin-bottom:10px;">'+escH(t.notes)+'</div>':"")+
     (!isBoss?'<div style="margin-bottom:10px;"><textarea id="note-'+t.id+'" placeholder="Agregar nota…" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;outline:none;resize:none;height:60px;font-family:inherit;"></textarea></div>':"")+
@@ -1042,9 +1078,163 @@ function updStat(id,status){
   saveLocal();render();toast("Estado actualizado ✓");
 }
 
+// ── FOTOS SECUENCIALES (foto por foto con validación IA) ──
+var _seqPhotoFile=null,_seqPhotoCoord=null;
+function showSeqPhotoSheet(taskId,msg,msgType){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  var progress=t.photoProgress||[];
+  var total=t.photoCount||20;
+  var current=progress.length+1;
+  if(current>total){
+    // Ya todas aprobadas — completar tarea
+    finalizeSeqTask(taskId);return;
+  }
+  var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
+  _seqPhotoFile=null;_seqPhotoCoord=null;
+  _evidenceFiles=[];_evidenceCoords=[];
+  var sh=document.createElement("div");
+  sh.id="completion-sheet";
+  sh.style.cssText="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:flex-end;overflow-y:auto;";
+  var msgHTML="";
+  if(msg&&msgType==="ok")msgHTML='<div style="background:#eafaf1;border:1.5px solid #a9dfbf;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#1e8449;font-weight:700;">✅ '+escH(msg)+'</div>';
+  else if(msg&&msgType==="err")msgHTML='<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;color:#c0392b;line-height:1.5;">❌ '+escH(msg)+'</div>';
+  // Barra de progreso
+  var pct=Math.round((progress.length/total)*100);
+  var progressBar='<div style="margin-bottom:14px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'+
+    '<span style="font-weight:800;font-size:15px;color:#1a1d2e;">Foto '+current+' de '+total+'</span>'+
+    '<span style="font-size:13px;color:#27ae60;font-weight:700;">'+progress.length+' aprobada'+(progress.length===1?'':'s')+'</span></div>'+
+    '<div style="background:#e8eaf0;border-radius:99px;height:8px;overflow:hidden;">'+
+    '<div style="background:linear-gradient(90deg,#27ae60,#4a6cf7);height:8px;width:'+pct+'%;border-radius:99px;transition:width .4s;"></div></div>'+
+    '</div>';
+  sh.innerHTML='<div style="background:#fff;border-radius:20px 20px 0 0;padding:22px 20px;width:100%;max-width:480px;margin:0 auto;">'+
+    progressBar+
+    msgHTML+
+    '<div style="font-weight:800;font-size:17px;margin-bottom:4px;">📷 '+escH(t.title)+'</div>'+
+    '<div style="font-size:13px;color:#888;margin-bottom:14px;">Toma la foto y espera la validación de JARVIS antes de continuar.</div>'+
+    (t.criteria?'<div style="background:#f5eeff;border-radius:10px;padding:10px 12px;font-size:12px;color:#6c3483;margin-bottom:14px;"><b>Criterio:</b> '+escH(t.criteria.split('\n')[0].slice(0,180))+'</div>':'')+
+    '<div id="seq-preview" style="display:flex;justify-content:center;margin-bottom:14px;min-height:80px;align-items:center;"></div>'+
+    '<div style="display:flex;gap:8px;margin-bottom:14px;">'+
+    '<label style="flex:1;background:#1a1d2e;color:#fff;border-radius:12px;padding:14px 8px;text-align:center;font-size:14px;font-weight:700;cursor:pointer;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
+    '<span style="font-size:26px;">📷</span><span>Cámara</span>'+
+    '<input type="file" accept="image/*" capture="environment" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="seqSelectPhoto(this.files[0],true)"></label>'+
+    '<label style="flex:1;background:#5a8fe0;color:#fff;border-radius:12px;padding:14px 8px;text-align:center;font-size:14px;font-weight:700;cursor:pointer;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;">'+
+    '<span style="font-size:26px;">🖼️</span><span>Galería</span>'+
+    '<input type="file" accept="image/*" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="seqSelectPhoto(this.files[0],false)"></label>'+
+    '</div>'+
+    '<div id="seq-upload-prog" style="display:none;text-align:center;font-size:13px;color:#9b59b6;margin-bottom:10px;">⏳ Validando foto con JARVIS…</div>'+
+    '<div style="display:flex;gap:10px;">'+
+    '<button id="seq-submit-btn" onclick="submitSeqPhoto(\''+taskId+'\')" style="flex:1;background:#27ae60;color:#fff;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;opacity:.45;" disabled>Enviar foto '+current+'/'+total+'</button>'+
+    '<button onclick="document.getElementById(\'completion-sheet\').remove()" style="flex:1;background:#f0f2f7;color:#666;border:none;border-radius:12px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;">Cancelar</button>'+
+    '</div></div>';
+  document.body.appendChild(sh);
+}
+function seqSelectPhoto(file,fromCamera){
+  if(!file)return;
+  _seqPhotoFile=file;
+  var preview=document.getElementById("seq-preview");
+  if(preview){preview.innerHTML='<img src="'+URL.createObjectURL(file)+'" style="max-height:180px;max-width:100%;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.15);">';}
+  var btn=document.getElementById("seq-submit-btn");
+  if(btn){btn.disabled=false;btn.style.opacity="1";}
+  if(fromCamera&&navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(function(pos){
+      _seqPhotoCoord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:pos.coords.accuracy};
+    },function(){_seqPhotoCoord=null;},{timeout:4000,maximumAge:30000});
+  }else{_seqPhotoCoord=null;}
+}
+function submitSeqPhoto(taskId){
+  if(!_seqPhotoFile){toast("Selecciona una foto primero","error");return;}
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  var prog=document.getElementById("seq-upload-prog");
+  var btn=document.getElementById("seq-submit-btn");
+  if(prog)prog.style.display="block";
+  if(btn){btn.disabled=true;btn.textContent="Validando…";}
+  var photoIndex=(t.photoProgress||[]).length+1;
+  uploadEvidence("seq_"+taskId,[_seqPhotoFile],[_seqPhotoCoord||null],null,function(urls){
+    var att=urls[0];
+    if(!att||!att.url){if(prog)prog.style.display="none";toast("Error al subir la foto","error");return;}
+    validateSeqPhoto(taskId,att,photoIndex);
+  },function(err){
+    if(prog)prog.style.display="none";
+    toast("Error al subir: "+err,"error");
+    var btn2=document.getElementById("seq-submit-btn");
+    if(btn2){btn2.disabled=false;btn2.style.opacity="1";btn2.textContent="Enviar foto "+photoIndex+"/"+(t.photoCount||20);}
+  });
+}
+function validateSeqPhoto(taskId,att,photoIndex){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  var total=t.photoCount||20;
+  var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
+  var ck=t.isGroup&&t.groupKey?t.groupKey:(col?collabCK(col.id):null);
+  var rawCriteria=t.criteria||"Verificar que la foto sea correcta y corresponda a la tarea: "+t.title;
+  var criteriaLines=rawCriteria.split(/\n/).filter(function(s){return s.trim();}).map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
+  var sys="Validador de foto AgendaTeam. Tarea: \""+t.title+"\". Foto "+photoIndex+" de "+total+".\n"+
+    "Criterios:\n"+criteriaLines+"\n"+
+    "Evalúa si esta foto cumple los criterios. Responde SOLO JSON: "+
+    "{\"aprobada\":true/false,\"razon\":\"motivo corto\",\"detalle\":\"descripción de lo que se ve en la foto y si cumple o no\"}";
+  var content=[{type:"image",source:{type:"url",url:cloudinaryForAI(att.url)}},{type:"text",text:"Valida esta foto."}];
+  if(ck&&state.messages[ck])state.messages[ck].push({id:Date.now(),from:"system",type:"seq_validating",ts:Date.now(),
+    text:"📷 Validando foto "+photoIndex+"/"+total+" de \""+t.title+"\"…"});
+  saveLocal();
+  fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:400,system:sys,messages:[{role:"user",content:content}]})
+  }).then(function(r){return r.json();}).then(function(d){
+    t=state.tasks.find(function(x){return x.id==taskId;});if(!t)return;
+    var raw=(d.content&&d.content[0]&&d.content[0].text)||"";
+    var result={};try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};} catch(e){}
+    var ok=result.aprobada===true;
+    var razon=result.razon||result.detalle||(ok?"Foto aprobada.":"Foto no válida.");
+    if(ok){
+      if(!t.photoProgress)t.photoProgress=[];
+      t.photoProgress.push({att:att,date:new Date().toLocaleDateString("es"),ts:Date.now(),photoIndex:photoIndex});
+      var remaining=total-t.photoProgress.length;
+      if(ck&&state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",type:"seq_ok",ts:Date.now(),
+        text:"✅ Foto "+photoIndex+"/"+total+" aprobada — "+razon+(remaining>0?" Continúa con la foto "+(photoIndex+1)+".":"\n\n🎉 ¡Todas las fotos completadas!")});
+      if(remaining<=0){
+        // Todas las fotos tomadas → completar tarea
+        t.status="completada";
+        if(!t.history)t.history=[];
+        var res2=t.endDate&&taskDue(t)<Date.now()?"red":"green";
+        var allAtts=t.photoProgress.map(function(p){return p.att;});
+        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:res2,approved:true,report:"Fotos secuenciales: "+total+" fotos validadas.",attachments:allAtts,criteriaResults:[]});
+        if(t.history.length>20)t.history=t.history.slice(-20);
+        sendNotif("boss","✅ Fotos completadas","\""+t.title+"\""+(col?" — "+col.name:"")+": "+total+" fotos aprobadas.");
+        saveLocal();if(db)saveCloud();render();
+        var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
+        toast("✅ ¡"+total+" fotos completadas y aprobadas!");
+      }else{
+        saveLocal();if(db)saveCloud();render();
+        var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
+        showSeqPhotoSheet(taskId,"Foto "+photoIndex+" aprobada: "+razon+". Avanza con la foto "+(photoIndex+1)+".","ok");
+      }
+    }else{
+      if(ck&&state.messages[ck])state.messages[ck].push({id:Date.now(),from:"ai",type:"seq_fail",ts:Date.now(),
+        text:"❌ Foto "+photoIndex+"/"+total+" rechazada — "+razon+". Vuelve a tomar la foto y asegúrate de que cumpla el criterio."});
+      saveLocal();render();
+      var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
+      showSeqPhotoSheet(taskId,razon+". Vuelve a tomar la foto correctamente.","err");
+    }
+  }).catch(function(e){
+    var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
+    showSeqPhotoSheet(taskId,"Error de conexión. Intenta de nuevo.","err");
+  });
+}
+function finalizeSeqTask(taskId){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t)return;
+  t.status="completada";
+  toast("✅ Tarea completada — todas las fotos aprobadas");
+  saveLocal();if(db)saveCloud();render();
+}
+
 function showCompletionReport(taskId,errorMsg){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
+  // Flujo secuencial foto por foto
+  if(t.photoCount&&!errorMsg){showSeqPhotoSheet(taskId);return;}
   // Limpiar sheet previo si existe
   var prev=document.getElementById("completion-sheet");if(prev)prev.remove();
   _evidenceFiles=[];_evidenceCoords=[];
@@ -1093,8 +1283,8 @@ function showCompletionReport(taskId,errorMsg){
     '<textarea id="completion-report" placeholder="Ej: Envié el reporte al correo con las cifras del mes, firmado y con el sello de aprobación…" style="width:100%;padding:12px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:14px;min-height:90px;outline:none;font-family:inherit;resize:none;margin-bottom:14px;box-sizing:border-box;"></textarea>'+
     '<div style="font-weight:700;font-size:14px;margin-bottom:10px;">📎 Adjuntar soportes'+(anyReq?'<span style="font-size:11px;font-weight:400;color:#9b59b6;margin-left:8px;">Solo los requeridos están habilitados</span>':'')+'</div>'+
     '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
-      fileBtn('#1a1d2e','','📷','Cámara','image/*','environment',!anyReq||req.photo)+
-      fileBtn('#5a8fe0','','🖼️','Galería','image/*,video/*','',!anyReq||req.image)+
+      fileBtn('#1a1d2e','','📷','Cámara','image/*','environment',!anyReq||req.photo||req.image)+
+      fileBtn('#5a8fe0','','🖼️','Galería','image/*,video/*','',!anyReq||req.image||req.photo)+
       fileBtn('#27ae60','','📄','Documento','*/*','',!anyReq||req.document)+
     '</div>'+
     '<div id="evidence-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>'+
@@ -1147,8 +1337,11 @@ function renderEvidencePreview(){
   var el=document.getElementById("evidence-preview");
   if(!el)return;
   el.innerHTML=_evidenceFiles.map(function(f,i){
-    var isImg=f.type.indexOf("image")>=0;
-    var icon=getFileIcon(f.type,f.name);
+    var ftype=f.type||"";
+    var fname=f.name||"";
+    var fext=(fname.split(".").pop()||"").toLowerCase();
+    var isImg=ftype.indexOf("image")>=0||["jpg","jpeg","png","gif","webp","heic","heif","bmp"].indexOf(fext)>=0;
+    var icon=getFileIcon(ftype,fname);
     var preview=isImg?'<img src="'+URL.createObjectURL(f)+'" style="width:60px;height:60px;object-fit:cover;border-radius:8px;">':'<div style="width:60px;height:60px;background:#f0f2f7;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:28px;">'+icon+'</div>';
     var coord=_evidenceCoords[i];
     var pin=coord?'<div style="position:absolute;bottom:0;left:0;background:#27ae60;color:#fff;border-radius:0 4px 0 8px;padding:1px 4px;font-size:9px;font-weight:800;" title="'+(coord.address||coord.lat.toFixed(4)+","+coord.lng.toFixed(4))+'">📍'+(coord.address?"✓":"…")+'</div>':"";
@@ -1286,6 +1479,12 @@ function cloudinaryForAI(url){
   if(!url||url.indexOf("res.cloudinary.com")<0)return url;
   return url.replace("/upload/","/upload/w_1024,h_1024,c_limit,q_90,f_jpg/");
 }
+var _IMG_EXTS_GLOBAL=["jpg","jpeg","png","gif","webp","heic","heif","bmp","tiff"];
+function isImageAttGlobal(a){
+  if(a.type&&a.type.indexOf("image")>=0)return true;
+  if(a.name){var ext=(a.name.split(".").pop()||"").toLowerCase();return _IMG_EXTS_GLOBAL.indexOf(ext)>=0;}
+  return false;
+}
 // Distancia en metros entre dos coords (Haversine)
 function haversineMeters(lat1,lng1,lat2,lng2){
   var R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
@@ -1304,7 +1503,12 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
   var col=state.collaborators.find(function(c){
     return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;
   });
-  var imgs=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;});
+  var IMG_EXTS2=["jpg","jpeg","png","gif","webp","heic","heif","bmp"];
+  var imgs=attachments.filter(function(a){
+    if(a.type&&a.type.indexOf("image")>=0)return true;
+    if(a.name){var ext=(a.name.split(".").pop()||"").toLowerCase();return IMG_EXTS2.indexOf(ext)>=0;}
+    return false;
+  });
   if(!imgs.length)return{passed:true};
 
   var newHashes=[];
@@ -1329,9 +1533,10 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
     var validProfileUrl=col&&col.photo&&!col.photo.startsWith("data:")&&!col.photo.startsWith("blob:");
     if(t.faceRecognition&&validProfileUrl){
       var result=await checkFaceIdentity(col.photo,imgs[i].url);
-      if(!result.skipped&&result.matched===false){
+      // confidence===0 con matched===false indica error de API (no un 0% real) → tratar como skip
+      if(!result.skipped&&result.matched===false&&(result.confidence||0)>0){
         return{passed:false,reason:"face_mismatch",
-          msg:"❌ El rostro en la foto "+(imgs.length>1?"#"+(i+1)+" ":"")+"no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence||0)+"%). Por favor toma una selfie válida."};
+          msg:"❌ El rostro en la foto "+(imgs.length>1?"#"+(i+1)+" ":"")+"no corresponde al colaborador registrado (coincidencia: "+Math.round(result.confidence)+"%). Por favor toma una selfie válida."};
       }
       faceResults.push(result);
     }
@@ -1364,17 +1569,26 @@ async function _finishSubmit(taskId,report,attachments){
   // Verificar soportes obligatorios
   var req=t.requiredEvidence||{};
   var missing=[];
-  var hasPhoto=attachments.some(function(a){return a.type&&a.type.indexOf("image")>=0;});
-  var hasDoc=attachments.some(function(a){return!(a.type&&a.type.indexOf("image")>=0)&&!(a.type&&a.type.indexOf("video")>=0);});
-  if(req.photo&&!hasPhoto)missing.push("📷 Foto (tomada con cámara)");
-  if(req.image&&!hasPhoto)missing.push("🖼️ Imagen (desde galería)");
-  if(req.document&&!hasDoc)missing.push("📄 Documento");
+  var IMG_EXTS3=["jpg","jpeg","png","gif","webp","heic","heif","bmp"];
+  function isImgAtt2(a){if(a.type&&a.type.indexOf("image")>=0)return true;if(a.name){var e2=(a.name.split(".").pop()||"").toLowerCase();return IMG_EXTS3.indexOf(e2)>=0;}return false;}
+  var hasPhoto=attachments.some(isImgAtt2);
+  var hasDoc=attachments.some(function(a){return!isImgAtt2(a)&&!(a.type&&a.type.indexOf("video")>=0)&&!(a.name&&["mp4","mov","avi","webm"].indexOf((a.name.split(".").pop()||"").toLowerCase())>=0);});
+  // Lógica OR: si hay múltiples tipos habilitados, basta con que el colaborador suba AL MENOS UNO de ellos
+  var enabledTypes=[];
+  if(req.photo)enabledTypes.push({label:"📷 Foto",ok:hasPhoto});
+  if(req.image)enabledTypes.push({label:"🖼️ Imagen",ok:hasPhoto});
+  if(req.document)enabledTypes.push({label:"📄 Documento",ok:hasDoc});
+  if(enabledTypes.length>0&&!enabledTypes.some(function(e){return e.ok;})){
+    // Ninguno de los tipos habilitados fue proporcionado
+    toast("Adjunta al menos un soporte: "+enabledTypes.map(function(e){return e.label;}).join(" o "),"error");
+    showCompletionReport(taskId);return;
+  }
   if(missing.length>0){
     toast("Faltan soportes obligatorios:\n"+missing.join(", "),"error");
     showCompletionReport(taskId);return;
   }
   // Verificar duplicados y reconocimiento facial
-  var hasImgs=attachments.some(function(a){return a.type&&a.type.indexOf("image")>=0;});
+  var hasImgs=attachments.some(isImgAtt2);
   if(hasImgs){
     toast("🔍 Verificando imágenes…");
     var checks=await runFaceAndDuplicateChecks(taskId,attachments);
@@ -1390,11 +1604,15 @@ async function _finishSubmit(taskId,report,attachments){
   t.pendingAttachments=attachments;
   saveLocal();render();
   toast("Enviado para validación JARVIS 🤖");
-  validateTaskCompletion(taskId,report,attachments);
+  // Capturar bioSummary ANTES del delay: onSnapshot puede reemplazar el state y perder _biometricSummary
+  var capturedBioSummary=t._biometricSummary||"";
+  // Esperar 2s para que el CDN de Cloudinary propague todas las imágenes antes de que Claude las descargue
+  setTimeout(function(){validateTaskCompletion(taskId,report,attachments,capturedBioSummary);},2000);
 }
 
-function validateTaskCompletion(taskId,report,attachments){
+function validateTaskCompletion(taskId,report,attachments,bioSummary){
   attachments=attachments||[];
+  bioSummary=bioSummary||"";
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t)return;
   var col=state.collaborators.find(function(c){return Array.isArray(t.assignedTo)?t.assignedTo.indexOf(c.id)>=0:c.id===t.assignedTo;});
@@ -1408,39 +1626,70 @@ function validateTaskCompletion(taskId,report,attachments){
   if(criteriaLines.length===0&&t.notes)criteriaLines=[t.notes];
   if(criteriaLines.length===0)criteriaLines=["Verificar que el reporte cumple con lo solicitado en la tarea: "+t.title];
   criteriaLines=criteriaLines.map(function(s,i){return(i+1)+". "+s.trim();}).join("\n");
-  // Buscar referencias en la base de datos que coincidan con la tarea
+  // Buscar referencias en la base de datos — matching por tarea Y por cada criterio individual
   var refs=state.references||[];
-  var criteriaLow=(rawCriteria+" "+t.title+" "+(t.notes||"")).toLowerCase();
-  var allMatchedRefs=refs.filter(function(r){
-    return criteriaLow.indexOf(r.name.toLowerCase())>=0||
-      (r.category&&criteriaLow.indexOf(r.category.toLowerCase())>=0);
+  var taskLow=(t.title+" "+(t.notes||"")).toLowerCase();
+  var criteriaIndividual=rawCriteria.split(/\n/).filter(function(s){return s.trim();});
+  if(criteriaIndividual.length<=1)criteriaIndividual=rawCriteria.split(/\./).filter(function(s){return s.trim();});
+  var allMatchedRefs=[];
+  var seenRefIds={};
+  refs.forEach(function(r){
+    if(seenRefIds[r.id||r.name])return;
+    var rName=(r.name||"").toLowerCase();
+    var rCat=(r.category||"").toLowerCase();
+    var rDesc=(r.description||"").toLowerCase();
+    // Coincidencia a nivel de tarea
+    var matchTask=taskLow.indexOf(rName)>=0||(rCat&&taskLow.indexOf(rCat)>=0);
+    // Coincidencia a nivel de criterio individual
+    var matchCriteria=criteriaIndividual.some(function(cl){
+      var clLow=cl.toLowerCase();
+      return clLow.indexOf(rName)>=0||(rCat&&clLow.indexOf(rCat)>=0)||
+        (rDesc&&(clLow.split(/\s+/).some(function(w){return w.length>3&&rDesc.indexOf(w)>=0;})));
+    });
+    if(matchTask||matchCriteria){
+      seenRefIds[r.id||r.name]=true;
+      allMatchedRefs.push(r);
+    }
   });
-  // Usar todas las referencias coincidentes (hasta 3) para mejor reconocimiento visual (EPP, etc.)
-  var matchedRefs=allMatchedRefs.slice(0,3);
+  // Hasta 5 referencias (ampliado desde 3 para cubrir criterios individuales)
+  var matchedRefs=allMatchedRefs.slice(0,5);
   var refContext="";
   var refImageBlocks=[];
   if(matchedRefs.length>0){
     refContext="\nREFERENCIAS BD ("+matchedRefs.length+"): "+matchedRefs.map(function(r){return r.name+(r.description?": "+r.description.slice(0,100):"");}).join(" | ");
     matchedRefs.forEach(function(r){
       var img=(r.imageUrls||[]).find(function(i){return i.url;});
-      if(img&&refImageBlocks.length<3)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
+      if(img&&refImageBlocks.length<5)refImageBlocks.push({type:"image",source:{type:"url",url:cloudinaryForAI(img.url)}});
     });
   }
-  // Imágenes de los soportes enviados
-  var evImageBlocks=attachments.filter(function(a){return a.type&&a.type.indexOf("image")>=0;}).slice(0,5).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
+  // Imágenes de los soportes enviados — detectar por type O por extensión (en móvil type puede venir vacío)
+  var IMG_EXTS=["jpg","jpeg","png","gif","webp","heic","heif","bmp","tiff"];
+  function isImageAtt(a){
+    if(a.type&&a.type.indexOf("image")>=0)return true;
+    if(a.name){var ext=(a.name.split(".").pop()||"").toLowerCase();return IMG_EXTS.indexOf(ext)>=0;}
+    return false;
+  }
+  var evImageBlocks=attachments.filter(isImageAtt).slice(0,5).map(function(a){return{type:"image",source:{type:"url",url:cloudinaryForAI(a.url)}};});
   var refCount=refImageBlocks.length,evCount=evImageBlocks.length;
   var imgNote="";
-  var faceNote=t.faceRecognition?" Identidad facial ya verificada, no evaluar.":" ";
+  var faceVerified=t.faceRecognition&&bioSummary&&bioSummary.indexOf("verificad")>=0;
+  var faceNote=faceVerified?
+    " BIOMETRÍA FACIAL: el sistema ya realizó el reconocimiento facial y está VERIFICADO ("+bioSummary.replace(/\n/g," ")+"). Cualquier criterio cuyo nombre contenga 'BIOMETRICO', 'BIOMETRÍA', 'HUELLA', 'REGISTRO', 'IDENTIDAD' o similar se considera AUTOMÁTICAMENTE CUMPLIDO — márcalo como cumplido:true en criteriaResults sin pedir evidencia adicional.":
+    t.faceRecognition?" Reconocimiento facial ya evaluado por el sistema — no evaluar en imágenes.":" ";
   var gpsNote=(t.requireLocation?" GPS ya validado.":" ")+" NUNCA rechaces por la apariencia visual del entorno (si parece casa, oficina, calle, bodega u otro lugar) — los colaboradores trabajan en campo en todo tipo de ubicaciones con clientes. La ubicación SOLO se valida por coordenadas GPS, no por el aspecto del inmueble o entorno en la imagen.";
   var imgInstr="";
   if(evCount>0&&refCount>0){
-    imgInstr=" IMÁGENES: primera(s) "+refCount+" imagen(es) = REFERENCIA de BD (muestra cómo debe verse cada EPP/elemento correctamente). Siguiente(s) "+evCount+" imagen(es) = EVIDENCIA del colaborador. Compara la evidencia contra la referencia para validar cada criterio.";
+    imgInstr=" IMÁGENES RECIBIDAS: primera(s) "+refCount+" imagen(es) = REFERENCIA de BD (muestra el estándar correcto de cada elemento). Siguiente(s) "+evCount+" imagen(es) = EVIDENCIA del colaborador."+
+      " PROCESO OBLIGATORIO ANTES DE FALLAR CUALQUIER CRITERIO: 1) Busca en las imágenes de REFERENCIA si existe el elemento que evalúa ese criterio. 2) Compara la EVIDENCIA contra esa referencia. 3) Solo marca cumplido:false si la evidencia claramente NO muestra el elemento, considerando variaciones aceptables de color, marca o presentación que se observan en la referencia.";
   }else if(evCount>0){
-    imgInstr=" Se adjuntan "+evCount+" imagen(es) de evidencia del colaborador. Evalúa CADA una por separado según el criterio que corresponda.";
+    imgInstr=" Se adjuntan "+evCount+" imagen(es) de evidencia del colaborador. ANALIZA EL CONTENIDO DE CADA IMAGEN: para facturas o documentos, extrae el nombre del proveedor/cliente visible en la imagen y úsalo para determinar qué criterio cumple. No asumas — lee lo que aparece en cada imagen. Evalúa cada criterio SOLO si ves la imagen correspondiente.";
+  }else{
+    imgInstr=" NO se recibieron imágenes adjuntas para analizar.";
   }
+  var refNote=matchedRefs.length>0?"\nREFERENCIAS BD DISPONIBLES ("+matchedRefs.length+"): "+matchedRefs.map(function(r){return r.name+(r.description?": "+r.description.slice(0,120):"");}).join(" | ")+". REGLA: antes de marcar cualquier criterio como NO cumplido, verifica si alguna referencia describe o muestra ese elemento — si la referencia confirma su presencia en la evidencia, márcalo como cumplido.":"";
   var sys="Validador AgendaTeam. Tarea:\""+t.title+"\"\nCriterios:\n"+criteriaLines+"\nReporte:\""+report.slice(0,300)+"\""+
     (attachments.length?" Soportes:"+attachments.length+" archivo(s).":"")+
-    imgInstr+faceNote+gpsNote+
+    imgInstr+faceNote+gpsNote+refNote+
     "\nEVALÚA CADA CRITERIO INDIVIDUALMENTE. SIEMPRE incluye todos los criterios con su resultado. Responde SOLO JSON sin texto extra:\n"+
     "{\"aprobada\":true/false,\"porcentaje\":0-100,\"razon\":\"resumen en 1 oración\","+
     "\"criteriaResults\":[{\"criterio\":\"nombre exacto del criterio\",\"cumplido\":true/false,\"detalle\":\"si cumplido: evidencia que lo confirma. Si rechazado: razón exacta del fallo y qué falta.\"}],"+
@@ -1450,8 +1699,8 @@ function validateTaskCompletion(taskId,report,attachments){
   if(!state.messages[ck])state.messages[ck]=[];
   var attMsg=attachments.length>0?"\n📎 "+attachments.length+" soporte(s) adjunto(s): "+attachments.map(function(a){return a.name;}).join(", "):"";
   if(matchedRefs.length>0)attMsg+="\n📚 "+matchedRefs.length+" referencia(s) de BD consultada(s): "+matchedRefs.map(function(r){return r.name;}).join(", ");
-  // Mostrar reporte biométrico en el chat si existe
-  var bioMsg=t._biometricSummary||"";
+  // Mostrar reporte biométrico en el chat si existe (usar parámetro capturado antes del delay)
+  var bioMsg=bioSummary||t._biometricSummary||"";
   if(bioMsg){
     state.messages[ck].push({id:Date.now()-1,from:"system",type:"biometric",ts:Date.now()-1,
       text:"🔐 Verificación biométrica:\n"+bioMsg});
@@ -1512,6 +1761,7 @@ function validateTaskCompletion(taskId,report,attachments){
       state.messages[ck].push({id:Date.now(),from:"ai",text:"✅ Tarea validada y aprobada.\n\n"+pctOk+razonOk+(crOk?"\n\n"+crOk:"")+attLinks,ts:Date.now(),attachments:attachments});
       if(result.datos_extraidos)state.messages[ck].push({id:Date.now()+1,from:"ai",type:"datos_extraidos",text:"📊 Datos extraídos de las imágenes:\n\n"+result.datos_extraidos,ts:Date.now()+1});
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
+      if(t.reportEnabled&&t.reportTemplate&&(t.reportTemplate.columns||[]).length)triggerReportExtraction(t,col,attachments,ck);
     }else{
       if(!t.history)t.history=[];
       t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
@@ -1580,44 +1830,440 @@ function delT(id){state.tasks=state.tasks.filter(function(t){return t.id!=id;});
 var _refFiles=[];
 var _editingRefId=null;
 var _existingRefImgs=[];
+var _currentBaseFolder=null; // null = raíz (lista de carpetas), id = dentro de carpeta
+var _currentFolderId=null;   // folderId al crear/editar artículo
 
 function renderBase(){
   if(!state.references)state.references=[];
-  var refs=state.references;
+  if(!state.referenceFolders)state.referenceFolders=[];
+  // Auto-crear carpeta "Mediciones GPON" si no existe ninguna
+  if(state.referenceFolders.length===0){
+    state.referenceFolders.push({id:1,name:"Mediciones GPON",createdAt:Date.now()});
+    saveLocal();
+  }
+  if(_currentBaseFolder!==null){
+    renderBaseFolder(_currentBaseFolder);
+  }else{
+    renderBaseFolders();
+  }
+}
+function renderBaseFolders(){
+  var folders=state.referenceFolders;
+  var rootRefs=(state.references||[]).filter(function(r){return!r.folderId;});
+  var foldersHTML=folders.map(function(f){
+    var count=(state.references||[]).filter(function(r){return r.folderId==f.id;}).length;
+    var imgs=(state.references||[]).filter(function(r){return r.folderId==f.id&&r.imageUrls&&r.imageUrls.length;});
+    var thumb=imgs.length?'<img src="'+imgs[0].imageUrls[0].url+'" style="width:100%;height:110px;object-fit:cover;border-radius:10px 10px 0 0;">':
+      '<div style="width:100%;height:110px;background:linear-gradient(135deg,#1a1d2e,#2d3561);border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:center;font-size:40px;">📁</div>';
+    return'<div style="background:#fff;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.09);cursor:pointer;" onclick="openBaseFolder('+f.id+')">'+
+      thumb+
+      '<div style="padding:12px;">'+
+      '<div style="font-weight:800;font-size:15px;margin-bottom:3px;">'+escH(f.name)+'</div>'+
+      '<div style="font-size:12px;color:#aaa;">'+count+' foto'+(count===1?'':'s')+' de referencia</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;">'+
+      '<button onclick="event.stopPropagation();openBaseFolder('+f.id+')" style="background:#eef2ff;border:none;border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;color:#4a6cf7;cursor:pointer;">→ Abrir</button>'+
+      '<button onclick="event.stopPropagation();askDelFolder('+f.id+')" style="background:none;border:none;font-size:16px;cursor:pointer;color:#ccc;padding:4px 6px;">🗑️</button>'+
+      '</div></div></div>';
+  }).join("");
+  var rootSection=rootRefs.length?
+    '<div style="margin-top:20px;"><div style="font-weight:700;font-size:13px;color:#aaa;margin-bottom:10px;text-transform:uppercase;letter-spacing:.4px;">Sin carpeta</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">'+
+    rootRefs.map(function(r){return refCardHTML(r);}).join("")+'</div></div>':'';
   var html='<div style="padding:16px;">'+
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'+
     '<div style="font-weight:800;font-size:17px;">📚 Base de Datos de Referencia</div>'+
-    '<button onclick="openAddRef()" style="background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:14px;font-weight:700;cursor:pointer;">+ Nuevo artículo</button>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<button onclick="openAddFolder()" style="background:#f0f2f7;color:#1a1d2e;border:none;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;">📁 Nueva carpeta</button>'+
+    '<button onclick="openAddRef()" style="background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;">+ Artículo</button>'+
+    '</div></div>'+
+    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;">'+foldersHTML+'</div>'+
+    rootSection+
+    '</div>';
+  document.getElementById("content").innerHTML=html;
+}
+function renderBaseFolder(folderId){
+  var folder=(state.referenceFolders||[]).find(function(f){return f.id==folderId;});
+  if(!folder){_currentBaseFolder=null;renderBase();return;}
+  var refs=(state.references||[]).filter(function(r){return r.folderId==folderId;});
+  var html='<div style="padding:16px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'+
+    '<button onclick="backToFolders()" style="background:#f0f2f7;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;">← Volver</button>'+
+    '<div style="font-weight:800;font-size:16px;text-align:center;flex:1;padding:0 10px;">📁 '+escH(folder.name)+'</div>'+
+    '<button onclick="openAddRef()" style="background:#1a1d2e;color:#fff;border:none;border-radius:12px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">+ Foto</button>'+
     '</div>'+
-    (refs.length===0?'<div style="text-align:center;color:#ccc;padding:40px 0;font-size:14px;">📂 Sin artículos de referencia.<br>Crea uno para que la IA lo use al validar tareas.</div>':
-    '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;">'+
-    refs.map(function(r){
-      var thumb=r.imageUrls&&r.imageUrls.length>0?'<img src="'+r.imageUrls[0].url+'" style="width:100%;height:140px;object-fit:cover;border-radius:10px;margin-bottom:10px;">':'<div style="width:100%;height:80px;background:#f0f2f7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:10px;">📋</div>';
-      return'<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 6px rgba(0,0,0,.08);">'+
-        thumb+
-        (r.category?'<span style="font-size:11px;font-weight:700;color:#9b59b6;background:#f5eeff;padding:2px 8px;border-radius:20px;">'+escH(r.category)+'</span>':'')+
-        '<div style="font-weight:800;font-size:15px;margin:6px 0 4px;">'+escH(r.name)+'</div>'+
-        '<div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5;max-height:60px;overflow:hidden;">'+escH(r.description||"")+'</div>'+
-        (r.imageUrls&&r.imageUrls.length>1?'<div style="font-size:11px;color:#aaa;margin-bottom:10px;">🖼️ '+r.imageUrls.length+' imágenes de referencia</div>':'')+
-        '<div style="display:flex;gap:8px;">'+
-        '<button onclick="openEditRef('+r.id+')" style="flex:1;background:#f0f2f7;border:none;border-radius:10px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;">✏️ Editar</button>'+
-        '<button onclick="delRef('+r.id+')" style="background:#fff0f0;border:none;border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;">🗑️</button>'+
-        '</div></div>';
-    }).join("")+
-    '</div>')+
+    (refs.length===0?
+      '<div style="text-align:center;color:#ccc;padding:50px 0 30px;font-size:14px;">📷 Sin fotos de referencia.<br><span style="font-size:13px;">Agrega fotos para que la IA las use al validar tareas.</span></div>':
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px;">'+
+      refs.map(function(r){return refCardHTML(r);}).join("")+'</div>')+
+    '</div>';
+  document.getElementById("content").innerHTML=html;
+}
+function refCardHTML(r){
+  var thumb=r.imageUrls&&r.imageUrls.length>0?'<img src="'+r.imageUrls[0].url+'" style="width:100%;height:140px;object-fit:cover;border-radius:10px;margin-bottom:10px;">':'<div style="width:100%;height:80px;background:#f0f2f7;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:32px;margin-bottom:10px;">📋</div>';
+  return'<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 6px rgba(0,0,0,.08);">'+
+    thumb+
+    (r.category?'<span style="font-size:11px;font-weight:700;color:#9b59b6;background:#f5eeff;padding:2px 8px;border-radius:20px;">'+escH(r.category)+'</span>':'')+
+    '<div style="font-weight:800;font-size:15px;margin:6px 0 4px;">'+escH(r.name)+'</div>'+
+    '<div style="font-size:12px;color:#888;margin-bottom:10px;line-height:1.5;max-height:60px;overflow:hidden;">'+escH(r.description||"")+'</div>'+
+    (r.imageUrls&&r.imageUrls.length>1?'<div style="font-size:11px;color:#aaa;margin-bottom:10px;">🖼️ '+r.imageUrls.length+' imágenes</div>':'')+
+    '<div style="display:flex;gap:8px;">'+
+    '<button onclick="openEditRef('+r.id+')" style="flex:1;background:#f0f2f7;border:none;border-radius:10px;padding:8px;font-size:13px;font-weight:700;cursor:pointer;">✏️ Editar</button>'+
+    '<button onclick="delRef('+r.id+')" style="background:#fff0f0;border:none;border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;">🗑️</button>'+
+    '</div></div>';
+}
+function openBaseFolder(id){_currentBaseFolder=id;_currentFolderId=id;renderBase();}
+function backToFolders(){_currentBaseFolder=null;_currentFolderId=null;renderBase();}
+function openAddFolder(){
+  showSheet("Nueva carpeta",'<div class="field"><label>Nombre de la carpeta *</label><input id="folder-name" type="text" placeholder="Ej: Mediciones GPON, EPP, Uniformes…" style="width:100%;padding:13px 14px;border-radius:12px;border:1.5px solid #e5e7ef;font-size:15px;outline:none;"></div>'+
+    '<div style="display:flex;gap:10px;margin-top:6px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveFolder()">Crear carpeta</button>'+
+    '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>');
+}
+function saveFolder(){
+  var name=(document.getElementById("folder-name")||{}).value||"";
+  name=name.trim();
+  if(!name){toast("Escribe el nombre de la carpeta","error");return;}
+  if(!state.referenceFolders)state.referenceFolders=[];
+  var newId=Date.now();
+  state.referenceFolders.push({id:newId,name:name,createdAt:Date.now()});
+  saveLocal();closeSheet();renderBase();toast("Carpeta creada ✓");
+}
+function askDelFolder(id){
+  var f=(state.referenceFolders||[]).find(function(x){return x.id==id;});
+  if(!f)return;
+  var count=(state.references||[]).filter(function(r){return r.folderId==id;}).length;
+  showConfirm("¿Eliminar carpeta?",'"'+f.name+'" y sus '+count+' artículo(s) de referencia',function(){
+    state.referenceFolders=(state.referenceFolders||[]).filter(function(x){return x.id!=id;});
+    state.references=(state.references||[]).filter(function(r){return r.folderId!=id;});
+    if(_currentBaseFolder==id){_currentBaseFolder=null;_currentFolderId=null;}
+    saveLocal();render();toast("Carpeta eliminada","error");
+  });
+}
+
+// ── REPORT EXTRACTION ──
+function triggerReportExtraction(task,col,attachments,ck){
+  var columns=(task.reportTemplate&&task.reportTemplate.columns)||[];
+  var imgAtts=attachments.filter(isImageAttGlobal);
+  if(!imgAtts.length){
+    state.messages[ck]&&state.messages[ck].push({id:Date.now(),from:"system",type:"report_info",ts:Date.now(),
+      text:"📊 Reporte: No hay imágenes en los soportes para extraer datos de la tabla."});
+    saveLocal();render();return;
+  }
+  state.messages[ck]&&state.messages[ck].push({id:Date.now(),from:"system",type:"report_extracting",ts:Date.now(),
+    text:"📊 Extrayendo datos del reporte de "+imgAtts.length+" soporte(s)…"});
+  saveLocal();render();
+  var rows=[];
+  var pending=imgAtts.length;
+  var templateBlock=task.reportTemplate.type==="image"&&task.reportTemplate.url?
+    [{type:"image",source:{type:"url",url:cloudinaryForAI(task.reportTemplate.url)}},
+     {type:"text",text:"La imagen anterior es la PLANTILLA de la tabla (solo referencia de columnas)."}]:[];
+  imgAtts.forEach(function(att,idx){
+    var content=templateBlock.concat([
+      {type:"image",source:{type:"url",url:cloudinaryForAI(att.url)}},
+      {type:"text",text:"Extrae de este soporte los valores para las siguientes columnas: "+
+        columns.map(function(c,i){return(i+1)+". "+c;}).join("; ")+
+        ". Si un valor no está visible o no aplica, usa null. Responde SOLO JSON sin texto extra: "+
+        "{\"extracted\":{\""+columns.join("\":\"valor\",\"")+"\": \"valor\"},\"missing\":[\"columna faltante si la hay\"]}"}
+    ]);
+    fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:700,
+        messages:[{role:"user",content:content}]})
+    }).then(function(r){return r.json();}).then(function(d){
+      var raw=(d.content&&d.content[0]&&d.content[0].text)||"";
+      var result={};try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};} catch(e){}
+      // Filter out false-positive "missing" entries (where value exists)
+      var extracted=result.extracted||{};
+      var missing=(result.missing||[]).filter(function(c){return extracted[c]==null;});
+      rows.push({attName:att.name,attUrl:att.url,
+        collabId:col?col.id:null,collabName:col?col.name:"Equipo",
+        date:new Date().toLocaleDateString("es"),ts:Date.now()+idx,
+        extracted:extracted,missing:missing});
+      if(--pending===0)onAllExtracted(task,rows,ck);
+    }).catch(function(){
+      rows.push({attName:att.name,attUrl:att.url,collabId:col?col.id:null,collabName:col?col.name:"Equipo",
+        date:new Date().toLocaleDateString("es"),ts:Date.now()+idx,extracted:{},missing:columns.slice(),error:true});
+      if(--pending===0)onAllExtracted(task,rows,ck);
+    });
+  });
+}
+function onAllExtracted(task,rows,ck){
+  var hasMissing=rows.some(function(r){return r.missing&&r.missing.length;});
+  if(hasMissing)showReportIncompleteDialog(task,rows,ck);
+  else appendReportRows(task,rows,ck,false);
+}
+function showReportIncompleteDialog(task,rows,ck){
+  _pendingReportRows=rows;_pendingReportTask=task;_pendingReportCk=ck;
+  var allMissing=[].concat.apply([],rows.map(function(r){return r.missing||[];}));
+  var unique=allMissing.filter(function(v,i,a){return a.indexOf(v)===i;});
+  var box=document.getElementById("report-dialog-box");
+  var overlay=document.getElementById("report-dialog-overlay");
+  if(!box||!overlay)return;
+  var incompleteCount=rows.filter(function(r){return r.missing&&r.missing.length;}).length;
+  box.innerHTML='<div style="font-size:36px;margin-bottom:10px;">⚠️</div>'+
+    '<p style="font-weight:800;font-size:16px;margin-bottom:6px;">Datos incompletos en el reporte</p>'+
+    '<p style="font-size:13px;color:#999;margin-bottom:6px;">'+incompleteCount+' soporte(s) con datos no visibles:</p>'+
+    '<p style="font-size:13px;font-weight:700;color:#e74c3c;margin-bottom:16px;">'+escH(unique.join(", "))+'</p>'+
+    '<div style="display:flex;flex-direction:column;gap:10px;">'+
+    '<button onclick="reportIncompleteApprove()" class="btn btn-blue btn-block">✅ Autorizar reporte incompleto</button>'+
+    '<button onclick="reportIncompleteReject()" class="btn btn-gray btn-block">✕ No autorizar</button>'+
+    '</div>';
+  overlay.style.display="flex";
+}
+function reportIncompleteApprove(){
+  document.getElementById("report-dialog-overlay").style.display="none";
+  appendReportRows(_pendingReportTask,_pendingReportRows,_pendingReportCk,true);
+  _pendingReportRows=_pendingReportTask=_pendingReportCk=null;
+}
+function reportIncompleteReject(){
+  document.getElementById("report-dialog-overlay").style.display="none";
+  var ck=_pendingReportCk;
+  if(ck&&state.messages[ck]){
+    var missing=[].concat.apply([],(_pendingReportRows||[]).map(function(r){return r.missing||[];}));
+    var unique=missing.filter(function(v,i,a){return a.indexOf(v)===i;});
+    state.messages[ck].push({id:Date.now(),from:"ai",type:"report_incomplete",ts:Date.now(),
+      text:"⚠️ Reporte no autorizado. Datos no visibles en los soportes: "+unique.join(", ")+". El colaborador debe adjuntar soportes donde esta información sea claramente legible."});
+    saveLocal();render();
+  }
+  _pendingReportRows=_pendingReportTask=_pendingReportCk=null;
+}
+function appendReportRows(task,rows,ck,approvedIncomplete){
+  if(!task.reportData)task.reportData=[];
+  rows.forEach(function(r){task.reportData.push(Object.assign({},r,{approvedIncomplete:approvedIncomplete}));});
+  if(task.reportData.length>500)task.reportData=task.reportData.slice(-500);
+  var n=rows.length;
+  var incomplete=rows.filter(function(r){return r.missing&&r.missing.length;}).length;
+  if(ck&&state.messages[ck]){
+    var cols=(task.reportTemplate&&task.reportTemplate.columns)||[];
+    var rowSummary=rows.map(function(r){
+      return"• "+escH(r.attName)+": "+cols.map(function(c){
+        var v=(r.extracted||{})[c];return c+": "+(v!=null?v:"—");}).join(" | ");
+    }).join("\n");
+    state.messages[ck].push({id:Date.now(),from:"ai",type:"report_done",ts:Date.now(),
+      text:"📊 Reporte actualizado — "+n+" fila(s) agregada(s)"+(incomplete?" ("+incomplete+" incompleta(s)"+( approvedIncomplete?", autorizado":"")+")")+".\n"+rowSummary});
+  }
+  saveLocal();if(db)saveCloud();render();
+}
+function exportTaskReport(taskId){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t||!t.reportData||!t.reportData.length){toast("Sin datos de reporte aún","error");return;}
+  var cols=(t.reportTemplate&&t.reportTemplate.columns)||[];
+  var sheetRows=t.reportData.map(function(r){
+    var obj={"Colaborador":r.collabName||"","Fecha":r.date||"","Soporte":r.attName||""};
+    cols.forEach(function(c){obj[c]=(r.extracted||{})[c]!=null?String((r.extracted||{})[c]):"";});
+    obj["Datos incompletos"]=(r.missing&&r.missing.length)?r.missing.join(", "):"";
+    obj["Autorizado incompleto"]=r.approvedIncomplete?"Sí":"No";
+    return obj;
+  });
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(sheetRows),(t.title||"Reporte").slice(0,31));
+  var fecha=new Date().toLocaleDateString("es").replace(/\//g,"-");
+  var safeName=(t.title||"Reporte").slice(0,20).replace(/[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ\s]/g,"_");
+  XLSX.writeFile(wb,"Reporte_"+safeName+"_"+fecha+".xlsx");
+  toast("Reporte exportado ✓");
+}
+
+// ── REPORTES ──
+function renderReportes(){
+  var now=Date.now();
+  var tasks=state.tasks;
+  var collabs=state.collaborators;
+
+  // Resumen general
+  var total=tasks.length;
+  var completadas=tasks.filter(function(t){return t.status==="completada";}).length;
+  var pendientes=tasks.filter(function(t){return t.status==="pendiente";}).length;
+  var enProgreso=tasks.filter(function(t){return t.status==="en-progreso";}).length;
+  var vencidas=tasks.filter(function(t){return t.status!=="completada"&&t.status!=="cancelada"&&!t.indefinite&&t.endDate&&taskDue(t)<now;}).length;
+
+  var generalHTML='<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:18px;">'+
+    [["#5a8fe0",total,"Total"],["#f5a623",pendientes,"Pendientes"],["#4a90d9",enProgreso,"Progreso"],["#27ae60",completadas,"Completadas"],["#e74c3c",vencidas,"Vencidas"]].map(function(s){
+      return'<div style="background:#fff;border-radius:14px;padding:10px 4px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.07);border-top:3px solid '+s[0]+';">'+
+        '<div style="font-weight:800;font-size:19px;line-height:1;">'+s[1]+'</div>'+
+        '<div style="font-size:10px;color:#aaa;margin-top:3px;font-weight:600;">'+s[2]+'</div></div>';
+    }).join("")+'</div>';
+
+  // Tabla por colaborador
+  var collabRows=collabs.map(function(c){
+    var ct=tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+    var cDone=ct.filter(function(t){return t.status==="completada";}).length;
+    var cPend=ct.filter(function(t){return t.status==="pendiente";}).length;
+    var cProg=ct.filter(function(t){return t.status==="en-progreso";}).length;
+    var cVenc=ct.filter(function(t){return t.status!=="completada"&&t.status!=="cancelada"&&!t.indefinite&&t.endDate&&taskDue(t)<now;}).length;
+    var pct=ct.length?Math.round(cDone/ct.length*100):0;
+    return'<tr style="border-bottom:1px solid #f0f2f7;">'+
+      '<td style="padding:10px 8px;font-weight:700;font-size:13px;">'+escH(c.name)+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;font-weight:700;">'+ct.length+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;color:#27ae60;font-weight:700;">'+cDone+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;color:#f5a623;font-weight:700;">'+cPend+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;color:#4a90d9;font-weight:700;">'+cProg+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;color:#e74c3c;font-weight:700;">'+cVenc+'</td>'+
+      '<td style="padding:10px 8px;text-align:center;">'+
+        '<div style="background:#e8eaf0;border-radius:99px;height:8px;overflow:hidden;">'+
+          '<div style="background:#27ae60;height:8px;width:'+pct+'%;border-radius:99px;transition:width .3s;"></div>'+
+        '</div>'+
+        '<div style="font-size:11px;color:#888;margin-top:2px;text-align:right;">'+pct+'%</div>'+
+      '</td></tr>';
+  }).join("");
+
+  var tableHTML='<div style="background:#fff;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.07);overflow-x:auto;margin-bottom:16px;">'+
+    '<div style="font-weight:800;font-size:15px;margin-bottom:12px;">👥 Rendimiento por colaborador</div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;">'+
+    '<thead><tr style="border-bottom:2px solid #e8eaf0;color:#999;font-size:11px;text-transform:uppercase;letter-spacing:.3px;">'+
+    '<th style="padding:8px 8px;text-align:left;font-weight:700;">Colaborador</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Total</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Listas</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Pend.</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Progreso</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Vencidas</th>'+
+    '<th style="padding:8px 8px;text-align:center;font-weight:700;">Cumpl.</th>'+
+    '</tr></thead><tbody>'+collabRows+'</tbody></table>'+
+    (collabs.length===0?'<div style="text-align:center;color:#ccc;padding:20px;font-size:13px;">Sin colaboradores registrados</div>':'')+
+    '</div>';
+
+  // Lista de tareas vencidas
+  var vencidasList=tasks.filter(function(t){return t.status!=="completada"&&t.status!=="cancelada"&&!t.indefinite&&t.endDate&&taskDue(t)<now;});
+  var vencidasHTML='';
+  if(vencidasList.length){
+    vencidasHTML='<div style="background:#fff;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.07);margin-bottom:16px;">'+
+      '<div style="font-weight:800;font-size:15px;color:#e74c3c;margin-bottom:12px;">🔴 Tareas vencidas ('+vencidasList.length+')</div>'+
+      vencidasList.map(function(t){
+        var col=Array.isArray(t.assignedTo)?t.assignedTo.map(function(id){var c=state.collaborators.find(function(c){return c.id===id;});return c?c.name.split(" ")[0]:"?";}).join(", "):(function(){var c=state.collaborators.find(function(c){return c.id===t.assignedTo;});return c?c.name:"?";})();
+        return'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;">'+
+          '<div><div style="font-weight:700;font-size:13px;">'+escH(t.title)+'</div>'+
+          '<div style="font-size:11px;color:#aaa;">'+escH(col)+' · Venció: '+escH(t.endDate)+'</div></div>'+
+          '<span style="font-size:11px;font-weight:700;color:#e74c3c;background:#fff0f0;padding:3px 8px;border-radius:99px;white-space:nowrap;">'+escH((FC[t.frequency]||FC.diaria).l)+'</span>'+
+          '</div>';
+      }).join("")+
+    '</div>';
+  }
+
+  // Tareas con reporte de soportes
+  var reportTasks=state.tasks.filter(function(t){return t.reportEnabled&&t.reportTemplate&&(t.reportTemplate.columns||[]).length;});
+  var reportDataHTML='';
+  if(reportTasks.length){
+    reportDataHTML='<div style="background:#fff;border-radius:16px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.07);margin-bottom:16px;">'+
+      '<div style="font-weight:800;font-size:15px;color:#2980b9;margin-bottom:14px;">📋 Reportes de soportes por tarea</div>'+
+      reportTasks.map(function(t){
+        var cols=(t.reportTemplate&&t.reportTemplate.columns)||[];
+        var rows=t.reportData||[];
+        var assigned=Array.isArray(t.assignedTo)
+          ?t.assignedTo.map(function(id){var c=state.collaborators.find(function(c){return c.id===id;});return c?c.name.split(" ")[0]:"?";}).join(", ")
+          :(function(){var c=state.collaborators.find(function(c){return c.id===t.assignedTo;});return c?c.name:"?";})();
+        var previewRows=rows.slice(-5);
+        return'<div style="margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid #eef0f7;">'+
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">'+
+          '<div>'+
+            '<div style="font-weight:800;font-size:14px;">'+escH(t.title)+'</div>'+
+            '<div style="font-size:11px;color:#aaa;">'+escH(assigned)+' · '+rows.length+' fila(s) acumulada(s) · Columnas: '+escH(cols.join(", "))+'</div>'+
+          '</div>'+
+          '<button onclick="exportTaskReport('+t.id+')" style="background:linear-gradient(135deg,#1a7a4a,#27ae60);color:#fff;border:none;border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:8px;">⬇️ Excel</button>'+
+          '</div>'+
+          (previewRows.length?
+            '<div style="overflow-x:auto;">'+
+            '<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:400px;">'+
+            '<thead><tr style="background:#f0f7ff;border-bottom:2px solid #dde8f5;">'+
+              '<th style="padding:6px 8px;text-align:left;font-weight:700;color:#2980b9;white-space:nowrap;">Colaborador</th>'+
+              '<th style="padding:6px 8px;text-align:left;font-weight:700;color:#2980b9;white-space:nowrap;">Fecha</th>'+
+              '<th style="padding:6px 8px;text-align:left;font-weight:700;color:#2980b9;white-space:nowrap;">Soporte</th>'+
+              cols.map(function(c){return'<th style="padding:6px 8px;text-align:left;font-weight:700;color:#2980b9;white-space:nowrap;">'+escH(c)+'</th>';}).join("")+
+              '<th style="padding:6px 8px;text-align:center;font-weight:700;color:#2980b9;">✓</th>'+
+            '</tr></thead><tbody>'+
+            previewRows.map(function(r){
+              var hasMissing=r.missing&&r.missing.length;
+              return'<tr style="border-bottom:1px solid #f0f2f7;'+(r.approvedIncomplete?'background:#fffdf0;':'')+'">'+
+                '<td style="padding:5px 8px;white-space:nowrap;font-weight:600;">'+escH(r.collabName||"—")+'</td>'+
+                '<td style="padding:5px 8px;white-space:nowrap;color:#888;">'+escH(r.date||"—")+'</td>'+
+                '<td style="padding:5px 8px;max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#888;" title="'+escH(r.attName||"")+'">'+escH(r.attName||"—")+'</td>'+
+                cols.map(function(c){var v=(r.extracted||{})[c];return'<td style="padding:5px 8px;white-space:nowrap;">'+(v!=null?escH(String(v)):'<span style="color:#e74c3c;">—</span>')+'</td>';}).join("")+
+                '<td style="padding:5px 8px;text-align:center;">'+(hasMissing?'<span style="color:#e74c3c;font-size:10px;font-weight:700;">Incompl.</span>':'<span style="color:#27ae60;font-weight:700;">✓</span>')+'</td>'+
+              '</tr>';
+            }).join("")+
+            '</tbody></table></div>'+
+            (rows.length>5?'<div style="font-size:11px;color:#aaa;margin-top:4px;text-align:right;">Mostrando últimas 5 de '+rows.length+' filas</div>':''):
+            '<div style="font-size:13px;color:#ccc;padding:12px 0;text-align:center;">Sin datos aún — se llenarán cuando los colaboradores validen con soportes</div>')+
+          '</div>';
+      }).join("")+
+    '</div>';
+  }
+
+  var html='<div style="padding:14px;">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">'+
+    '<div style="font-weight:800;font-size:17px;">📊 Reportes del equipo</div>'+
+    '<button onclick="exportExcel()" style="background:linear-gradient(135deg,#1a7a4a,#27ae60);color:#fff;border:none;border-radius:12px;padding:10px 18px;font-size:13px;font-weight:700;cursor:pointer;">⬇️ Resumen Excel</button>'+
+    '</div>'+
+    generalHTML+reportDataHTML+tableHTML+vencidasHTML+
     '</div>';
   document.getElementById("content").innerHTML=html;
 }
 
+function exportExcel(){
+  if(typeof XLSX==="undefined"){toast("XLSX no disponible","error");return;}
+  var now=Date.now();
+  var tasks=state.tasks;
+  var collabs=state.collaborators;
+
+  function collabName(assignedTo){
+    if(Array.isArray(assignedTo))return assignedTo.map(function(id){var c=collabs.find(function(c){return c.id===id;});return c?c.name:"?";}).join(", ");
+    var c=collabs.find(function(c){return c.id===assignedTo;});return c?c.name:"Sin asignar";
+  }
+
+  // Hoja 1: Todas las tareas
+  var tasksRows=tasks.map(function(t){
+    var ov=t.status!=="completada"&&t.status!=="cancelada"&&!t.indefinite&&t.endDate&&taskDue(t)<now;
+    return{
+      "Título":t.title||"",
+      "Asignado a":collabName(t.assignedTo),
+      "Frecuencia":(FC[t.frequency]||FC.diaria).l,
+      "Prioridad":(PC[t.priority]||PC.media).l,
+      "Estado":(SC[t.status]||SC.pendiente).l,
+      "Vencida":ov?"Sí":"No",
+      "Fecha límite":t.indefinite?"Sin fecha":(t.endDate||""),
+      "Hora límite":t.endTime||"",
+      "Indefinida":t.indefinite?"Sí":"No",
+      "Veces completada":(t.history||[]).length,
+      "Notas":t.notes||""
+    };
+  });
+
+  // Hoja 2: Resumen por colaborador
+  var summaryRows=collabs.map(function(c){
+    var ct=tasks.filter(function(t){return taskBelongsTo(t,c.id);});
+    var cDone=ct.filter(function(t){return t.status==="completada";}).length;
+    var cPend=ct.filter(function(t){return t.status==="pendiente";}).length;
+    var cProg=ct.filter(function(t){return t.status==="en-progreso";}).length;
+    var cVenc=ct.filter(function(t){return t.status!=="completada"&&t.status!=="cancelada"&&!t.indefinite&&t.endDate&&taskDue(t)<now;}).length;
+    return{
+      "Colaborador":c.name,
+      "Total tareas":ct.length,
+      "Completadas":cDone,
+      "Pendientes":cPend,
+      "En progreso":cProg,
+      "Vencidas":cVenc,
+      "% Cumplimiento":ct.length?Math.round(cDone/ct.length*100)+"%":"0%"
+    };
+  });
+
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(tasksRows),"Tareas");
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summaryRows),"Resumen equipo");
+  var fecha=new Date().toLocaleDateString("es").replace(/\//g,"-");
+  XLSX.writeFile(wb,"AgendaTeam_Reporte_"+fecha+".xlsx");
+  toast("Reporte exportado");
+}
+
 function openAddRef(){
   _editingRefId=null;_refFiles=[];_existingRefImgs=[];
-  showSheet("Nuevo artículo de referencia",refFormHTML(null));
+  // _currentFolderId ya está seteado por openBaseFolder() o es null en raíz
+  var title=_currentFolderId?
+    ((state.referenceFolders||[]).find(function(f){return f.id==_currentFolderId;})||{name:"Carpeta"}).name+" — Nuevo artículo":
+    "Nuevo artículo de referencia";
+  showSheet(title,refFormHTML(null));
 }
 
 function openEditRef(id){
   var r=(state.references||[]).find(function(x){return x.id==id;});
   if(!r)return;
   _editingRefId=id;_refFiles=[];_existingRefImgs=(r.imageUrls||[]).slice();
+  _currentFolderId=r.folderId||null;
   showSheet("Editar artículo de referencia",refFormHTML(r));
 }
 
@@ -1668,10 +2314,10 @@ function saveRef(){
     var allImgs=_existingRefImgs.concat(newUrls);
     if(_editingRefId){
       var r=(state.references||[]).find(function(x){return x.id==_editingRefId;});
-      if(r){Object.assign(r,{name:name,category:cat,description:desc,imageUrls:allImgs});}
+      if(r){Object.assign(r,{name:name,category:cat,description:desc,imageUrls:allImgs,folderId:_currentFolderId||null});}
     }else{
       if(!state.references)state.references=[];
-      state.references.push({id:Date.now(),name:name,category:cat,description:desc,imageUrls:allImgs});
+      state.references.push({id:Date.now(),name:name,category:cat,description:desc,imageUrls:allImgs,folderId:_currentFolderId||null});
     }
     saveLocal();render();closeSheet();toast("Artículo guardado ✓");
   }
@@ -1758,6 +2404,19 @@ function taskFormHTML(t){
         '<span style="font-size:14px;font-weight:600;">'+labels[type]+'</span></div>';
     }).join("")+
     '</div>'+
+    '<div style="margin-top:12px;padding-top:10px;border-top:1px solid #e8d8ff;">'+
+    '<div style="font-weight:700;font-size:13px;color:#9b59b6;margin-bottom:8px;">📷 Fotos secuenciales (foto por foto)</div>'+
+    '<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'+
+    '<div class="ck-label'+(v.photoCount?'on':'')+'" id="tf-seqphoto-ck" onclick="tfToggleSeqPhoto(this)">'+
+      '<div class="ck-box'+(v.photoCount?' on':'')+'">'+( v.photoCount?'✓':'')+' </div>'+
+      '<span style="font-size:18px;">🔢</span>'+
+      '<span style="font-size:13px;font-weight:600;">Validar foto por foto antes de avanzar</span>'+
+    '</div></div>'+
+    '<div id="tf-seqphoto-count" style="'+(v.photoCount?'':'display:none;')+'display:'+(v.photoCount?'flex':'none')+';align-items:center;gap:10px;background:#eef2ff;border-radius:10px;padding:10px;">'+
+    '<span style="font-size:13px;font-weight:700;color:#4a6cf7;">Total de fotos:</span>'+
+    '<input type="number" id="tf-photo-count" min="1" max="100" value="'+(v.photoCount||20)+'" style="width:70px;padding:7px 10px;border-radius:8px;border:1.5px solid #c0cff7;font-size:15px;font-weight:700;outline:none;text-align:center;">'+
+    '<span style="font-size:12px;color:#888;">La IA validará cada foto antes de permitir la siguiente.</span>'+
+    '</div></div>'+
     '<div style="margin-top:12px;padding-top:12px;border-top:1px solid #e8d8ff;">'+
     '<div style="font-weight:700;font-size:13px;color:#9b59b6;margin-bottom:8px;">🙂 Reconocimiento facial</div>'+
     '<div class="ck-label'+(v.faceRecognition?' on':'')+'" id="tf-face-ck" onclick="tfToggleFace(this)">'+
@@ -1794,7 +2453,25 @@ function taskFormHTML(t){
     })()+
     '</div></div></div>'+
     '</div></div>'+
-    '<div style="display:flex;gap:10px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
+    '<div style="margin-top:14px;background:#f0f7ff;border-radius:14px;padding:12px;">'+
+    '<div style="font-weight:800;font-size:13px;color:#2980b9;margin-bottom:8px;">📊 Reporte de soportes</div>'+
+    '<div class="ck-label'+(v.reportEnabled?' on':'')+'" id="tf-rep-ck" onclick="tfToggleReport(this)">'+
+      '<div class="ck-box'+(v.reportEnabled?' on':'')+'">'+( v.reportEnabled?'✓':'')+' </div>'+
+      '<span style="font-size:18px;">📋</span>'+
+      '<span style="font-size:13px;font-weight:600;">Generar reporte de datos de los soportes</span>'+
+    '</div>'+
+    '<div id="tf-rep-options" style="'+(v.reportEnabled?'':'display:none;')+'margin-top:10px;">'+
+      '<div style="font-size:12px;color:#2980b9;margin-bottom:8px;font-weight:600;">Tabla modelo (Excel o imagen con las columnas):</div>'+
+      '<label style="display:flex;align-items:center;gap:10px;background:#fff;border-radius:10px;padding:10px 14px;cursor:pointer;font-weight:700;font-size:13px;border:1.5px solid #b0d4f7;position:relative;margin-bottom:6px;">'+
+        '📎 Seleccionar plantilla'+
+        '<input type="file" accept=".xlsx,.xls,.csv,image/*" style="position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;cursor:pointer;" onchange="tfSetReportTemplate(this.files[0])">'+
+      '</label>'+
+      (v.reportTemplate&&v.reportTemplate.columns&&v.reportTemplate.columns.length?
+        '<div id="tf-rep-preview" style="font-size:12px;color:#555;"><span style="color:#27ae60;font-weight:700;">✓ '+escH(v.reportTemplate.name||"Plantilla")+'</span><br>Columnas: <b>'+escH(v.reportTemplate.columns.join(", "))+'</b></div>':
+        '<div id="tf-rep-preview" style="font-size:12px;color:#aaa;">Sin plantilla cargada</div>')+
+      '<div style="font-size:11px;color:#999;margin-top:6px;">Cada imagen adjuntada al validar la tarea generará una fila con los datos de la tabla. Si falta algún dato se pedirá autorización.</div>'+
+    '</div></div>'+
+    '<div style="display:flex;gap:10px;margin-top:14px;"><button class="btn btn-dark btn-block" style="flex:1;" onclick="saveT()">Guardar tarea</button>'+
     '<button class="btn btn-gray btn-block" style="flex:1;" onclick="closeSheet()">Cancelar</button></div>';
 }
 
@@ -1820,6 +2497,10 @@ var _tfFaceRecognition=false;
 var _tfRequireLocation=false;
 var _tfValidateProximity=false;
 var _tfLocationRef={lat:"",lng:"",radius:200};
+var _tfReportEnabled=false;
+var _tfReportTemplateData=null;
+var _pendingReportRows=null,_pendingReportTask=null,_pendingReportCk=null;
+var _tfSeqPhoto=false;
 function togIndef(){
   _tfIndefOn=!_tfIndefOn;
   var box=document.getElementById("tf-indef-box"),w=document.getElementById("tf-end-wrap");
@@ -1871,6 +2552,74 @@ function tfToggleProximity(el){
   el.className="ck-label"+(_tfValidateProximity?" on":"");
   var pf=document.getElementById("tf-prox-fields");
   if(pf)pf.style.display=_tfValidateProximity?"block":"none";
+}
+function tfToggleSeqPhoto(el){
+  _tfSeqPhoto=!_tfSeqPhoto;
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(_tfSeqPhoto?" on":"");box.textContent=_tfSeqPhoto?"✓":"";}
+  el.className="ck-label"+(_tfSeqPhoto?" on":"");
+  var cnt=document.getElementById("tf-seqphoto-count");
+  if(cnt)cnt.style.display=_tfSeqPhoto?"flex":"none";
+}
+function tfToggleReport(el){
+  _tfReportEnabled=!_tfReportEnabled;
+  var box=el.querySelector(".ck-box");
+  if(box){box.className="ck-box"+(_tfReportEnabled?" on":"");box.textContent=_tfReportEnabled?"✓":"";}
+  el.className="ck-label"+(_tfReportEnabled?" on":"");
+  var opts=document.getElementById("tf-rep-options");
+  if(opts)opts.style.display=_tfReportEnabled?"block":"none";
+}
+function tfSetReportTemplate(file){
+  if(!file)return;
+  var prev=document.getElementById("tf-rep-preview");
+  if(prev)prev.innerHTML='<div style="color:#aaa;">⏳ Procesando plantilla…</div>';
+  var ext=(file.name.split(".").pop()||"").toLowerCase();
+  var isExcel=["xlsx","xls","csv"].indexOf(ext)>=0;
+  if(isExcel){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var wb=XLSX.read(e.target.result,{type:"array"});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        var rows=XLSX.utils.sheet_to_json(ws,{header:1});
+        var headers=(rows[0]||[]).filter(Boolean).map(String);
+        _tfReportTemplateData={name:file.name,type:"excel",columns:headers};
+        if(prev)prev.innerHTML='<div style="color:#27ae60;font-weight:700;">✓ '+escH(file.name)+'</div>'+
+          (headers.length?'<div style="font-size:12px;margin-top:4px;color:#555;">Columnas: <b>'+escH(headers.join(", "))+'</b></div>':
+          '<div style="color:#e74c3c;font-size:12px;">No se encontraron columnas en la primera fila.</div>');
+      }catch(e2){
+        if(prev)prev.innerHTML='<div style="color:#e74c3c;">Error al leer Excel: '+escH(e2.message)+'</div>';
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }else{
+    if(prev)prev.innerHTML='<div style="color:#aaa;">⏳ Subiendo imagen…</div>';
+    uploadEvidence("report_templates",[file],[null],null,function(urls){
+      var url=urls[0]&&urls[0].url;
+      if(!url){if(prev)prev.innerHTML='<div style="color:#e74c3c;">Error al subir imagen.</div>';return;}
+      if(prev)prev.innerHTML='<div style="color:#aaa;">🤖 Detectando columnas de la tabla…</div>';
+      fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:400,
+          messages:[{role:"user",content:[
+            {type:"image",source:{type:"url",url:cloudinaryForAI(url)}},
+            {type:"text",text:'Esta es una plantilla de tabla. Extrae los nombres exactos de los encabezados de columna. Responde SOLO JSON: {"columns":["col1","col2",...]}'}
+          ]}]})
+      }).then(function(r){return r.json();}).then(function(d){
+        var raw=(d.content&&d.content[0]&&d.content[0].text)||"";
+        var result={};try{var m=raw.match(/\{[\s\S]*\}/);result=m?JSON.parse(m[0]):{};} catch(e){}
+        var cols=result.columns||[];
+        _tfReportTemplateData={name:file.name,type:"image",url:url,columns:cols};
+        if(prev)prev.innerHTML='<div style="color:#27ae60;font-weight:700;">✓ '+escH(file.name)+'</div>'+
+          (cols.length?'<div style="font-size:12px;margin-top:4px;color:#555;">Columnas: <b>'+escH(cols.join(", "))+'</b></div>':
+          '<div style="color:#e74c3c;font-size:12px;">No se detectaron columnas. Verifica que la imagen muestre claramente los encabezados.</div>');
+      }).catch(function(){
+        _tfReportTemplateData={name:file.name,type:"image",url:url,columns:[]};
+        if(prev)prev.innerHTML='<div style="color:#e74c3c;">No se pudieron detectar columnas. Ingresa las columnas manualmente.</div>';
+      });
+    },function(err){
+      if(prev)prev.innerHTML='<div style="color:#e74c3c;">Error al subir: '+escH(err)+'</div>';
+    });
+  }
 }
 // ── GESTIÓN DE UBICACIONES ──
 function openLocationsManager(){
@@ -1964,6 +2713,7 @@ function openNTParticular(){
   editingTaskId=null;_tfSelected=[];_tfMode="individual";_tfIndefOn=false;
   _tfRequiredEvidence={photo:false,image:false,document:false};_tfFaceRecognition=false;
   _tfRequireLocation=false;_tfValidateProximity=false;_tfLocationRef={lat:"",lng:"",radius:200};
+  _tfReportEnabled=false;_tfReportTemplateData=null;_tfSeqPhoto=false;
   showSheet("Tarea Particular",taskFormHTML(null));setTimeout(applyPrioColor,50);
 }
 function openGenericMenu(){
@@ -2238,6 +2988,9 @@ function openET(id){
     _tfRequireLocation=t.requireLocation||false;
     _tfValidateProximity=t.validateProximity||false;
     _tfLocationRef=Object.assign({lat:"",lng:"",radius:200},t.locationRef||{});
+    _tfReportEnabled=t.reportEnabled||false;
+    _tfReportTemplateData=t.reportTemplate||null;
+    _tfSeqPhoto=!!(t.photoCount);
     showSheet("Editar tarea",taskFormHTML(t));setTimeout(applyPrioColor,50);
   }
 }
@@ -2272,10 +3025,13 @@ function saveT(){
       locationRef={locationId:selLoc.id,name:selLoc.name,type:selLoc.type,lat:selLoc.lat,lng:selLoc.lng,radius:selLoc.radius,taskRadius:taskRadius};
     }
   }
+  var reportEnabled=_tfReportEnabled;
+  var reportTemplate=_tfReportEnabled?(_tfReportTemplateData||null):null;
+  var photoCount=_tfSeqPhoto?parseInt((document.getElementById("tf-photo-count")||{}).value)||20:0;
 
   if(editingTaskId){
     var t=state.tasks.find(function(x){return x.id==editingTaskId;});
-    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null});
+    if(t)Object.assign(t,{title:title,frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null,reportEnabled:reportEnabled,reportTemplate:reportTemplate||null,photoCount:photoCount||null});
     toast("Tarea actualizada ✓");
   }else if(isGroup){
     // Tarea grupal: una sola tarea con todos los miembros y chat grupal
@@ -2284,7 +3040,7 @@ function saveT(){
     var cols=members.map(function(id){return state.collaborators.find(function(c){return c.id===id;});}).filter(Boolean);
     var names=cols.map(function(c){return c.name.split(" ")[0];}).join(", ");
     var nt={id:taskId,history:[],title:title,assignedTo:members,isGroup:true,groupKey:groupKey,
-      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null};
+      frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null,reportEnabled:reportEnabled,reportTemplate:reportTemplate||null,photoCount:photoCount||null};
     state.tasks.push(nt);
     if(!state.messages[groupKey])state.messages[groupKey]=[];
     state.messages[groupKey].push({id:taskId+1,from:"system",type:"task_assigned",ts:Date.now(),
@@ -2296,7 +3052,7 @@ function saveT(){
     members.forEach(function(assignedTo,i){
       var col=state.collaborators.find(function(c){return c.id===assignedTo;});
       var nt={id:Date.now()+i,history:[],title:title,assignedTo:assignedTo,isGroup:false,
-        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null};
+        frequency:freq,priority:prio,status:stat,startDate:sd,time:ti,endDate:ed,endTime:et,indefinite:indef,notes:notes,criteria:criteria,requiredEvidence:requiredEvidence,faceRecognition:faceRecognition,requireLocation:requireLocation,validateProximity:validateProximity,locationRef:locationRef||null,reportEnabled:reportEnabled,reportTemplate:reportTemplate||null,photoCount:photoCount||null};
       state.tasks.push(nt);
       if(col){
         var ck=collabCK(assignedTo);
@@ -2956,7 +3712,7 @@ function sendMsg(){
     "ROLES: Manuel = JEFE (supervisa, NO sube evidencias). "+cc.name+(cc.role?" ("+cc.role+")":"")+" = COLABORADOR (ejecuta y sube evidencias).\n"+
     "TAREAS de "+cc.name+":\n"+taskDetail+"\n"+totales+teamSummary+"\n\n"+
     "CAPACIDADES: Puedes analizar datos del historial de entregas, comparar desempeño, identificar patrones, calcular porcentajes de cumplimiento, generar reportes estructurados y responder preguntas sobre la información registrada en el historial de este chat y en los datos de tareas. Usa TODA la información disponible arriba para dar respuestas precisas.\n"+
-    "LÍMITES: 1) NO puedes ver imágenes adjuntas. 2) NO ejecutas validaciones ni cambias estados — el sistema lo hace. 3) NUNCA le pidas a Manuel que suba fotos. 4) NUNCA le pidas al colaborador compartir archivos por chat — debe reportar desde la tarea. 5) NUNCA inventes datos que no estén en el historial.\n"+
+    "LÍMITES: 1) NO puedes ver imágenes adjuntas. 2) NO ejecutas validaciones ni cambias estados — el sistema lo hace. 3) NUNCA le pidas a Manuel que suba fotos. 4) NUNCA le pidas al colaborador compartir archivos por chat — debe reportar desde la tarea. 5) NUNCA inventes datos que no estén en el historial. 6) NUNCA especules sobre cuántas imágenes adjuntó el colaborador ni qué imágenes envió — solo reporta los criteriaResults registrados por el validador en el historial. Si el colaborador dice que ya envió las imágenes, responde que el validador analizó el soporte y el resultado está en el historial; no afirmes que faltaron imágenes a menos que el historial lo indique explícitamente.\n"+
     "VALIDACIONES: Explica criterios fallidos y cómo corregirlos. EPP se valida visualmente. Ubicación SOLO por GPS, nunca por apariencia del entorno.\n"+
     "AUTORIDAD DE MANUEL: Sus instrucciones son DEFINITIVAS. La IA puede aportar contexto, el colaborador puede debatir, pero la decisión de Manuel se acata.\n"+
     "Responde en español. Análisis y reportes: estructurados y detallados. Preguntas simples: máx 3 oraciones.";

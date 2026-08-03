@@ -1323,13 +1323,34 @@ function renderIngreso(){
   document.getElementById("content").innerHTML=h;
 }
 function renderValidacion(){
-  var h=sectionHead("🔍 Validación","Registros de asistencia que requieren revisión");
-  var pend=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
-  var done=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation!=="pendiente";});
-  if(!pend.length)h+='<div class="card" style="text-align:center;color:#27ae60;font-weight:700;">✅ No hay registros pendientes de validar</div>';
-  else h+=pend.map(function(a){return valCard(a,true);}).join("");
-  if(done.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;color:#999;">Ya revisados</div>';h+=done.map(function(a){return valCard(a,false);}).join("");}
+  var h=sectionHead("🔍 Validación","Registros que requieren revisión");
+  var pendAtt=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
+  var pendAct=(state.activities||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
+  var doneAtt=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation!=="pendiente";});
+  if(!pendAtt.length&&!pendAct.length)h+='<div class="card" style="text-align:center;color:#27ae60;font-weight:700;">✅ No hay nada pendiente de validar</div>';
+  if(pendAtt.length){h+='<div style="font-weight:800;font-size:14px;margin:4px 4px 10px;">🕐 Asistencia por validar</div>';h+=pendAtt.map(function(a){return valCard(a,true);}).join("");}
+  if(pendAct.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;">📝 Actividades por validar</div>';h+=pendAct.map(function(a){return actValCard(a);}).join("");}
+  if(doneAtt.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;color:#999;">Ya revisados</div>';h+=doneAtt.map(function(a){return valCard(a,false);}).join("");}
   document.getElementById("content").innerHTML=h;
+}
+function actValCard(a){
+  return'<div class="card" style="border-left:4px solid #e74c3c;">'+
+    '<div style="display:flex;justify-content:space-between;"><b>🔴 '+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div>'+
+    '<div style="font-weight:700;margin:6px 0;">'+escH(canonName(a.name))+'</div>'+
+    '<div style="font-size:12px;color:#777;">'+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+' · '+locLabel(a.startLoc)+'</div>'+
+    '<div style="'+flagStyle("red")+'border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;font-weight:600;">🔴 '+escH((a.flags||[]).join(" · "))+'</div>'+
+    '<div style="display:flex;gap:8px;">'+
+      '<button class="btn btn-sm" style="flex:1;background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="validarActividad('+a.id+',true)">✔ Aprobar</button>'+
+      '<button class="btn btn-sm" style="flex:1;background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="validarActividad('+a.id+',false)">✖ Rechazar</button>'+
+    '</div></div>';
+}
+function validarActividad(id,ok){
+  var e=(state.activities||[]).find(function(x){return String(x.id)===String(id);});
+  if(!e)return;
+  e.validation=ok?"aprobado":"rechazado";e.validatedBy=myName();
+  (state.alerts||[]).forEach(function(al){if(al.type==="activity_flag"&&String(al.actId)===String(id))al.resolved=true;});
+  saveLocal();if(db)saveCloud();renderValidacion();
+  toast(ok?"✔ Actividad aprobada":"✖ Actividad rechazada");
 }
 function valCard(a,actionable){
   var estado=a.validation==="aprobado"?'<span style="color:#27ae60;font-weight:700;">✔ Aprobado por '+escH(a.validatedBy||"")+'</span>':a.validation==="rechazado"?'<span style="color:#e74c3c;font-weight:700;">✖ Rechazado por '+escH(a.validatedBy||"")+'</span>':'';
@@ -1356,7 +1377,7 @@ function validarAsistencia(id,ok){
   saveLocal();if(db)saveCloud();renderValidacion();
   toast(ok?"✔ Registro aprobado":"✖ Registro rechazado");
 }
-function pendValidCount(){return(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length;}
+function pendValidCount(){return(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length+(state.activities||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length;}
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
@@ -1424,8 +1445,36 @@ function iniciarActividad(){
   state.activities.push(ent);
   saveLocal();if(db)saveCloud();renderActividades();
   toast("📍 Registrando ubicación…");
-  getGeo(function(loc){ent.startLoc=loc||ent.startLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
+  var entId=ent.id;
+  getGeo(function(loc){
+    var e=actById(entId)||ent; // re-buscar el registro vivo (onSnapshot puede reemplazar el arreglo)
+    e.startLoc=loc||e.startLoc||null;
+    if(e.project)evalActivitySite(e); // validar que el GPS concuerde con el sitio elegido
+    saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();
+  });
   toast("▶️ "+name+" iniciada");
+}
+function actById(id){return(state.activities||[]).find(function(x){return String(x.id)===String(id);});}
+function checkNamedSite(loc,siteName){
+  var l=(state.locations||[]).find(function(x){return normActName(x.name)===normActName(siteName);});
+  if(!l||l.lat==null)return null;
+  if(!loc||loc.lat==null)return{name:l.name,dist:null,radius:l.radius||200,within:false,noloc:true};
+  var d=Math.round(haversineMeters(loc.lat,loc.lng,l.lat,l.lng));
+  return{name:l.name,dist:d,radius:l.radius||200,within:d<=(l.radius||200)};
+}
+function evalActivitySite(e){
+  var chk=checkNamedSite(e.startLoc,e.project);e.siteCheck=chk;
+  if(chk&&chk.within===false){
+    e.flags=[chk.noloc?("Sin ubicación para validar "+e.project):("Fuera de "+chk.name+" ("+chk.dist+"m)")];
+    e.needsValidation=true;e.flagLevel="red";
+    if(e.validation!=="aprobado"&&e.validation!=="rechazado")e.validation="pendiente";
+    if(!e._alerted){e._alerted=true;crearAlertaActividad(e);}
+  }else if(chk&&chk.within===true){e.flags=[];e.needsValidation=false;e.flagLevel=null;}
+}
+function crearAlertaActividad(e){
+  if(!state.alerts)state.alerts=[];
+  state.alerts.push({id:Date.now()+"_act",type:"activity_flag",actId:e.id,collabName:e.collabName,date:e.date,activity:e.name,reasons:e.flags||[],level:"red",ts:Date.now(),resolved:false});
+  try{sendNotif("boss","🔴 Actividad fuera de sitio",e.collabName+": "+(e.flags||[]).join(", "));}catch(err){}
 }
 function cerrarActividad(id){
   var ent=(state.activities||[]).find(function(a){return a.id===id;});
@@ -1433,7 +1482,8 @@ function cerrarActividad(id){
   ent.endTs=Date.now();
   saveLocal();if(db)saveCloud();renderActividades();
   toast("📍 Registrando ubicación…");
-  getGeo(function(loc){ent.endLoc=loc||ent.endLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
+  var entId=ent.id;
+  getGeo(function(loc){var e=actById(entId)||ent;e.endLoc=loc||e.endLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="actividades")renderActividades();});
   toast("⏹️ "+ent.name+" · "+fmtDur(ent.endTs-ent.startTs));
 }
 function actRow(a){
@@ -1441,7 +1491,9 @@ function actRow(a){
   return'<div style="padding:10px 0;border-bottom:1px solid #f0f2f7;">'+
     '<div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(canonName(a.name))+'</span><span style="font-size:13px;font-weight:700;white-space:nowrap;color:'+(a.endTs?"#27ae60":"#f5a623")+';">'+fmtDur(dur)+(a.endTs?"":" ⏱")+'</span></div>'+
     '<div style="font-size:12px;color:#999;margin-top:2px;">'+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+'</div>'+
-    '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+'</div></div>';
+    '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+(a.siteCheck?siteStr({status:a.siteCheck.within?"ok":"red",name:a.siteCheck.name,dist:a.siteCheck.dist}):'')+'</div>'+
+    (a.needsValidation?'<div style="'+flagStyle("red")+'border-radius:8px;padding:5px 8px;margin-top:4px;font-size:11px;font-weight:600;">🔴 '+escH((a.flags||[]).join(" · "))+(a.validation==="aprobado"?" — ✔ aprobado":a.validation==="rechazado"?" — ✖ rechazado":"")+'</div>':'')+
+  '</div>';
 }
 function renderActividades(){
   var isBoss=isAdmin(),cid=myUid(),tk=todayKey();

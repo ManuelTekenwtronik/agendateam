@@ -202,6 +202,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
   <div id="stats"></div>
   <div id="content" class="scroll"></div>
 </div>
+<input type="file" id="att-cam" accept="image/*" capture="user" style="display:none">
 <div id="toast"></div>
 <div id="report-dialog-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,18,35,.55);z-index:9001;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px);">
   <div id="report-dialog-box" style="background:#fff;border-radius:24px;padding:26px 22px;max-width:340px;width:100%;text-align:center;box-shadow:0 8px 40px rgba(0,0,0,.2);"></div>
@@ -219,6 +220,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 </div>
 <script>
 var BOSS_PIN="716402";
+var VALIDADOR_PIN="135790";
 var SK="at_v9";
 var db=null;
 try{
@@ -606,6 +608,9 @@ function pinPress(val){
       if(pinTarget==="boss"){
         if(pinBuffer===BOSS_PIN){loginBoss();}
         else{pinBuffer="";updatePinDisplay();if(errEl)errEl.textContent="PIN incorrecto";}
+      }else if(pinTarget==="validador"){
+        if(pinBuffer===VALIDADOR_PIN){loginValidador();}
+        else{pinBuffer="";updatePinDisplay();if(errEl)errEl.textContent="PIN incorrecto";}
       }else if(pinTarget){
         var c=state.collaborators.find(function(x){return x.id===pinTarget;});
         if(c&&pinBuffer===c.pin){loginCollab(c.id);}
@@ -628,20 +633,22 @@ function showMainLogin(){
         '<span>👥 Colaboradores <span style="font-size:12px;font-weight:400;color:#999;">('+state.collaborators.length+')</span></span>'+
         '<span style="color:#999;font-size:13px;">▼</span></button>':
       '<p style="text-align:center;color:#ccc;font-size:13px;margin-top:4px;">Entra como Manuel para agregar tu equipo</p>')+
+    '<button class="btn btn-block" onclick="showPinLogin(\'validador\')" style="background:#f7f8fc;border:1.5px solid #e5e7ef;color:#555;border-radius:14px;font-size:15px;margin-top:12px;">🔍 Entrar como Validador</button>'+
   '</div>';
 }
 
 function showPinLogin(target){
   pinTarget=target;pinBuffer="";
   var ls=document.getElementById("login-screen");
-  var isCollab=target!=="boss";
+  var special=(target==="boss"||target==="validador");
+  var isCollab=!special;
   var c=isCollab?state.collaborators.find(function(x){return x.id===target;}):null;
-  var subtitle=isCollab&&c?"PIN de "+c.name.split(" ")[0]:"Clave maestra";
+  var subtitle=target==="validador"?"Clave de validador":(isCollab&&c?"PIN de "+c.name.split(" ")[0]:"Clave maestra");
   ls.innerHTML='<div class="login-card">'+
     '<button onclick="showMainLogin();pinBuffer=\'\';" style="background:none;border:none;cursor:pointer;color:#5a8fe0;font-weight:700;font-size:14px;margin-bottom:16px;display:flex;align-items:center;gap:6px;">← Volver</button>'+
     (isCollab&&c?'<div style="display:flex;justify-content:center;margin-bottom:16px;">'+avHTML(c,60)+'</div>':
     '<div style="text-align:center;font-size:40px;margin-bottom:12px;">🔐</div>')+
-    pinPadHTML(isCollab&&c?c.name:"Manuel",subtitle)+
+    pinPadHTML(target==="validador"?"Validador":(isCollab&&c?c.name:"Manuel"),subtitle)+
   '</div>';
 }
 
@@ -653,6 +660,13 @@ function loginBoss(){
   requireLocationThen(goMenu);
 }
 
+function loginValidador(){
+  currentUser={type:"validador"};
+  document.getElementById("login-screen").classList.add("hidden");
+  document.getElementById("user-av").classList.add("hidden");
+  if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();
+  goMenu();
+}
 function loginCollab(id){
   var c=state.collaborators.find(function(x){return x.id===id;});
   if(!c)return;
@@ -690,16 +704,22 @@ function openSection(tab){
 }
 function renderMenu(){
   if(!currentUser)return;
-  var isBoss=currentUser.type==="boss";
-  var name=isBoss?"Manuel":(currentUser.name?currentUser.name.split(" ")[0]:"");
-  var items=[
-    ["estadisticas","📊","Estadísticas","#5a8fe0"],
-    ["tareas","📋","Tareas","#4a6cf7"],
-    ["ingreso","🕐","Ingreso / Salida","#27ae60"],
-    ["actividades","📝","Actividades","#f5a623"],
-    ["reportes","📈","Reportes","#9b59b6"]
-  ];
-  if(isBoss){items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);}
+  var isBoss=currentUser.type==="boss",isVal=currentUser.type==="validador";
+  var name=(myName()||"").split(" ")[0];
+  var pv=pendValidCount(),valLbl="Validación"+(pv?" ("+pv+")":"");
+  var items;
+  if(isVal){
+    items=[["validacion","🔍",valLbl,"#e74c3c"],["estadisticas","📊","Estadísticas","#5a8fe0"],["reportes","📈","Reportes","#9b59b6"],["ingreso","🕐","Asistencia","#27ae60"],["actividades","📝","Actividades","#f5a623"]];
+  }else{
+    items=[
+      ["estadisticas","📊","Estadísticas","#5a8fe0"],
+      ["tareas","📋","Tareas","#4a6cf7"],
+      ["ingreso","🕐","Ingreso / Salida","#27ae60"],
+      ["actividades","📝","Actividades","#f5a623"],
+      ["reportes","📈","Reportes","#9b59b6"]
+    ];
+    if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);}
+  }
   document.getElementById("menu-screen").innerHTML=
     '<div class="menu-wrap">'+
       '<div class="menu-header">'+
@@ -951,6 +971,7 @@ function renderContent(){
   else if(t==="estadisticas")renderEstadisticas();
   else if(t==="ingreso")renderIngreso();
   else if(t==="actividades")renderActividades();
+  else if(t==="validacion")renderValidacion();
   else renderChat();
 }
 
@@ -1038,56 +1059,176 @@ function sectionHead(title,sub){
 }
 
 // ── INGRESO / SALIDA (asistencia con ubicación) ──
-function myUid(){return currentUser&&currentUser.type==="boss"?"boss":(currentUser?currentUser.id:null);}
-function myName(){return currentUser&&currentUser.type==="boss"?"Manuel":(currentUser?currentUser.name:"");}
+function isAdmin(){return currentUser&&(currentUser.type==="boss"||currentUser.type==="validador");}
+function myUid(){if(!currentUser)return null;if(currentUser.type==="boss")return"boss";if(currentUser.type==="validador")return"validador";return currentUser.id;}
+function myName(){if(!currentUser)return"";if(currentUser.type==="boss")return"Manuel";if(currentUser.type==="validador")return"Validador";return currentUser.name;}
 function todayAttendance(cid){var tk=todayKey();return(state.attendance||[]).find(function(a){return a.collabId===cid&&a.date===tk;});}
-function marcarIngreso(){
-  var cid=myUid();if(!cid)return;
-  var rec=todayAttendance(cid);
-  if(rec&&rec.inTime){toast("Ya marcaste ingreso hoy","error");return;}
-  if(!rec){rec={id:Date.now(),collabId:cid,collabName:myName(),date:todayKey(),inTime:Date.now(),inLoc:null,outTime:null,outLoc:null};state.attendance.push(rec);}
-  else rec.inTime=Date.now();
-  saveLocal();if(db)saveCloud();renderIngreso();
-  toast("📍 Registrando ingreso…");
-  getGeo(function(loc){rec.inLoc=loc||rec.inLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();});
-  toast("✅ Ingreso "+fmtTime(rec.inTime));
+// Oficina oficial para asistencia = BODEGA TKTK (CLARO ZONA 6 es sitio de cliente, no cuenta)
+function officeLocation(){
+  var locs=(state.locations||[]);
+  return locs.find(function(l){return /bodega\s*tktk/i.test(l.name||"");})||null;
 }
-function marcarSalida(){
+function checkOffice(loc){
+  if(!loc||loc.lat==null)return null;
+  var o=officeLocation();if(!o)return null;
+  var d=Math.round(haversineMeters(loc.lat,loc.lng,o.lat,o.lng));
+  return{name:o.name,dist:d,radius:o.radius||200,within:d<=(o.radius||200)};
+}
+function faceBadge(face){
+  if(!face)return"";
+  if(face.skipped)return' <span style="font-size:11px;color:#f5a623;font-weight:700;">⚠️ rostro s/verif.</span>';
+  if(face.matched)return' <span style="font-size:11px;color:#27ae60;font-weight:700;">✅ '+face.confidence+'%</span>';
+  return' <span style="font-size:11px;color:#e74c3c;font-weight:700;">❌ no coincide</span>';
+}
+function photoThumb(url){return url?'<img src="'+cloudinarySmall(url)+'" style="width:42px;height:42px;border-radius:8px;object-fit:cover;flex-shrink:0;">':'';}
+function officeStr(o){if(!o)return"";return o.within?' · <span style="color:#27ae60;font-weight:700;">✓ en '+escH(o.name)+'</span>':' · <span style="color:#e74c3c;font-weight:700;">'+o.dist+'m de '+escH(o.name)+'</span>';}
+// Marcado con cámara (solo cámara, no galería) → foto → rostro → oficina → alerta si no coincide
+function marcarIngreso(){attendancePhoto("in");}
+function marcarSalida(){attendancePhoto("out");}
+function attendancePhoto(kind){
   var cid=myUid();if(!cid)return;
   var rec=todayAttendance(cid);
-  if(!rec||!rec.inTime){toast("Primero marca tu ingreso","error");return;}
-  if(rec.outTime){toast("Ya marcaste salida hoy","error");return;}
-  rec.outTime=Date.now();
+  if(kind==="in"&&rec&&rec.inTime){toast("Ya marcaste ingreso hoy","error");return;}
+  if(kind==="out"&&(!rec||!rec.inTime)){toast("Primero marca tu ingreso","error");return;}
+  if(kind==="out"&&rec&&rec.outTime){toast("Ya marcaste salida hoy","error");return;}
+  var inp=document.getElementById("att-cam");
+  if(!inp){registrarAsistencia(kind,"");return;}
+  inp.value="";
+  inp.onchange=function(){var f=inp.files&&inp.files[0];inp.onchange=null;if(f)processAttendancePhoto(kind,f);};
+  inp.click();
+}
+function processAttendancePhoto(kind,f){
+  toast("⏳ Subiendo foto…");
+  var fd=new FormData();
+  fd.append("file",f);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam_asistencia");
+  var xhr=new XMLHttpRequest();
+  xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/image/upload");
+  xhr.onload=function(){
+    var url="";try{var r=JSON.parse(xhr.responseText);url=r.secure_url||"";}catch(e){}
+    if(!url){toast("Error al subir la foto — intenta de nuevo","error");return;}
+    registrarAsistencia(kind,url);
+  };
+  xhr.onerror=function(){toast("Error de red al subir la foto","error");};
+  xhr.send(fd);
+}
+function registrarAsistencia(kind,photoUrl){
+  var cid=myUid();if(!cid)return;
+  var rec=todayAttendance(cid);
+  if(!rec){rec={id:Date.now(),collabId:cid,collabName:myName(),date:todayKey()};state.attendance.push(rec);}
+  if(kind==="in"){rec.inTime=Date.now();rec.inPhoto=photoUrl||null;}
+  else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
-  toast("📍 Registrando salida…");
-  getGeo(function(loc){rec.outLoc=loc||rec.outLoc||null;saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();});
-  toast("✅ Salida "+fmtTime(rec.outTime)+" · "+fmtDur(rec.outTime-rec.inTime));
+  getGeo(function(loc){
+    if(kind==="in"){rec.inLoc=loc||rec.inLoc||null;rec.inOffice=checkOffice(rec.inLoc);}
+    else{rec.outLoc=loc||rec.outLoc||null;rec.outOffice=checkOffice(rec.outLoc);}
+    evalAttendanceFlags(rec,kind);
+    saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
+  });
+  var profile=currentUser&&currentUser.photo;
+  if(profile&&photoUrl){
+    checkFaceIdentity(profile,photoUrl).then(function(res){
+      var face={matched:!!(res&&res.matched),confidence:Math.round((res&&res.confidence)||0),skipped:!!(res&&res.skipped)};
+      if(kind==="in")rec.inFace=face;else rec.outFace=face;
+      evalAttendanceFlags(rec,kind);
+      saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
+      if(face.skipped)toast("⚠️ Rostro no verificado");
+      else if(face.matched)toast("✅ Identidad verificada ("+face.confidence+"%)");
+      else toast("❌ El rostro no coincide — se creó alerta","error");
+    });
+  }
+  toast((kind==="in"?"✅ Ingreso ":"✅ Salida ")+fmtTime(kind==="in"?rec.inTime:rec.outTime));
+}
+function evalAttendanceFlags(rec,kind){
+  var face=kind==="in"?rec.inFace:rec.outFace;
+  var off=kind==="in"?rec.inOffice:rec.outOffice;
+  var loc=kind==="in"?rec.inLoc:rec.outLoc;
+  var reasons=[];
+  if(face&&!face.skipped&&!face.matched)reasons.push("Rostro no coincide"+(face.confidence?" ("+face.confidence+"%)":""));
+  if(off&&off.within===false)reasons.push("Fuera de "+off.name+" ("+off.dist+"m)");
+  else if(loc==null&&(face||off!==undefined))reasons.push("Sin ubicación");
+  if(kind==="in")rec.inFlags=reasons;else rec.outFlags=reasons;
+  var all=(rec.inFlags||[]).concat(rec.outFlags||[]);
+  rec.needsValidation=all.length>0;
+  if(rec.needsValidation&&rec.validation!=="aprobado"&&rec.validation!=="rechazado")rec.validation="pendiente";
+  var af=kind==="in"?"_alertedIn":"_alertedOut";
+  if(reasons.length&&!rec[af]){rec[af]=true;crearAlertaValidacion(rec,kind,reasons);}
+}
+function crearAlertaValidacion(rec,kind,reasons){
+  if(!state.alerts)state.alerts=[];
+  state.alerts.push({id:Date.now()+"_"+kind,type:"attendance_flag",attId:rec.id,kind:kind,collabName:rec.collabName,date:rec.date,reasons:reasons,ts:Date.now(),resolved:false});
+  try{sendNotif("boss","🚩 Asistencia por validar",rec.collabName+" ("+(kind==="in"?"ingreso":"salida")+"): "+reasons.join(", "));}catch(e){}
 }
 function renderIngreso(){
-  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
+  var isBoss=isAdmin(),cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
   var h=sectionHead("🕐 Ingreso / Salida","Hoy "+tk);
-  h+='<div class="card"><div style="font-weight:700;margin-bottom:12px;">Mi jornada de hoy</div>';
+  h+='<div class="card"><div style="font-weight:700;margin-bottom:4px;">Mi jornada de hoy</div>';
+  h+='<div style="font-size:11px;color:#999;margin-bottom:10px;">📷 Se toma foto (cámara) para verificar identidad · 📍 debes estar en BODEGA TKTK</div>';
   h+='<div style="display:flex;gap:10px;margin-bottom:12px;">'+
     '<div style="flex:1;text-align:center;background:#f0fff8;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">INGRESO</div><div style="font-size:22px;font-weight:800;color:#27ae60;">'+(rec&&rec.inTime?fmtTime(rec.inTime):"—")+'</div></div>'+
     '<div style="flex:1;text-align:center;background:#fff5f5;border-radius:12px;padding:12px;"><div style="font-size:11px;color:#999;font-weight:700;">SALIDA</div><div style="font-size:22px;font-weight:800;color:#e74c3c;">'+(rec&&rec.outTime?fmtTime(rec.outTime):"—")+'</div></div>'+
   '</div>';
-  if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+'</div>';
-  if(rec&&rec.outTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Salida: '+locLabel(rec.outLoc)+'</div>';
+  if(rec&&(rec.inPhoto||rec.outPhoto)){
+    h+='<div style="display:flex;gap:16px;margin-bottom:10px;">';
+    if(rec.inPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">INGRESO</div>'+photoThumb(rec.inPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.inFace)+'</div></div>';
+    if(rec.outPhoto)h+='<div style="text-align:center;"><div style="font-size:10px;color:#999;font-weight:700;margin-bottom:4px;">SALIDA</div>'+photoThumb(rec.outPhoto)+'<div style="margin-top:3px;">'+faceBadge(rec.outFace)+'</div></div>';
+    h+='</div>';
+  }
+  if(rec&&rec.inTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Ingreso: '+locLabel(rec.inLoc)+officeStr(rec.inOffice)+'</div>';
+  if(rec&&rec.outTime)h+='<div style="font-size:12px;color:#777;margin-bottom:4px;">Salida: '+locLabel(rec.outLoc)+officeStr(rec.outOffice)+'</div>';
+  if(rec&&rec.needsValidation)h+='<div style="background:#fff5f5;border-radius:10px;padding:8px 10px;margin-top:8px;font-size:12px;color:#c0392b;font-weight:600;">🚩 '+((rec.inFlags||[]).concat(rec.outFlags||[]).map(escH).join(" · "))+' — '+(rec.validation==="aprobado"?"✔ aprobado":rec.validation==="rechazado"?"✖ rechazado":"pendiente de validación")+'</div>';
   h+='<div style="margin-top:12px;">';
-  if(!rec||!rec.inTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="marcarIngreso()">Marcar ingreso</button>';
-  else if(!rec.outTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="marcarSalida()">Marcar salida</button>';
+  if(!rec||!rec.inTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="marcarIngreso()">📷 Marcar ingreso</button>';
+  else if(!rec.outTime)h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="marcarSalida()">📷 Marcar salida</button>';
   else h+='<div style="text-align:center;color:#27ae60;font-weight:700;padding:8px;">✅ Jornada completa · '+fmtDur(rec.outTime-rec.inTime)+'</div>';
   h+='</div></div>';
   if(isBoss){
-    var todays=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss";});
+    var todays=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss"&&a.collabId!=="validador";});
     h+='<div style="font-weight:800;font-size:15px;margin:18px 4px 10px;">Equipo hoy</div>';
     if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Nadie del equipo ha marcado aún.</div>';
     else h+=todays.map(function(a){
-      return'<div class="card" style="padding:14px;"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div><div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+'</div></div>';
+      return'<div class="card" style="padding:14px;'+(a.needsValidation?'border-left:4px solid #e74c3c;':'')+'"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+(a.needsValidation?' 🚩':'')+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div>'+
+        '<div style="display:flex;gap:10px;margin-top:8px;align-items:center;">'+(a.inPhoto?photoThumb(a.inPhoto)+faceBadge(a.inFace):'')+(a.outPhoto?photoThumb(a.outPhoto)+faceBadge(a.outFace):'')+'</div>'+
+        '<div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+officeStr(a.inOffice)+'</div></div>';
     }).join("");
   }
   document.getElementById("content").innerHTML=h;
 }
+function renderValidacion(){
+  var h=sectionHead("🔍 Validación","Registros de asistencia que requieren revisión");
+  var pend=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
+  var done=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation!=="pendiente";});
+  if(!pend.length)h+='<div class="card" style="text-align:center;color:#27ae60;font-weight:700;">✅ No hay registros pendientes de validar</div>';
+  else h+=pend.map(function(a){return valCard(a,true);}).join("");
+  if(done.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;color:#999;">Ya revisados</div>';h+=done.map(function(a){return valCard(a,false);}).join("");}
+  document.getElementById("content").innerHTML=h;
+}
+function valCard(a,actionable){
+  var reasons=(a.inFlags||[]).concat(a.outFlags||[]);
+  var estado=a.validation==="aprobado"?'<span style="color:#27ae60;font-weight:700;">✔ Aprobado por '+escH(a.validatedBy||"")+'</span>':a.validation==="rechazado"?'<span style="color:#e74c3c;font-weight:700;">✖ Rechazado por '+escH(a.validatedBy||"")+'</span>':'';
+  return'<div class="card" style="border-left:4px solid '+(actionable?"#e74c3c":"#ccc")+';">'+
+    '<div style="display:flex;justify-content:space-between;"><b>'+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div>'+
+    '<div style="font-size:13px;margin:6px 0;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div>'+
+    '<div style="display:flex;gap:12px;margin:8px 0;">'+(a.inPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">INGRESO</div>'+photoThumb(a.inPhoto)+'<div>'+faceBadge(a.inFace)+'</div></div>':'')+(a.outPhoto?'<div style="text-align:center;"><div style="font-size:10px;color:#999;">SALIDA</div>'+photoThumb(a.outPhoto)+'<div>'+faceBadge(a.outFace)+'</div></div>':'')+'</div>'+
+    '<div style="font-size:11px;color:#777;">Ingreso: '+locLabel(a.inLoc)+officeStr(a.inOffice)+'</div>'+
+    (a.outLoc?'<div style="font-size:11px;color:#777;">Salida: '+locLabel(a.outLoc)+officeStr(a.outOffice)+'</div>':'')+
+    '<div style="background:#fff5f5;border-radius:10px;padding:8px 10px;margin:8px 0;font-size:12px;color:#c0392b;font-weight:600;">🚩 '+reasons.map(escH).join(" · ")+'</div>'+
+    (actionable?
+      '<div style="display:flex;gap:8px;">'+
+        '<button class="btn btn-sm" style="flex:1;background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="validarAsistencia('+a.id+',true)">✔ Aprobar</button>'+
+        '<button class="btn btn-sm" style="flex:1;background:linear-gradient(135deg,#e74c3c,#c0392b);color:#fff;" onclick="validarAsistencia('+a.id+',false)">✖ Rechazar</button>'+
+      '</div>':
+      '<div style="text-align:right;font-size:12px;">'+estado+'</div>')+
+    '</div>';
+}
+function validarAsistencia(id,ok){
+  var rec=(state.attendance||[]).find(function(a){return String(a.id)===String(id);});
+  if(!rec)return;
+  rec.validation=ok?"aprobado":"rechazado";rec.validatedBy=myName();rec.validatedAt=Date.now();
+  (state.alerts||[]).forEach(function(al){if(al.type==="attendance_flag"&&String(al.attId)===String(id))al.resolved=true;});
+  saveLocal();if(db)saveCloud();renderValidacion();
+  toast(ok?"✔ Registro aprobado":"✖ Registro rechazado");
+}
+function pendValidCount(){return(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length;}
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
@@ -1126,7 +1267,7 @@ function actRow(a){
     '<div style="font-size:11px;color:#aaa;margin-top:2px;">'+locLabel(a.startLoc)+'</div></div>';
 }
 function renderActividades(){
-  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),tk=todayKey();
+  var isBoss=isAdmin(),cid=myUid(),tk=todayKey();
   var h=sectionHead("📝 Actividades","Horas por tarea · "+tk);
   var running=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
   h+='<div class="card">';
@@ -1166,7 +1307,7 @@ function renderActividades(){
 
 // ── ESTADÍSTICAS (resumen de todo) ──
 function renderEstadisticas(){
-  var isBoss=currentUser&&currentUser.type==="boss",cid=myUid(),tk=todayKey();
+  var isBoss=isAdmin(),cid=myUid(),tk=todayKey();
   var tasks=isBoss?state.tasks:state.tasks.filter(function(t){return taskBelongsTo(t,currentUser.id);});
   var h=sectionHead("📊 Estadísticas","Resumen general");
   var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
@@ -2427,7 +2568,7 @@ function repSelectCollab(v){repCollab=v;renderReportes();}
 function repSelectActivity(v){repActivity=v;renderReportes();}
 function repSetPeriod(p){repPeriod=p;renderReportes();}
 function renderReportes(){
-  var isBoss=currentUser&&currentUser.type==="boss";
+  var isBoss=isAdmin();
   var h=sectionHead("📈 Reportes","Productividad por actividad");
   h+=repPeriodBar();
   if(!isBoss){

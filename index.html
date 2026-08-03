@@ -1406,12 +1406,14 @@ function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a
 // Proyectos/sitios registrados con ubicación (incluida la bodega — también se puede trabajar en ella)
 function projectOptions(){return (state.locations||[]).filter(function(l){return l&&l.lat!=null&&l.name;}).map(function(l){return l.name;});}
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
+function isHomeOffice(name){return normActName(name)==="home office";}
 // Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto
 function activityOptions(cid){
   var set={},list=[];
   function add(n){if(!n)return;var k=normActName(n);if(!set[k]){set[k]=1;list.push(n);}}
   add(lastUsedActivity(cid));
   add("Almuerzo");
+  add("Home Office");
   projectOptions().forEach(add);
   canonicalActivityNames().forEach(add);
   return list;
@@ -1432,18 +1434,19 @@ function standardizeName(name){
 function actSelChanged(v){
   var nw=document.getElementById("act-new-wrap"),dw=document.getElementById("act-detail-wrap");
   if(nw)nw.style.display=(v==="__new__")?"block":"none";
-  if(dw)dw.style.display=isProject(v)?"block":"none";
+  if(dw)dw.style.display=(isProject(v)||isHomeOffice(v))?"block":"none";
 }
 function iniciarActividad(){
-  var sel=document.getElementById("act-select"),v=sel?sel.value:"",name="",project="";
+  var sel=document.getElementById("act-select"),v=sel?sel.value:"",name="",project="",special=false;
   if(v==="__new__"){var inp=document.getElementById("act-name");name=(inp?inp.value:"").trim();}
-  else if(v&&isProject(v)){
-    project=v;
+  else if(v&&(isProject(v)||isHomeOffice(v))){
+    special=true;
     var det=document.getElementById("act-detail"),detail=(det?det.value:"").trim();
     name=detail?(v+" — "+detail):v;
+    if(isProject(v))project=v; // sólo los proyectos validan ubicación; Home Office no
   }else name=(v||"").trim();
   if(!name){toast("Elige o escribe una actividad","error");return;}
-  if(!project)name=standardizeName(name); // estandariza actividades libres; los proyectos van tal cual
+  if(!special)name=standardizeName(name); // estandariza actividades libres; proyectos/Home Office van tal cual
   var cid=myUid();if(!cid)return;
   // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
   var prev=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});

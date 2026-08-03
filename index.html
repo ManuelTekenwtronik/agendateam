@@ -161,6 +161,9 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 .chat-send{background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;border:none;border-radius:50%;width:46px;height:46px;font-size:20px;cursor:pointer;flex-shrink:0;box-shadow:0 2px 8px rgba(26,29,46,.4);transition:transform .1s;}
 .chat-send:active{transform:scale(.92);}
 
+/* ── CANDADO DE UBICACIÓN ── */
+#geo-gate{position:fixed;inset:0;background:linear-gradient(160deg,#1a1d2e 0%,#2d3561 60%,#3d4a8a 100%);display:flex;align-items:center;justify-content:center;padding:24px;z-index:500;overflow-y:auto;}
+
 /* ── MENU DE INICIO (botones grandes) ── */
 #menu-screen{position:fixed;inset:0;background:linear-gradient(160deg,#eef0f7 0%,#e3e7f5 100%);z-index:250;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .menu-wrap{max-width:540px;margin:0 auto;padding:0 16px 40px;}
@@ -177,6 +180,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
 </head>
 <body>
 <div id="login-screen" class="hidden"></div>
+<div id="geo-gate" class="hidden"></div>
 <div id="menu-screen" class="hidden"></div>
 <div id="app" class="hidden">
   <div id="header">
@@ -645,7 +649,7 @@ function loginBoss(){
   document.getElementById("login-screen").classList.add("hidden");
   document.getElementById("user-av").classList.add("hidden");
   if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();
-  goMenu();
+  requireLocationThen(goMenu);
 }
 
 function loginCollab(id){
@@ -656,7 +660,7 @@ function loginCollab(id){
   document.getElementById("user-av").innerHTML=avHTML(c,30);
   document.getElementById("user-av").classList.remove("hidden");
   if("Notification"in window&&Notification.permission==="default")Notification.requestPermission();
-  goMenu();
+  requireLocationThen(goMenu);
 }
 
 function logout(){
@@ -948,23 +952,69 @@ function renderContent(){
   else renderChat();
 }
 
-// ── UBICACIÓN OBLIGATORIA (todo registro lleva GPS) ──
-function getGeo(cb){
-  if(!navigator.geolocation){cb(null);return;}
-  navigator.geolocation.getCurrentPosition(function(pos){
-    var coord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy)};
-    cb(coord);
-    fetch("https://nominatim.openstreetmap.org/reverse?lat="+coord.lat+"&lon="+coord.lng+"&format=json&accept-language=es",{headers:{"User-Agent":"AgendaTeam/1.0"}})
-      .then(function(r){return r.json();}).then(function(geo){
-        if(geo&&geo.address){
-          var a=geo.address;
-          var parts=[a.road||a.pedestrian||a.footway||"",a.neighbourhood||a.suburb||a.quarter||a.city_district||"",a.city||a.town||a.village||a.municipality||"",a.state||""].filter(Boolean);
-          coord.address=parts.slice(0,3).join(", ");
-          cb(coord,true);
-        }
-      }).catch(function(){});
-  },function(){cb(null);},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+// ── UBICACIÓN OBLIGATORIA (se obtiene desde el inicio y se mantiene viva) ──
+var _lastGeo=null,_geoStarted=false;
+function _geocode(coord,after){
+  fetch("https://nominatim.openstreetmap.org/reverse?lat="+coord.lat+"&lon="+coord.lng+"&format=json&accept-language=es",{headers:{"User-Agent":"AgendaTeam/1.0"}})
+    .then(function(r){return r.json();}).then(function(geo){
+      if(geo&&geo.address){
+        var a=geo.address;
+        var parts=[a.road||a.pedestrian||a.footway||"",a.neighbourhood||a.suburb||a.quarter||a.city_district||"",a.city||a.town||a.village||a.municipality||"",a.state||""].filter(Boolean);
+        coord.address=parts.slice(0,3).join(", ");
+        if(_lastGeo&&_lastGeo.lat===coord.lat&&_lastGeo.lng===coord.lng)_lastGeo.address=coord.address;
+        if(after)after(coord);
+      }
+    }).catch(function(){});
 }
+function onGeo(pos){
+  var coord={lat:pos.coords.latitude,lng:pos.coords.longitude,acc:Math.round(pos.coords.accuracy),ts:Date.now()};
+  var prev=_lastGeo;
+  if(prev&&prev.address&&prev.lat!=null&&haversineMeters(prev.lat,prev.lng,coord.lat,coord.lng)<60){coord.address=prev.address;coord._addrTs=prev._addrTs;}
+  _lastGeo=coord;
+  if(!coord.address||!coord._addrTs||Date.now()-coord._addrTs>90000){coord._addrTs=Date.now();_geocode(coord);}
+}
+// Arranca el rastreo de ubicación al ingresar (permiso concedido desde el principio)
+function startGeoTracking(){
+  if(_geoStarted||!navigator.geolocation)return;_geoStarted=true;
+  navigator.geolocation.getCurrentPosition(onGeo,function(e){
+    if(e&&e.code===1)toast("📍 Activa la ubicación para registrar tu jornada","error");
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+  try{navigator.geolocation.watchPosition(onGeo,function(){},{enableHighAccuracy:true,timeout:20000,maximumAge:30000});}catch(e){}
+}
+// Devuelve la ubicación ya disponible (cache) y de fondo la refina
+function getGeo(cb){
+  if(_lastGeo&&Date.now()-(_lastGeo.ts||0)<120000)cb(_lastGeo);
+  if(!navigator.geolocation){if(!_lastGeo)cb(null);return;}
+  navigator.geolocation.getCurrentPosition(function(pos){
+    onGeo(pos);var g=_lastGeo;cb(g);
+    if(!g.address)_geocode(g,function(gg){cb(gg,true);});
+  },function(){if(!_lastGeo)cb(null);},{enableHighAccuracy:true,timeout:12000,maximumAge:0});
+}
+// ── CANDADO: el permiso de ubicación es obligatorio para entrar ──
+var _geoGateNext=null;
+function requireLocationThen(next){
+  _geoGateNext=next;
+  if(!navigator.geolocation){next();return;} // dispositivo sin GPS: entra (registros con bandera roja)
+  navigator.geolocation.getCurrentPosition(function(pos){
+    onGeo(pos);_geoStarted=false;startGeoTracking();hideGeoGate();next();
+  },function(err){
+    if(err&&err.code===1){showGeoGate();} // PERMISO DENEGADO → bloquear hasta conceder
+    else{startGeoTracking();hideGeoGate();next();} // no disponible/timeout → entra con bandera roja, sigue intentando
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+}
+function showGeoGate(){
+  var g=document.getElementById("geo-gate");
+  g.innerHTML='<div class="login-card" style="text-align:center;">'+
+    '<div style="font-size:54px;margin-bottom:12px;">📍</div>'+
+    '<h1 style="font-weight:800;font-size:22px;margin-bottom:10px;letter-spacing:-.4px;">Ubicación requerida</h1>'+
+    '<p style="color:#666;font-size:14px;line-height:1.65;margin-bottom:22px;">Para usar AgendaTeam debes permitir el acceso a tu ubicación. Tu jornada y actividades se registran con GPS.</p>'+
+    '<button class="btn btn-dark btn-block" style="border-radius:14px;font-size:16px;" onclick="retryGeo()">Conceder ubicación</button>'+
+    '<p style="color:#aaa;font-size:12px;margin-top:14px;line-height:1.5;">Si ya la negaste, actívala en los ajustes de ubicación del navegador y vuelve a intentar.</p>'+
+  '</div>';
+  g.classList.remove("hidden");
+}
+function retryGeo(){requireLocationThen(_geoGateNext);}
+function hideGeoGate(){document.getElementById("geo-gate").classList.add("hidden");}
 // ── HELPERS ──
 function pad2(n){return(n<10?"0":"")+n;}
 function todayKey(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}
@@ -1043,7 +1093,13 @@ function iniciarActividad(){
   var inp=document.getElementById("act-name"),name=(inp?inp.value:"").trim();
   if(!name){toast("Escribe o elige una actividad","error");return;}
   var cid=myUid();if(!cid)return;
-  if((state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;})){toast("Cierra la actividad en curso primero","error");return;}
+  // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
+  var prev=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
+  if(prev){
+    prev.endTs=Date.now();
+    prev.endLoc=(_lastGeo&&Date.now()-(_lastGeo.ts||0)<120000)?_lastGeo:prev.endLoc||null;
+    toast("⏹️ "+prev.name+" cerrada automáticamente");
+  }
   var ent={id:Date.now(),collabId:cid,collabName:myName(),name:name,date:todayKey(),startTs:Date.now(),endTs:null,startLoc:null,endLoc:null};
   state.activities.push(ent);
   saveLocal();if(db)saveCloud();renderActividades();

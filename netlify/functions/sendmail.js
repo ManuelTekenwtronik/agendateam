@@ -17,7 +17,7 @@ exports.handler = async function(event) {
       return { statusCode: 400, headers, body: JSON.stringify({ error: "Faltan campos requeridos" }) };
     }
 
-    const url = appUrl || "https://agendateam.netlify.app";
+    const url = appUrl || "https://tktkcom.com";
 
     const html = `
 <!DOCTYPE html>

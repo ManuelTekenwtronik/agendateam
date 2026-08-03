@@ -1371,12 +1371,16 @@ function canonName(name){var al=_aliasMap();return al[normActName(name)]||String
 function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
 function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
-// Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · resto alfabético
+// Proyectos/sitios registrados con ubicación (incluida la bodega — también se puede trabajar en ella)
+function projectOptions(){return (state.locations||[]).filter(function(l){return l&&l.lat!=null&&l.name;}).map(function(l){return l.name;});}
+function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
+// Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto
 function activityOptions(cid){
   var set={},list=[];
   function add(n){if(!n)return;var k=normActName(n);if(!set[k]){set[k]=1;list.push(n);}}
   add(lastUsedActivity(cid));
   add("Almuerzo");
+  projectOptions().forEach(add);
   canonicalActivityNames().forEach(add);
   return list;
 }
@@ -1393,13 +1397,21 @@ function standardizeName(name){
   }
   return String(name||"").trim();
 }
-function actSelChanged(v){var w=document.getElementById("act-new-wrap");if(w)w.style.display=(v==="__new__")?"block":"none";}
+function actSelChanged(v){
+  var nw=document.getElementById("act-new-wrap"),dw=document.getElementById("act-detail-wrap");
+  if(nw)nw.style.display=(v==="__new__")?"block":"none";
+  if(dw)dw.style.display=isProject(v)?"block":"none";
+}
 function iniciarActividad(){
-  var sel=document.getElementById("act-select"),name="";
-  if(sel&&sel.value&&sel.value!=="__new__")name=sel.value.trim();
-  else{var inp=document.getElementById("act-name");name=(inp?inp.value:"").trim();}
+  var sel=document.getElementById("act-select"),v=sel?sel.value:"",name="",project="";
+  if(v==="__new__"){var inp=document.getElementById("act-name");name=(inp?inp.value:"").trim();}
+  else if(v&&isProject(v)){
+    project=v;
+    var det=document.getElementById("act-detail"),detail=(det?det.value:"").trim();
+    name=detail?(v+" — "+detail):v;
+  }else name=(v||"").trim();
   if(!name){toast("Elige o escribe una actividad","error");return;}
-  name=standardizeName(name); // reusar la actividad existente si el nombre es equivalente (ALMUERZO=Almuerzo)
+  if(!project)name=standardizeName(name); // estandariza actividades libres; los proyectos van tal cual
   var cid=myUid();if(!cid)return;
   // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
   var prev=(state.activities||[]).find(function(a){return a.collabId===cid&&!a.endTs;});
@@ -1408,7 +1420,7 @@ function iniciarActividad(){
     prev.endLoc=(_lastGeo&&Date.now()-(_lastGeo.ts||0)<120000)?_lastGeo:prev.endLoc||null;
     toast("⏹️ "+prev.name+" cerrada automáticamente");
   }
-  var ent={id:Date.now(),collabId:cid,collabName:myName(),name:name,date:todayKey(),startTs:Date.now(),endTs:null,startLoc:null,endLoc:null};
+  var ent={id:Date.now(),collabId:cid,collabName:myName(),name:name,project:project||null,date:todayKey(),startTs:Date.now(),endTs:null,startLoc:null,endLoc:null};
   state.activities.push(ent);
   saveLocal();if(db)saveCloud();renderActividades();
   toast("📍 Registrando ubicación…");
@@ -1450,6 +1462,7 @@ function renderActividades(){
          '<option value="__new__">➕ Nueva actividad…</option>'+
        '</select></div>';
     h+='<div class="field" id="act-new-wrap" style="margin-bottom:10px;display:none;"><label>Nombre de la actividad</label><input id="act-name" placeholder="Escribe la actividad…" autocomplete="off"/></div>';
+    h+='<div class="field" id="act-detail-wrap" style="margin-bottom:10px;display:none;"><label>Actividad específica en el sitio</label><input id="act-detail" placeholder="Ej. instalación, mantenimiento, supervisión…" autocomplete="off"/></div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="iniciarActividad()">▶️ Iniciar</button>';
   }
   h+='</div>';

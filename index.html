@@ -1171,11 +1171,14 @@ function renderEstadisticas(){
   var h=sectionHead("📊 Estadísticas","Resumen general");
   var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
   h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">'+cards.map(function(s){return'<div class="stat-card" style="border-top:3px solid '+s[0]+';padding:16px;"><div class="stat-num" style="font-size:26px;">'+s[1]+'</div><div class="stat-lbl">'+s[2]+'</div></div>';}).join("")+'</div>';
-  var att=(state.attendance||[]).filter(function(a){return a.date===tk&&(isBoss?a.collabId!=="boss":a.collabId===cid);});
-  var acts=(state.activities||[]).filter(function(a){return a.date===tk&&(isBoss?true:a.collabId===cid);});
+  var myRec=(state.attendance||[]).find(function(a){return a.date===tk&&String(a.collabId)===String(cid);});
+  var acts=(state.activities||[]).filter(function(a){return a.date===tk&&(isBoss?true:String(a.collabId)===String(cid));});
   var totalMs=acts.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+  var myAsis=myRec&&myRec.inTime?("Ingreso "+fmtTime(myRec.inTime)+(myRec.outTime?" · Salida "+fmtTime(myRec.outTime):"")):"Sin ingreso";
   h+='<div class="card"><div style="font-weight:700;margin-bottom:8px;">Hoy · '+tk+'</div>';
-  h+=miniRow("🕐","Asistencia",isBoss?(att.length+" con ingreso"):(att.length&&att[0].inTime?("Ingreso "+fmtTime(att[0].inTime)):"Sin ingreso"));
+  h+=miniRow("🕐","Mi asistencia",myAsis);
+  if(myRec&&myRec.inTime&&myRec.outTime)h+=miniRow("⏳","Mi jornada",fmtDur(myRec.outTime-myRec.inTime));
+  if(isBoss){var team=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss";});h+=miniRow("👥","Equipo con ingreso",team.length);}
   h+=miniRow("📝","Actividades",acts.length+" registro(s)");
   h+=miniRow("⏱️","Horas registradas",fmtDur(totalMs));
   h+='</div>';

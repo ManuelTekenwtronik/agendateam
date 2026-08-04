@@ -1123,10 +1123,8 @@ function attendancePhoto(kind){
 // ── PRUEBA DE VIDA (liveness activo con reto aleatorio) ──
 var _liveStream=null,_liveFrame1=null,_liveFrame2=null;
 var LIVE_CHALLENGES=[
-  {id:"ojos",instr:"CIERRA los ojos 👀"},
-  {id:"boca",instr:"ABRE bien la boca 😮"},
-  {id:"derecha",instr:"Gira la cabeza a tu DERECHA ➡️"},
-  {id:"izquierda",instr:"Gira la cabeza a tu IZQUIERDA ⬅️"}
+  {id:"ojos",instr:"CIERRA los ojos y mantenlos cerrados 👀"},
+  {id:"boca",instr:"ABRE bien la boca y mantenla abierta 😮"}
 ];
 function startLiveness(kind){
   var ch=LIVE_CHALLENGES[Math.floor(Math.random()*LIVE_CHALLENGES.length)];
@@ -1191,17 +1189,20 @@ function processLiveness(kind,chId){
         else{var v=verifyLive(chId,d1,d2);if(v===null)live.skipped=true;else live.live=v;}
         // NO registrar si no pasa la prueba de vida
         if(live.live){closeLiveOverlay();registrarAsistencia(kind,url1,live);}
-        else livenessFailed(kind,live.skipped);
+        else livenessFailed(kind,live.skipped,d1,d2,chId);
       });
     });
   });
 }
-function livenessFailed(kind,skipped){
+function livenessFailed(kind,skipped,d1,d2,chId){
   var ov=document.getElementById("live-overlay");if(!ov)return;
   ov.classList.remove("hidden");
+  function dd(d){if(!d)return"?";if(d.skipped)return"skip("+(d.reason||"api")+")";if(!d.faceFound)return"SIN ROSTRO";return"ojos="+d.eyesOpen+" boca="+d.mouthOpen+" yaw="+(d.headpose?Math.round(d.headpose.yaw_angle):"?");}
+  var diag='reto='+(chId||"?")+'  f1['+dd(d1)+']  f2['+dd(d2)+']';
   ov.innerHTML='<div class="live-box">'+
     '<div style="font-size:56px;">🚫</div>'+
     '<div class="live-msg">'+(skipped?"No se detectó tu rostro o no se pudo verificar la prueba de vida.":"No pasaste la prueba de vida.")+'<br><span style="font-size:14px;color:#ffb3b3;">No se puede registrar el '+(kind==="in"?"ingreso":"salida")+'.</span></div>'+
+    '<div style="font-size:11px;color:#aab;background:rgba(255,255,255,.08);padding:8px 10px;border-radius:8px;word-break:break-word;text-align:center;">🔎 '+diag+'</div>'+
     '<div id="live-actions" style="width:100%;"><button class="btn btn-blue btn-block" onclick="startLiveness(\''+kind+'\')">🔄 Intentar de nuevo</button></div>'+
     '<button class="live-cancel" onclick="closeLiveOverlay()">Cancelar</button>'+
   '</div>';

@@ -495,6 +495,7 @@ var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=n
 var _cloudSynced=false; // protección: no guardar en Firestore antes de recibir datos de la nube
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var repMode="colaborador",repCollab="",repActivity="",repPeriod="todo";
+var estadSub="tareas";
 var confirmCallback=null,aiLoading=false,_aiLastTs=0;
 var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
@@ -1595,29 +1596,73 @@ function renderActividades(){
 
 // ── ESTADÍSTICAS (resumen de todo) ──
 function renderEstadisticas(){
-  var isBoss=isAdmin(),cid=myUid(),tk=todayKey();
-  var tasks=isBoss?state.tasks:state.tasks.filter(function(t){return taskBelongsTo(t,currentUser.id);});
-  var h=sectionHead("📊 Estadísticas","Resumen general");
-  var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
-  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">'+cards.map(function(s){return'<div class="stat-card" style="border-top:3px solid '+s[0]+';padding:16px;"><div class="stat-num" style="font-size:26px;">'+s[1]+'</div><div class="stat-lbl">'+s[2]+'</div></div>';}).join("")+'</div>';
-  var myRec=(state.attendance||[]).find(function(a){return a.date===tk&&String(a.collabId)===String(cid);});
-  var acts=(state.activities||[]).filter(function(a){return a.date===tk&&(isBoss?true:String(a.collabId)===String(cid));});
-  var totalMs=acts.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
-  h+='<div class="card"><div style="font-weight:700;margin-bottom:8px;">Hoy · '+tk+'</div>';
-  h+=miniRow("🟢","Hora de ingreso",myRec&&myRec.inTime?fmtTime(myRec.inTime):"—");
-  h+=miniRow("🔴","Hora de salida",myRec&&myRec.outTime?fmtTime(myRec.outTime):"—");
-  if(myRec&&myRec.inTime&&myRec.outTime)h+=miniRow("⏳","Mi jornada",fmtDur(myRec.outTime-myRec.inTime));
-  if(isBoss){var team=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss";});h+=miniRow("👥","Equipo con ingreso",team.length);}
-  h+=miniRow("📝","Actividades",acts.length+" registro(s)");
-  h+=miniRow("⏱️","Horas registradas",fmtDur(totalMs));
-  h+='</div>';
-  var withReports=tasks.filter(function(t){return t.reportData&&t.reportData.length;});
-  var totalRows=withReports.reduce(function(s,t){return s+t.reportData.length;},0);
-  h+='<div class="card"><div style="font-weight:700;margin-bottom:8px;">Reportes</div>';
-  h+=miniRow("📈","Tareas con reporte",withReports.length);
-  h+=miniRow("📋","Filas de datos",totalRows);
-  h+='</div>';
+  var isBoss=isAdmin(),cid=myUid();
+  var h=sectionHead("📊 Estadísticas","Rendimiento");
+  h+='<div style="display:flex;gap:8px;margin-bottom:14px;">'+estadSubBtn("tareas","📋 Tareas")+estadSubBtn("actividades","📝 Actividades")+'</div>';
+  h+=(estadSub==="actividades")?estadActividadesHTML(isBoss,cid):estadTareasHTML(isBoss,cid);
   document.getElementById("content").innerHTML=h;
+}
+function estadSubBtn(s,label){return'<button class="btn btn-sm" style="flex:1;border-radius:10px;'+(estadSub===s?"background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;":"background:#f0f2f7;color:#555;")+'" onclick="estadSetSub(\''+s+'\')">'+label+'</button>';}
+function estadSetSub(s){estadSub=s;renderEstadisticas();}
+// Cumplimiento por día (últimos 30 días) — verde/amarillo/rojo
+function taskDayResults(t){
+  var cutoff=Date.now()-30*86400000,byDay={};
+  (t.history||[]).forEach(function(hh){
+    if((hh.ts||0)<cutoff)return;
+    var d=hh.date||"",rk=hh.result==="green"?2:(hh.result==="yellow"?1:0);
+    if(!(d in byDay)||rk>byDay[d])byDay[d]=rk;
+  });
+  var c=0,p=0,r=0;
+  Object.keys(byDay).forEach(function(d){var rk=byDay[d];if(rk===2)c++;else if(rk===1)p++;else r++;});
+  return{cumplido:c,parcial:p,incumplido:r};
+}
+function taskBarsChartHTML(group){
+  var data=group.map(function(t){var r=taskDayResults(t);return{title:t.title,c:r.cumplido,p:r.parcial,r:r.incumplido};});
+  var maxV=1;data.forEach(function(d){maxV=Math.max(maxV,d.c+d.p,d.r);});
+  var HALF=80;
+  var cols=data.map(function(d){
+    var gH=Math.round(d.c/maxV*HALF),yH=Math.round(d.p/maxV*HALF),rH=Math.round(d.r/maxV*HALF);
+    return'<div style="flex:1;min-width:48px;display:flex;flex-direction:column;align-items:center;">'+
+      '<div style="height:'+(HALF+16)+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;width:100%;">'+
+        ((d.c+d.p)?'<div style="font-size:10px;font-weight:800;color:#27ae60;margin-bottom:2px;">'+(d.c+d.p)+'</div>':'')+
+        (yH?'<div style="width:70%;max-width:34px;height:'+yH+'px;background:#f5a623;" title="parcial: '+d.p+'"></div>':'')+
+        (gH?'<div style="width:70%;max-width:34px;height:'+gH+'px;background:#27ae60;border-radius:4px 4px 0 0;" title="cumplido: '+d.c+'"></div>':'')+
+      '</div>'+
+      '<div style="height:2px;width:100%;background:#cfd4e0;"></div>'+
+      '<div style="height:'+(HALF+16)+'px;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;width:100%;">'+
+        (rH?'<div style="width:70%;max-width:34px;height:'+rH+'px;background:#e74c3c;border-radius:0 0 4px 4px;" title="incumplido: '+d.r+'"></div>':'')+
+        (d.r?'<div style="font-size:10px;font-weight:800;color:#e74c3c;margin-top:2px;">'+d.r+'</div>':'')+
+      '</div>'+
+      '<div style="font-size:10px;color:#666;text-align:center;margin-top:4px;line-height:1.15;height:28px;overflow:hidden;">'+escH((d.title||"").slice(0,20))+'</div>'+
+    '</div>';
+  }).join("");
+  return'<div class="card" style="overflow-x:auto;"><div style="display:flex;gap:8px;align-items:stretch;">'+cols+'</div></div>';
+}
+function estadTareasHTML(isBoss,cid){
+  var tasks=isBoss?state.tasks:state.tasks.filter(function(t){return taskBelongsTo(t,currentUser.id);});
+  var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
+  var h='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">'+cards.map(function(s){return'<div class="stat-card" style="border-top:3px solid '+s[0]+';padding:16px;"><div class="stat-num" style="font-size:26px;">'+s[1]+'</div><div class="stat-lbl">'+s[2]+'</div></div>';}).join("")+'</div>';
+  h+='<div style="font-weight:800;font-size:14px;margin:6px 4px 4px;">Cumplimiento por tarea</div>';
+  h+='<div style="font-size:11px;color:#999;margin:0 4px 8px;">🟢 cumplido (arriba) · 🟡 parcial · 🔴 incumplido (abajo) — últimos 30 días</div>';
+  var withData=tasks.filter(function(t){return (t.history||[]).length;});
+  if(!withData.length)h+='<div class="card" style="text-align:center;color:#999;">Aún no hay historial de cumplimiento.</div>';
+  else for(var i=0;i<withData.length;i+=5)h+=taskBarsChartHTML(withData.slice(i,i+5));
+  return h;
+}
+function estadActividadesHTML(isBoss,cid){
+  var since=Date.now()-30*86400000;
+  var acts=(state.activities||[]).filter(function(a){return (a.startTs||0)>=since&&(isBoss?true:String(a.collabId)===String(cid));});
+  var byName={};acts.forEach(function(a){var cn=canonName(a.name);byName[cn]=(byName[cn]||0)+((a.endTs||Date.now())-a.startTs);});
+  var names=Object.keys(byName).sort(function(x,y){return byName[y]-byName[x];});
+  var total=names.reduce(function(s,n){return s+byName[n];},0);
+  var h='<div style="font-weight:800;font-size:14px;margin:6px 4px 8px;">Horas por actividad (30 días)</div>';
+  if(!names.length)return h+'<div class="card" style="text-align:center;color:#999;">Sin actividades en el periodo.</div>';
+  var maxMs=byName[names[0]]||1;
+  h+='<div class="card">'+names.slice(0,15).map(function(n){
+    var pct=Math.round(byName[n]/maxMs*100);
+    return'<div style="padding:7px 0;"><div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;"><span style="font-weight:700;">'+escH(n)+'</span><span style="color:#4a6cf7;font-weight:800;white-space:nowrap;">'+fmtDur(byName[n])+'</span></div><div style="background:#e8eaf0;border-radius:99px;height:8px;margin-top:4px;overflow:hidden;"><div style="background:#4a6cf7;height:8px;width:'+pct+'%;"></div></div></div>';
+  }).join("")+'<div style="text-align:right;font-size:12px;color:#999;margin-top:8px;">Total: '+fmtDur(total)+'</div></div>';
+  return h;
 }
 
 function taskBelongsTo(task,uid){

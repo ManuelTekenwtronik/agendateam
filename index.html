@@ -1246,6 +1246,27 @@ function processAttendancePhoto(kind,f){
   xhr.send(fd);
 }
 function attById(id){return(state.attendance||[]).find(function(x){return String(x.id)===String(id);});}
+// Reporte de almuerzo: debe tomarse 1h/día (tolerancia ±10 min). Reporta si no tomó, no completó, o excedió.
+function checkLunch(){
+  if(!currentUser||currentUser.type!=="collab")return;
+  var cid=currentUser.id,tk=todayKey();
+  var lunch=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.date===tk&&canonName(a.name)==="Almuerzo";});
+  var min=Math.round(lunch.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0)/60000);
+  var detail=null;
+  if(lunch.length===0||min===0)detail="no tomó almuerzo hoy (0 de 60 min debidos)";
+  else if(min<60)detail="no completó la hora de almuerzo (tomó "+min+" min de 60)";
+  else if(min>70)detail="excedió el almuerzo: "+min+" min (más de 10 min sobre los 60 debidos)";
+  if(!detail)return; // dentro de tolerancia (60–70 min)
+  if((state.alerts||[]).some(function(a){return a.type==="lunch_flag"&&String(a.collabId)===String(cid)&&a.date===tk;}))return; // ya reportado hoy
+  var ck=collabCK(cid);
+  if(!state.messages[ck])state.messages[ck]=[];
+  state.messages[ck].push({id:Date.now(),from:"system",flag:true,type:"lunch_flag",ts:Date.now(),text:"🚩 REPORTE DE ALMUERZO — "+currentUser.name+": "+detail+"."});
+  if(!state.alerts)state.alerts=[];
+  state.alerts.push({id:Date.now()+"_lunch",type:"lunch_flag",collabId:cid,collabName:currentUser.name,date:tk,minutes:min,detail:detail,ts:Date.now(),resolved:false});
+  try{sendNotif("boss","🍽️ Reporte de almuerzo",currentUser.name+": "+detail);}catch(e){}
+  saveLocal();if(db)saveCloud();
+}
+function resolverAlmuerzo(id){var a=(state.alerts||[]).find(function(x){return String(x.id)===String(id);});if(a)a.resolved=true;saveLocal();if(db)saveCloud();renderValidacion();toast("Reporte marcado visto");}
 function registrarAsistencia(kind,photoUrl,live){
   var cid=myUid();if(!cid)return;
   var rec=todayAttendance(cid);
@@ -1254,6 +1275,7 @@ function registrarAsistencia(kind,photoUrl,live){
   if(kind==="in"){rec.inTime=Date.now();rec.inPhoto=photoUrl||null;rec.inLive=live||null;}
   else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;rec.outLive=live||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
+  if(kind==="out")checkLunch(); // reporte de almuerzo al cerrar la jornada
   getGeo(function(loc){
     var r=attById(recId);if(!r)return; // re-buscar el registro vivo (onSnapshot pudo reemplazar el arreglo)
     if(kind==="in"){r.inLoc=loc||r.inLoc||null;r.inSite=checkSite(r.inLoc);}
@@ -1344,10 +1366,12 @@ function renderValidacion(){
   var h=sectionHead("🔍 Validación","Registros que requieren revisión");
   var pendAtt=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
   var pendAct=(state.activities||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";});
+  var lunchAl=(state.alerts||[]).filter(function(a){return a.type==="lunch_flag"&&!a.resolved;});
   var doneAtt=(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation!=="pendiente";});
-  if(!pendAtt.length&&!pendAct.length)h+='<div class="card" style="text-align:center;color:#27ae60;font-weight:700;">✅ No hay nada pendiente de validar</div>';
+  if(!pendAtt.length&&!pendAct.length&&!lunchAl.length)h+='<div class="card" style="text-align:center;color:#27ae60;font-weight:700;">✅ No hay nada pendiente de validar</div>';
   if(pendAtt.length){h+='<div style="font-weight:800;font-size:14px;margin:4px 4px 10px;">🕐 Asistencia por validar</div>';h+=pendAtt.map(function(a){return valCard(a,true);}).join("");}
   if(pendAct.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;">📝 Actividades por validar</div>';h+=pendAct.map(function(a){return actValCard(a);}).join("");}
+  if(lunchAl.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;">🍽️ Reportes de almuerzo</div>';h+=lunchAl.map(function(a){return'<div class="card" style="border-left:4px solid #f5a623;"><div style="display:flex;justify-content:space-between;"><b>'+escH(a.collabName)+'</b><span style="font-size:12px;color:#999;">'+escH(a.date)+'</span></div><div style="font-size:13px;color:#a67c00;margin:6px 0;">'+escH(a.detail||("almuerzo "+a.minutes+" min"))+'</div><button class="btn btn-sm" style="background:#f0f2f7;color:#555;width:100%;" onclick="resolverAlmuerzo(\''+a.id+'\')">Marcar visto</button></div>';}).join("");}
   if(doneAtt.length){h+='<div style="font-weight:800;font-size:14px;margin:18px 4px 10px;color:#999;">Ya revisados</div>';h+=doneAtt.map(function(a){return valCard(a,false);}).join("");}
   document.getElementById("content").innerHTML=h;
 }
@@ -1395,7 +1419,7 @@ function validarAsistencia(id,ok){
   saveLocal();if(db)saveCloud();renderValidacion();
   toast(ok?"✔ Registro aprobado":"✖ Registro rechazado");
 }
-function pendValidCount(){return(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length+(state.activities||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length;}
+function pendValidCount(){return(state.attendance||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length+(state.activities||[]).filter(function(a){return a.needsValidation&&a.validation==="pendiente";}).length+(state.alerts||[]).filter(function(a){return a.type==="lunch_flag"&&!a.resolved;}).length;}
 
 // ── ACTIVIDADES (horas por tarea, con ubicación) ──
 function myActivityNames(cid){var m={};(state.activities||[]).forEach(function(a){if(a.collabId===cid&&a.name)m[a.name]=true;});return Object.keys(m);}
@@ -1649,13 +1673,46 @@ function estadTareasHTML(isBoss,cid){
   else for(var i=0;i<withData.length;i+=5)h+=taskBarsChartHTML(withData.slice(i,i+5));
   return h;
 }
+function last20Days(){var arr=[];for(var i=19;i>=0;i--){var x=new Date();x.setHours(0,0,0,0);x.setDate(x.getDate()-i);arr.push(x.getFullYear()+"-"+pad2(x.getMonth()+1)+"-"+pad2(x.getDate()));}return arr;}
+// Día aprovechado: horas de actividad (sin almuerzo) / 8h, topado a 100%
+function dayEfficiency(dayKey,isBoss,cid){
+  var acts=(state.activities||[]).filter(function(a){return a.date===dayKey&&canonName(a.name)!=="Almuerzo"&&(isBoss?true:String(a.collabId)===String(cid));});
+  var EIGHT=8*3600000;
+  if(isBoss){
+    var byCol={};acts.forEach(function(a){byCol[a.collabId]=(byCol[a.collabId]||0)+((a.endTs||Date.now())-a.startTs);});
+    var ids=Object.keys(byCol);if(!ids.length)return 0;
+    var sum=ids.reduce(function(s,id){return s+Math.min(byCol[id]/EIGHT,1);},0);
+    return Math.round(sum/ids.length*100);
+  }
+  var ms=acts.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+  return Math.round(Math.min(ms/EIGHT,1)*100);
+}
+function efficiencyChartHTML(isBoss,cid){
+  var effs=last20Days().map(function(d){return{d:d,eff:dayEfficiency(d,isBoss,cid)};});
+  var avg=Math.round(effs.reduce(function(s,e){return s+e.eff;},0)/effs.length);
+  var H=110;
+  var bars=effs.map(function(e){
+    var effPx=Math.round(e.eff/100*H),idlePx=H-effPx;
+    return'<div style="display:flex;flex-direction:column;align-items:center;flex:0 0 auto;">'+
+      '<div style="height:'+H+'px;width:14px;display:flex;flex-direction:column;border-radius:3px;overflow:hidden;background:#eef0f6;" title="'+e.d+': '+e.eff+'% aprovechado, '+(100-e.eff)+'% ocioso">'+
+        '<div style="height:'+idlePx+'px;background:#e74c3c;"></div>'+
+        '<div style="height:'+effPx+'px;background:#27ae60;"></div>'+
+      '</div>'+
+      '<div style="font-size:9px;color:#999;margin-top:3px;">'+e.d.slice(8)+'</div>'+
+    '</div>';
+  }).join("");
+  return'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-weight:800;font-size:14px;">Día aprovechado (20 días)</div><div style="font-weight:800;color:#27ae60;font-size:16px;">'+avg+'%</div></div>'+
+    '<div style="font-size:11px;color:#999;margin-bottom:10px;">Meta 8h/día = 100% · 🟢 aprovechado · 🔴 ocioso (sin contar Almuerzo)</div>'+
+    '<div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:4px;">'+bars+'</div></div>';
+}
 function estadActividadesHTML(isBoss,cid){
+  var h=efficiencyChartHTML(isBoss,cid);
   var since=Date.now()-30*86400000;
   var acts=(state.activities||[]).filter(function(a){return (a.startTs||0)>=since&&(isBoss?true:String(a.collabId)===String(cid));});
   var byName={};acts.forEach(function(a){var cn=canonName(a.name);byName[cn]=(byName[cn]||0)+((a.endTs||Date.now())-a.startTs);});
   var names=Object.keys(byName).sort(function(x,y){return byName[y]-byName[x];});
   var total=names.reduce(function(s,n){return s+byName[n];},0);
-  var h='<div style="font-weight:800;font-size:14px;margin:6px 4px 8px;">Horas por actividad (30 días)</div>';
+  h+='<div style="font-weight:800;font-size:14px;margin:14px 4px 8px;">Horas por actividad (30 días)</div>';
   if(!names.length)return h+'<div class="card" style="text-align:center;color:#999;">Sin actividades en el periodo.</div>';
   var maxMs=byName[names[0]]||1;
   h+='<div class="card">'+names.slice(0,15).map(function(n){

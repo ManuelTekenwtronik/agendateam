@@ -3123,6 +3123,25 @@ function repSetMode(m){repMode=m;renderReportes();}
 function repSelectCollab(v){repCollab=v;renderReportes();}
 function repSelectActivity(v){repActivity=v;renderReportes();}
 function repSetPeriod(p){repPeriod=p;renderReportes();}
+// Resumen de ingresos del personal: colaborador, hora de ingreso y si el lugar es autorizado
+function attendanceSummaryHTML(dateKey){
+  var recs=(state.attendance||[]).filter(function(a){return a.date===dateKey&&a.collabId!=="boss"&&a.collabId!=="validador";});
+  recs.sort(function(a,b){return (a.inTime||0)-(b.inTime||0);});
+  var h='<div style="font-weight:800;font-size:14px;margin:4px 4px 8px;">🕐 Ingresos del personal · '+escH(dateKey)+'</div>';
+  if(!recs.length)return h+'<div class="card" style="text-align:center;color:#999;">Nadie ha marcado ingreso.</div>';
+  var ok=0,bad=0;
+  var rows=recs.map(function(a){
+    var s=a.inSite,authorized=!!(s&&(s.status==="ok"||s.status==="yellow"));
+    if(authorized)ok++;else bad++;
+    var place=s?(s.name||(s.status==="red"?"fuera de todo sitio autorizado":"")):"sin ubicación";
+    var badge=authorized?'<span style="color:#27ae60;font-weight:700;">✓ Autorizado — '+escH(place)+'</span>':'<span style="color:#e74c3c;font-weight:700;">✗ NO autorizado — '+escH(place)+'</span>';
+    return'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f0f2f7;gap:8px;">'+
+      '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;">'+escH(a.collabName)+'</div><div style="font-size:11px;margin-top:1px;">'+badge+'</div></div>'+
+      '<div style="text-align:right;white-space:nowrap;"><div style="color:#27ae60;font-weight:800;font-size:15px;">'+(a.inTime?fmtTime(a.inTime):"—")+'</div>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+'</div>':'')+'</div>'+
+    '</div>';
+  }).join("");
+  return h+'<div class="card" style="padding:12px;"><div style="display:flex;gap:12px;margin-bottom:8px;font-size:12px;"><span style="color:#27ae60;font-weight:700;">✓ '+ok+' autorizados</span><span style="color:#e74c3c;font-weight:700;">✗ '+bad+' no autorizados</span></div>'+rows+'</div>';
+}
 function renderReportes(){
   var isBoss=isAdmin();
   var h=sectionHead("📈 Reportes","Productividad por actividad");
@@ -3131,6 +3150,7 @@ function renderReportes(){
     h+=individualReportHTML(currentUser.id,currentUser.name);
     document.getElementById("content").innerHTML=h;return;
   }
+  h+=attendanceSummaryHTML(todayKey());
   var collabs=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
   var names=allActivityNames();
   h+='<div class="field" style="margin-bottom:10px;"><label>Filtro 1 — Colaborador</label><select onchange="repSelectCollab(this.value)"><option value="">Todos los colaboradores</option>'+

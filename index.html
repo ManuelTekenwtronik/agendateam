@@ -3027,6 +3027,46 @@ function activityReportHTML(name){
   h+=cols.length?('<div class="card">'+cols.map(function(cn){return barRow(cn,byCol[cn].ms,total,byCol[cn].n,"#9b59b6");}).join("")+'</div>'):'<div class="card" style="text-align:center;color:#999;">Sin registros en el periodo.</div>';
   return h;
 }
+function collabNameById(cid){var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(cid);});return c?c.name:String(cid);}
+function sessionRow(a){
+  var dur=(a.endTs||Date.now())-a.startTs;
+  return'<div style="padding:9px 0;border-bottom:1px solid #f0f2f7;"><div style="display:flex;justify-content:space-between;gap:8px;"><span style="font-weight:700;">'+escH(canonName(a.name))+'</span><span style="font-weight:800;color:#4a6cf7;white-space:nowrap;">'+fmtDur(dur)+'</span></div><div style="font-size:11px;color:#999;margin-top:2px;">'+escH(a.date||"")+' · '+fmtTime(a.startTs)+' → '+(a.endTs?fmtTime(a.endTs):"en curso")+' · '+escH(a.collabName||"")+'</div></div>';
+}
+// Reporte combinable: filtro colaborador + filtro actividad (ambos opcionales)
+function combinedReportHTML(cid,actName){
+  var ents=(state.activities||[]).filter(function(a){
+    if(!inPeriod(a.date))return false;
+    if(cid&&String(a.collabId)!==String(cid))return false;
+    if(actName&&canonName(a.name)!==actName)return false;
+    return true;
+  });
+  var total=ents.reduce(function(s,a){return s+((a.endTs||Date.now())-a.startTs);},0);
+  var who=cid?collabNameById(cid):"Todos los colaboradores";
+  var what=actName||"Todas las actividades";
+  var dCol={},dAct={};ents.forEach(function(a){dCol[a.collabName]=1;dAct[canonName(a.name)]=1;});
+  var h='<div class="card"><div style="font-weight:800;font-size:15px;">'+escH(who)+'</div><div style="font-size:12px;color:#999;margin-bottom:10px;">'+escH(what)+'</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">'+
+      repStat("#4a6cf7",fmtDur(total),"Horas")+repStat("#27ae60",ents.length,"Sesiones")+
+      repStat("#9b59b6",cid?Object.keys(dAct).length:Object.keys(dCol).length,cid?"Actividades":"Colaboradores")+'</div></div>';
+  if(!ents.length)return h+'<div class="card" style="text-align:center;color:#999;">Sin registros en el periodo.</div>';
+  function group(keyFn,color,label){
+    var m={};ents.forEach(function(a){var k=keyFn(a);(m[k]=m[k]||{ms:0,n:0});m[k].ms+=(a.endTs||Date.now())-a.startTs;m[k].n++;});
+    var ks=Object.keys(m).sort(function(x,y){return m[y].ms-m[x].ms;});
+    return'<div style="font-weight:800;font-size:14px;margin:16px 4px 8px;">'+label+'</div><div class="card">'+ks.map(function(k){return barRow(k,m[k].ms,total,m[k].n,color);}).join("")+'</div>';
+  }
+  if(cid&&actName){
+    var sorted=ents.slice().sort(function(a,b){return (b.startTs||0)-(a.startTs||0);});
+    h+='<div style="font-weight:800;font-size:14px;margin:16px 4px 8px;">Sesiones ('+ents.length+')</div><div class="card">'+sorted.map(sessionRow).join("")+'</div>';
+  }else if(cid){
+    h+=group(function(a){return canonName(a.name);},"#4a6cf7","Desglose por actividad");
+  }else if(actName){
+    h+=group(function(a){return a.collabName;},"#9b59b6",(Object.keys(dCol).length>1?"👥 Todos los colaboradores":"Colaborador"));
+  }else{
+    h+=group(function(a){return canonName(a.name);},"#4a6cf7","Por actividad");
+    h+=group(function(a){return a.collabName;},"#9b59b6","Por colaborador");
+  }
+  return h;
+}
 function repPeriodBar(){
   var opts=[["hoy","Hoy"],["semana","7 días"],["mes","30 días"],["todo","Todo"]];
   return'<div style="display:flex;gap:6px;margin-bottom:14px;">'+opts.map(function(o){return'<button class="btn btn-sm" style="flex:1;border-radius:9px;'+(repPeriod===o[0]?"background:#4a6cf7;color:#fff;":"background:#f0f2f7;color:#666;")+'" onclick="repSetPeriod(\''+o[0]+'\')">'+o[1]+'</button>';}).join("")+'</div>';
@@ -3044,20 +3084,13 @@ function renderReportes(){
     h+=individualReportHTML(currentUser.id,currentUser.name);
     document.getElementById("content").innerHTML=h;return;
   }
-  h+='<div style="display:flex;gap:8px;margin-bottom:14px;">'+repModeBtn("colaborador","👤 Por colaborador")+repModeBtn("actividad","📝 Por actividad")+'</div>';
-  if(repMode==="colaborador"){
-    var collabs=state.collaborators||[];
-    h+='<div class="field"><label>Colaborador</label><select onchange="repSelectCollab(this.value)"><option value="">— Elige un colaborador —</option>'+
-       collabs.map(function(c){return'<option value="'+c.id+'"'+(String(repCollab)===String(c.id)?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>';
-    if(repCollab){var c=collabs.find(function(x){return String(x.id)===String(repCollab);});h+=c?individualReportHTML(c.id,c.name):'';}
-    else h+='<div class="card" style="text-align:center;color:#999;">Selecciona un colaborador para ver su reporte.</div>';
-  }else{
-    var names=allActivityNames();
-    h+='<div class="field"><label>Actividad</label><select onchange="repSelectActivity(this.value)"><option value="">— Elige una actividad —</option>'+
-       names.map(function(n){return'<option value="'+escH(n)+'"'+(repActivity===n?" selected":"")+'>'+escH(n)+'</option>';}).join("")+'</select></div>';
-    if(repActivity)h+=activityReportHTML(repActivity);
-    else h+='<div class="card" style="text-align:center;color:#999;">Selecciona una actividad para ver el reporte.</div>';
-  }
+  var collabs=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+  var names=allActivityNames();
+  h+='<div class="field" style="margin-bottom:10px;"><label>Filtro 1 — Colaborador</label><select onchange="repSelectCollab(this.value)"><option value="">Todos los colaboradores</option>'+
+     collabs.map(function(c){return'<option value="'+c.id+'"'+(String(repCollab)===String(c.id)?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>';
+  h+='<div class="field" style="margin-bottom:14px;"><label>Filtro 2 — Actividad</label><select onchange="repSelectActivity(this.value)"><option value="">Todas las actividades</option>'+
+     names.map(function(n){return'<option value="'+escH(n)+'"'+(repActivity===n?" selected":"")+'>'+escH(n)+'</option>';}).join("")+'</select></div>';
+  h+=combinedReportHTML(repCollab,repActivity);
   h+='<button class="btn btn-block" style="background:#f0f2f7;color:#555;margin-top:14px;" onclick="openSection(\'tareasrep\')">📊 Ver reporte de tareas</button>';
   document.getElementById("content").innerHTML=h;
 }

@@ -196,6 +196,7 @@ input,select,textarea{-webkit-appearance:none;appearance:none;}
     <div style="display:flex;align-items:center;gap:10px;">
       <button onclick="goMenu()" title="Menú" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">🏠</button>
       <div id="flag-badge" class="hidden" style="background:#e74c3c;color:#fff;border-radius:99px;padding:3px 10px;font-size:12px;font-weight:700;"></div>
+      <button onclick="pedirUbicacion()" title="Activar/solicitar ubicación" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">📍</button>
       <button id="notif-btn" onclick="requestNotifPermission()" title="Activar notificaciones" style="background:none;border:none;font-size:20px;cursor:pointer;padding:4px;">🔔</button>
       <div id="user-av" class="hidden"></div>
       <button class="btn btn-sm" style="background:#2d3561;color:#fff;" onclick="logout()">Salir</button>
@@ -1057,6 +1058,28 @@ function showGeoGate(){
 }
 function retryGeo(){requireLocationThen(_geoGateNext);}
 function hideGeoGate(){document.getElementById("geo-gate").classList.add("hidden");}
+// Botón para (re)solicitar el permiso de ubicación
+function pedirUbicacion(){
+  if(!navigator.geolocation){toast("Este dispositivo no soporta ubicación","error");return;}
+  toast("📍 Solicitando ubicación…");
+  navigator.geolocation.getCurrentPosition(function(pos){
+    onGeo(pos);_geoStarted=false;startGeoTracking();toast("✅ Ubicación activada");
+  },function(err){
+    if(err&&err.code===1)showGeoInfo();
+    else toast("Ubicación no disponible — enciende el GPS del teléfono","error");
+  },{enableHighAccuracy:true,timeout:15000,maximumAge:0});
+}
+function showGeoInfo(){
+  var g=document.getElementById("geo-gate");if(!g)return;
+  g.innerHTML='<div class="login-card" style="text-align:center;">'+
+    '<div style="font-size:50px;margin-bottom:8px;">📍</div>'+
+    '<h1 style="font-weight:800;font-size:20px;margin-bottom:10px;">Ubicación bloqueada</h1>'+
+    '<p style="color:#666;font-size:13px;line-height:1.7;margin-bottom:18px;text-align:left;">El navegador tiene el permiso <b>bloqueado</b>. Para activarlo:<br>1️⃣ Toca el <b>🔒 candado</b> junto a la dirección web.<br>2️⃣ Entra a <b>Permisos → Ubicación</b>.<br>3️⃣ Ponlo en <b>Permitir</b> (o Restablecer).<br>4️⃣ Recarga la página.</p>'+
+    '<button class="btn btn-dark btn-block" style="border-radius:14px;font-size:16px;" onclick="location.reload()">🔄 Recargar</button>'+
+    '<button class="live-cancel" style="margin-top:10px;" onclick="hideGeoGate()">Cerrar</button>'+
+  '</div>';
+  g.classList.remove("hidden");
+}
 // ── HELPERS ──
 function pad2(n){return(n<10?"0":"")+n;}
 function todayKey(){var d=new Date();return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());}

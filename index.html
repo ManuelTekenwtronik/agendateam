@@ -1148,11 +1148,11 @@ function startLiveness(kind){
 function grabFrame(){
   var v=document.getElementById("live-video");
   if(!v||!v.videoWidth)return null;
-  var MAX=640,sc=Math.min(MAX/v.videoWidth,MAX/v.videoHeight,1);
+  var MAX=960,sc=Math.min(MAX/v.videoWidth,MAX/v.videoHeight,1);
   var cv=document.createElement("canvas");
   cv.width=Math.round(v.videoWidth*sc);cv.height=Math.round(v.videoHeight*sc);
   cv.getContext("2d").drawImage(v,0,0,cv.width,cv.height);
-  return cv.toDataURL("image/jpeg",.85);
+  return cv.toDataURL("image/jpeg",.9);
 }
 function liveStep2(kind,chId){
   _liveFrame1=grabFrame();
@@ -1216,7 +1216,7 @@ function uploadDataUrl(dataUrl,folder,cb){
   xhr.send(fd);
 }
 function faceDetect(url){
-  return fetch("/.netlify/functions/facedetect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageUrl:cloudinarySmall(url)})}).then(function(r){return r.json();}).catch(function(){return{skipped:true};});
+  return fetch("/.netlify/functions/facedetect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageUrl:cloudinaryForAI(url)})}).then(function(r){return r.json();}).catch(function(){return{skipped:true};});
 }
 function liveBadge(live){
   if(!live)return"";

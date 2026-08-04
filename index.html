@@ -1453,13 +1453,19 @@ function projectOptions(){
 }
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
 function isHomeOffice(name){return normActName(name)==="home office";}
+// Home Office solo lo pueden usar estos colaboradores
+function canUseHomeOffice(){
+  if(!currentUser||currentUser.type!=="collab")return false;
+  var n=normActName(currentUser.name||"");
+  return /franklin/.test(n)||/henr/.test(n)||/javier/.test(n)||/samuel/.test(n);
+}
 // Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto
 function activityOptions(cid){
   var set={},list=[];
   function add(n){if(!n)return;var k=normActName(n);if(!set[k]){set[k]=1;list.push(n);}}
   add(lastUsedActivity(cid));
   add("Almuerzo");
-  add("Home Office");
+  if(canUseHomeOffice())add("Home Office");
   projectOptions().forEach(add);
   canonicalActivityNames().forEach(add);
   return list;
@@ -1492,6 +1498,7 @@ function iniciarActividad(){
     if(isProject(v))project=v; // sólo los proyectos validan ubicación; Home Office no
   }else name=(v||"").trim();
   if(!name){toast("Elige o escribe una actividad","error");return;}
+  if(isHomeOfficeName(name)&&!canUseHomeOffice()){toast("Home Office no está habilitado para tu usuario","error");return;}
   if(!special)name=standardizeName(name); // estandariza actividades libres; proyectos/Home Office van tal cual
   var cid=myUid();if(!cid)return;
   // Solo puede haber UNA actividad en curso: cerrar automáticamente la anterior
@@ -1654,24 +1661,38 @@ function taskDayResults(t){
 function taskBarsChartHTML(group){
   var data=group.map(function(t){var r=taskDayResults(t);return{title:t.title,c:r.cumplido,p:r.parcial,r:r.incumplido};});
   var maxV=1;data.forEach(function(d){maxV=Math.max(maxV,d.c+d.p,d.r);});
-  var HALF=80;
-  var cols=data.map(function(d){
-    var gH=Math.round(d.c/maxV*HALF),yH=Math.round(d.p/maxV*HALF),rH=Math.round(d.r/maxV*HALF);
-    return'<div style="flex:1;min-width:48px;display:flex;flex-direction:column;align-items:center;">'+
-      '<div style="height:'+(HALF+16)+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;width:100%;">'+
-        ((d.c+d.p)?'<div style="font-size:10px;font-weight:800;color:#27ae60;margin-bottom:2px;">'+(d.c+d.p)+'</div>':'')+
-        (yH?'<div style="width:70%;max-width:34px;height:'+yH+'px;background:#f5a623;" title="parcial: '+d.p+'"></div>':'')+
-        (gH?'<div style="width:70%;max-width:34px;height:'+gH+'px;background:#27ae60;border-radius:4px 4px 0 0;" title="cumplido: '+d.c+'"></div>':'')+
+  var HALF=90;function px(v){return Math.round(v/maxV*HALF);}
+  var marks=[25,50,75,100];
+  var plotW=Math.max(data.length*52,200);
+  // Líneas de referencia (25/50/75/100%) positivas y negativas + eje cero
+  var grid='';
+  marks.forEach(function(m){grid+='<div style="position:absolute;left:0;right:0;top:'+(HALF-Math.round(m/100*HALF))+'px;border-top:1px dashed #dcefe3;"></div>';});
+  marks.forEach(function(m){grid+='<div style="position:absolute;left:0;right:0;top:'+(HALF+Math.round(m/100*HALF))+'px;border-top:1px dashed #f6dede;"></div>';});
+  grid+='<div style="position:absolute;left:0;right:0;top:'+HALF+'px;border-top:2px solid #cfd4e0;"></div>';
+  var bars=data.map(function(d){
+    var gH=px(d.c),yH=px(d.p),rH=px(d.r);
+    return'<div style="flex:1;min-width:44px;display:flex;flex-direction:column;">'+
+      '<div style="height:'+HALF+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;">'+
+        (yH?'<div style="width:60%;max-width:30px;height:'+yH+'px;background:#f5a623;" title="parcial '+d.p+'"></div>':'')+
+        (gH?'<div style="width:60%;max-width:30px;height:'+gH+'px;background:#27ae60;border-radius:3px 3px 0 0;" title="cumplido '+d.c+'"></div>':'')+
       '</div>'+
-      '<div style="height:2px;width:100%;background:#cfd4e0;"></div>'+
-      '<div style="height:'+(HALF+16)+'px;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;width:100%;">'+
-        (rH?'<div style="width:70%;max-width:34px;height:'+rH+'px;background:#e74c3c;border-radius:0 0 4px 4px;" title="incumplido: '+d.r+'"></div>':'')+
-        (d.r?'<div style="font-size:10px;font-weight:800;color:#e74c3c;margin-top:2px;">'+d.r+'</div>':'')+
+      '<div style="height:'+HALF+'px;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;">'+
+        (rH?'<div style="width:60%;max-width:30px;height:'+rH+'px;background:#e74c3c;border-radius:0 0 3px 3px;" title="incumplido '+d.r+'"></div>':'')+
       '</div>'+
-      '<div style="font-size:10px;color:#666;text-align:center;margin-top:4px;line-height:1.15;height:28px;overflow:hidden;">'+escH((d.title||"").slice(0,20))+'</div>'+
     '</div>';
   }).join("");
-  return'<div class="card" style="overflow-x:auto;"><div style="display:flex;gap:8px;align-items:stretch;">'+cols+'</div></div>';
+  var yax='';
+  marks.forEach(function(m){yax+='<div style="position:absolute;right:3px;top:'+(HALF-Math.round(m/100*HALF)-5)+'px;font-size:8px;color:#27ae60;font-weight:700;">'+m+'%</div>';});
+  yax+='<div style="position:absolute;right:3px;top:'+(HALF-5)+'px;font-size:8px;color:#aaa;">0</div>';
+  marks.forEach(function(m){yax+='<div style="position:absolute;right:3px;top:'+(HALF+Math.round(m/100*HALF)-5)+'px;font-size:8px;color:#e74c3c;font-weight:700;">'+m+'%</div>';});
+  var labels=data.map(function(d){return'<div style="flex:1;min-width:44px;font-size:9px;color:#666;text-align:center;line-height:1.2;">'+escH((d.title||"").slice(0,16))+'<div style="margin-top:2px;"><span style="color:#27ae60;font-weight:700;">'+d.c+'</span> / <span style="color:#e74c3c;font-weight:700;">'+d.r+'</span></div></div>';}).join("");
+  return'<div class="card" style="overflow-x:auto;">'+
+    '<div style="display:flex;">'+
+      '<div style="position:relative;width:30px;height:'+(2*HALF)+'px;flex-shrink:0;">'+yax+'</div>'+
+      '<div style="position:relative;flex:1;min-width:'+plotW+'px;height:'+(2*HALF)+'px;">'+grid+'<div style="position:absolute;inset:0;display:flex;gap:8px;">'+bars+'</div></div>'+
+    '</div>'+
+    '<div style="display:flex;gap:8px;margin-left:30px;min-width:'+plotW+'px;margin-top:4px;">'+labels+'</div>'+
+  '</div>';
 }
 function estadTareasHTML(general,cid){
   var tasks=general?state.tasks:state.tasks.filter(function(t){return taskBelongsTo(t,Number(cid));});

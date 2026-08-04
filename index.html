@@ -2290,15 +2290,20 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
     if(t.faceRecognition){
       var verified=faceResults.filter(function(r){return !r.skipped&&r.matched;});
       var skipped=faceResults.filter(function(r){return r.skipped;});
+      var validProfile=col&&col.photo&&!/^data:|^blob:/.test(col.photo);
       if(verified.length>0){
         var avgConf=Math.round(verified.reduce(function(s,r){return s+(r.confidence||0);},0)/verified.length);
         faceLine="\n🙂 Reconocimiento facial: VERIFICADO — coincidencia "+avgConf+"%.";
       }else if(!col||!col.photo){
-        faceLine="\n⚠️ Reconocimiento facial: el colaborador no tiene foto de perfil, no se pudo comparar.";
-      }else if(faceResults.length>0&&skipped.length===faceResults.length){
-        faceLine="\n⚠️ Reconocimiento facial: no se detectó rostro en las imágenes, omitido.";
+        faceLine="\n⚠️ Reconocimiento facial: el colaborador NO tiene foto de perfil registrada — no hay contra qué comparar.";
+      }else if(!validProfile){
+        faceLine="\n⚠️ Reconocimiento facial: la foto de perfil del colaborador no está subida correctamente (temporal/local). Vuelve a cargar su foto de perfil.";
+      }else if(faceResults.length===0){
+        faceLine="\n⚠️ Reconocimiento facial: no se ejecutó — no hubo imagen con rostro para comparar (¿evidencia sin rostro visible?).";
+      }else if(skipped.length===faceResults.length){
+        faceLine="\n⚠️ Reconocimiento facial: no se detectó rostro en la(s) foto(s) — motivo: "+(faceResults.map(function(r){return r.reason||"sin rostro";}).join("; "))+".";
       }else{
-        faceLine="\n⚠️ Reconocimiento facial: activado pero no se pudo ejecutar.";
+        faceLine="\n⚠️ Reconocimiento facial: resultado no concluyente — "+(faceResults.map(function(r){return r.skipped?(r.reason||"omitido"):("coincidencia "+Math.round(r.confidence||0)+"%");}).join("; "))+".";
       }
     }else{
       faceLine="\nℹ️ Reconocimiento facial: NO activado en esta tarea.";

@@ -1734,7 +1734,11 @@ function taskHTML(t){
   // Status buttons - collab can change status and add notes
   var validating=t.status==="pendiente_validacion";
   var statBtns="";
-  if(validating&&!isBoss){
+  if(t.eppIncomplete&&!isBoss){
+    // EPP incompleto (>60%): completar lo que falta o seguir sin EPP completas
+    statBtns='<button class="task-act-btn" onclick="showCompletionReport(\''+t.id+'\')" style="background:#9b59b6;color:#fff;font-weight:800;">📷 Completar EPP</button>'+
+      '<button class="task-act-btn" onclick="seguirSinEpp(\''+t.id+'\')" style="background:#e74c3c;color:#fff;font-weight:800;">Seguir sin EPP</button>';
+  }else if(validating&&!isBoss){
     // Colaborador con tarea en validación: botón Reenviar
     statBtns='<button class="task-act-btn" onclick="showCompletionReport(\''+t.id+'\')" style="background:#9b59b6;color:#fff;font-weight:800;">🔄 Reenviar</button>';
   }else{
@@ -2503,7 +2507,7 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
         t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
-      t.status="completada";
+      t.status="completada";delete t.eppIncomplete;
       var attLinks=attachments.length>0?"\n\n📎 Soportes:\n"+attachments.map(function(a){return getFileIcon(a.type,a.name)+" "+a.name;}).join("\n"):"";
       var razonOk=result.razon||result.reason||"✅ Aprobada.";
       var pctOk=typeof result.porcentaje==="number"?"📊 Cumplimiento: "+result.porcentaje+"%\n\n":"";
@@ -2513,6 +2517,23 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
       sendNotif("boss","✅ Tarea aprobada","\""+t.title+"\""+(col?" — "+col.name:"")+" pasó la validación.");
       if(t.reportEnabled&&t.reportTemplate&&(t.reportTemplate.columns||[]).length)triggerReportExtraction(t,col,attachments,ck);
     }else{
+      // Flujo EPP: si cumple >60% pero faltan EPP, pedir las que faltan (una por una) o permitir seguir sin EPP con reporte de incumplimiento
+      var pctVal=typeof result.porcentaje==="number"?result.porcentaje:0;
+      var isEpp=/\bepp\b|protecci[oó]n personal|equipo de proteccion/i.test((t.title||"")+" "+(t.criteria||"")+" "+(t.notes||""));
+      var missingEpp=(result.criteriaResults||[]).filter(function(cr){return cr.cumplido===false;}).map(function(cr){return cr.criterio;});
+      if(isEpp&&pctVal>60&&missingEpp.length){
+        if(!t.history)t.history=[];
+        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"yellow",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
+        if(t.history.length>20)t.history=t.history.slice(-20);
+        t.status="en-progreso";
+        t.eppIncomplete={pct:pctVal,missing:missingEpp};
+        var crEpp=(result.criteriaResults||[]).map(function(cr){return(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle:"");}).join("\n");
+        state.messages[ck].push({id:Date.now(),from:"ai",text:"🦺 EPP incompleto — "+pctVal+"% cumplido.\n\n"+crEpp+"\n\n📷 Sube evidencia SOLO de las EPP que faltan ("+missingEpp.join(", ")+") con \"📷 Completar EPP\", una por una hasta completar.\n\n⚠️ Si NO cuentas con ellas, usa \"Seguir sin EPP\": se registrará el trabajo y se enviará un reporte de incumplimiento de EPP a tu jefe y al validador.",ts:Date.now()});
+        sendNotif("boss","🦺 EPP incompleto","\""+t.title+"\""+(col?" — "+col.name:"")+": "+pctVal+"%, faltan "+missingEpp.join(", "));
+        if(col)sendNotif("collab_"+col.id,"🦺 EPP incompleto","Completa las EPP que faltan o marca 'Seguir sin EPP'.");
+        delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+        _aiLastTs=Date.now();saveLocal();if(db)saveCloud();render();return;
+      }
       if(!t.history)t.history=[];
       t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
       if(t.history.length>20)t.history=t.history.slice(-20);
@@ -2541,6 +2562,28 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
   });
 }
 
+function seguirSinEpp(taskId){
+  var t=state.tasks.find(function(x){return x.id==taskId;});
+  if(!t||!t.eppIncomplete)return;
+  showConfirm("¿Seguir sin EPP completas?","Se registrará el trabajo, pero se enviará un REPORTE DE INCUMPLIMIENTO DE EPP a tu jefe y al validador.",function(){
+    var tt=state.tasks.find(function(x){return x.id==taskId;});if(!tt)return;
+    var col=state.collaborators.find(function(c){return Array.isArray(tt.assignedTo)?tt.assignedTo.indexOf(c.id)>=0:c.id===tt.assignedTo;});
+    var ck=tt.isGroup&&tt.groupKey?tt.groupKey:(col?collabCK(col.id):null);
+    var missing=(tt.eppIncomplete&&tt.eppIncomplete.missing)||[];
+    var pct=(tt.eppIncomplete&&tt.eppIncomplete.pct)||0;
+    if(!tt.history)tt.history=[];
+    tt.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:true,eppIncomplete:true,eppMissing:missing,report:(tt.pendingReport||"")+" [REGISTRADO SIN EPP COMPLETAS]"});
+    if(tt.history.length>20)tt.history=tt.history.slice(-20);
+    tt.status="completada";delete tt.eppIncomplete;
+    if(ck){if(!state.messages[ck])state.messages[ck]=[];
+      state.messages[ck].push({id:Date.now(),from:"system",flag:true,type:"epp_incumplimiento",ts:Date.now(),
+        text:"🚩 REPORTE DE INCUMPLIMIENTO DE EPP\nColaborador: "+(col?col.name:"—")+"\nTarea: "+tt.title+"\nCumplimiento EPP: "+pct+"%\nFaltó: "+missing.join(", ")+"\nEl colaborador continuó el registro sin contar con el EPP completo."});
+    }
+    sendNotif("boss","🚩 Incumplimiento de EPP",(col?col.name:"")+" registró \""+tt.title+"\" sin EPP completo (falta: "+missing.join(", ")+")");
+    saveLocal();if(db)saveCloud();render();
+    toast("Registrado con reporte de incumplimiento de EPP","error");
+  },"Seguir sin EPP","#e74c3c");
+}
 function aiFollowUp(taskId){
   var t=state.tasks.find(function(x){return x.id==taskId;});
   if(!t||t.status==="completada")return;

@@ -2281,17 +2281,21 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
   if(imgs.length>0){
     var dupLine="✅ "+imgs.length+" foto(s) verificada(s) — sin duplicados detectados.";
     var faceLine="";
-    if(t.faceRecognition&&faceResults.length>0){
+    if(t.faceRecognition){
       var verified=faceResults.filter(function(r){return !r.skipped&&r.matched;});
       var skipped=faceResults.filter(function(r){return r.skipped;});
       if(verified.length>0){
         var avgConf=Math.round(verified.reduce(function(s,r){return s+(r.confidence||0);},0)/verified.length);
-        faceLine="\n🙂 Identidad facial verificada — coincidencia promedio: "+avgConf+"%.";
-      }else if(skipped.length===faceResults.length){
-        faceLine="\n🙂 Verificación facial: imágenes sin rostro detectable, omitida.";
+        faceLine="\n🙂 Reconocimiento facial: VERIFICADO — coincidencia "+avgConf+"%.";
+      }else if(!col||!col.photo){
+        faceLine="\n⚠️ Reconocimiento facial: el colaborador no tiene foto de perfil, no se pudo comparar.";
+      }else if(faceResults.length>0&&skipped.length===faceResults.length){
+        faceLine="\n⚠️ Reconocimiento facial: no se detectó rostro en las imágenes, omitido.";
+      }else{
+        faceLine="\n⚠️ Reconocimiento facial: activado pero no se pudo ejecutar.";
       }
-    }else if(t.faceRecognition&&(!col||!col.photo)){
-      faceLine="\n⚠️ Verificación facial omitida: el colaborador no tiene foto de perfil registrada.";
+    }else{
+      faceLine="\nℹ️ Reconocimiento facial: NO activado en esta tarea.";
     }
     bioSummary=dupLine+faceLine;
   }
@@ -2443,9 +2447,20 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
   state.messages[ck].push({id:Date.now(),from:"system",type:"validating",ts:Date.now(),
     text:"🤖 Validando completado de \""+t.title+"\"…"+attMsg,attachments:attachments});
   saveLocal();
-  // Construir content con imágenes de referencia + soportes si existen
-  var allImgBlocks=refImageBlocks.concat(evImageBlocks);
-  var msgContent=allImgBlocks.length>0?allImgBlocks.concat([{type:"text",text:"Valida el reporte."}]):"Valida el reporte.";
+  // Construir content ROTULANDO explícitamente referencia vs evidencia (evita que confunda una con otra)
+  var msgContent;
+  if(refImageBlocks.length>0||evImageBlocks.length>0){
+    msgContent=[];
+    if(refImageBlocks.length>0){
+      msgContent.push({type:"text",text:"🟦 IMÁGENES DE REFERENCIA ("+refImageBlocks.length+"): SOLO son el estándar visual (tamaño, forma, color) para que sepas cómo LUCE el elemento correcto. NO son evidencia y NO significan que el colaborador lo porte. NO las uses para dar por cumplido nada."});
+      refImageBlocks.forEach(function(b){msgContent.push(b);});
+    }
+    if(evImageBlocks.length>0){
+      msgContent.push({type:"text",text:"🟩 EVIDENCIA DEL COLABORADOR ("+evImageBlocks.length+"): lo ÚNICO que prueba cumplimiento. Valida cada criterio SOLO por lo que se ve realmente en estas imágenes. Si un elemento no aparece aquí, cumplido:false aunque la referencia lo muestre perfecto."});
+      evImageBlocks.forEach(function(b){msgContent.push(b);});
+    }
+    msgContent.push({type:"text",text:"Valida el reporte aplicando las reglas estrictas."});
+  }else msgContent="Valida el reporte.";
   fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1800,system:sys,messages:[{role:"user",content:msgContent}]})
   }).then(function(r){

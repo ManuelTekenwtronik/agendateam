@@ -497,6 +497,9 @@ var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var repMode="colaborador",repCollab="",repActivity="",repPeriod="todo";
 var estadSub="tareas";
 var estadCollab="";
+// Primer día considerado en estadísticas (se descartan datos anteriores). Cambiar a la fecha real de inicio.
+var STATS_SINCE="2026-08-03";
+function statsSinceTs(){var p=STATS_SINCE.split("-");return new Date(Number(p[0]),Number(p[1])-1,Number(p[2]),0,0,0,0).getTime();}
 var confirmCallback=null,aiLoading=false,_aiLastTs=0;
 var editingTaskId=null,editingCollabId=null,tempPhoto="",xlRows=[];
 var activeSheet=null,toastTimer=null;
@@ -1648,7 +1651,7 @@ function estadSetSub(s){estadSub=s;renderEstadisticas();}
 function estadSetCollab(v){estadCollab=v;renderEstadisticas();}
 // % de cumplimiento por tarea (promedio de los últimos 30 días)
 function taskCompliancePct(t){
-  var cutoff=Date.now()-30*86400000,pcts=[];
+  var cutoff=Math.max(Date.now()-30*86400000,statsSinceTs()),pcts=[];
   (t.history||[]).forEach(function(h){
     if((h.ts||0)<cutoff)return;
     var p;
@@ -1721,26 +1724,33 @@ function dayEfficiency(dayKey,general,cid){
   return Math.round(Math.min(ms/EIGHT,1)*100);
 }
 function efficiencyChartHTML(general,cid){
-  var effs=last20Days().map(function(d){return{d:d,eff:dayEfficiency(d,general,cid)};});
+  var days=last20Days().filter(function(d){return d>=STATS_SINCE;});
+  if(!days.length)return'<div class="card" style="text-align:center;color:#999;">Las estadísticas inician el '+escH(STATS_SINCE)+'.</div>';
+  var effs=days.map(function(d){return{d:d,eff:dayEfficiency(d,general,cid)||0};});
   var avg=Math.round(effs.reduce(function(s,e){return s+e.eff;},0)/effs.length);
-  var H=110;
+  var H=120,marks=[25,50,75,100];
+  var grid=marks.map(function(m){return'<div style="position:absolute;left:0;right:0;top:'+(H-Math.round(m/100*H))+'px;border-top:1px dashed #e5e7ef;"></div>';}).join("");
+  var yax=marks.map(function(m){return'<div style="position:absolute;right:2px;top:'+(H-Math.round(m/100*H)-5)+'px;font-size:8px;color:#999;">'+m+'%</div>';}).join("")+'<div style="position:absolute;right:2px;top:'+(H-5)+'px;font-size:8px;color:#bbb;">0</div>';
   var bars=effs.map(function(e){
     var effPx=Math.round(e.eff/100*H),idlePx=H-effPx;
     return'<div style="display:flex;flex-direction:column;align-items:center;flex:0 0 auto;">'+
-      '<div style="height:'+H+'px;width:14px;display:flex;flex-direction:column;border-radius:3px;overflow:hidden;background:#eef0f6;" title="'+e.d+': '+e.eff+'% aprovechado, '+(100-e.eff)+'% ocioso">'+
+      '<div style="height:'+H+'px;width:16px;display:flex;flex-direction:column;border-radius:3px;overflow:hidden;background:#eef0f6;" title="'+e.d+': '+e.eff+'% aprovechado, '+(100-e.eff)+'% ocioso">'+
         '<div style="height:'+idlePx+'px;background:#e74c3c;"></div>'+
         '<div style="height:'+effPx+'px;background:#27ae60;"></div>'+
       '</div>'+
       '<div style="font-size:9px;color:#999;margin-top:3px;">'+e.d.slice(8)+'</div>'+
     '</div>';
   }).join("");
-  return'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-weight:800;font-size:14px;">Día aprovechado (20 días)</div><div style="font-weight:800;color:#27ae60;font-size:16px;">'+avg+'%</div></div>'+
+  return'<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;"><div style="font-weight:800;font-size:14px;">Día aprovechado</div><div style="font-weight:800;color:#27ae60;font-size:16px;">'+avg+'%</div></div>'+
     '<div style="font-size:11px;color:#999;margin-bottom:10px;">Meta 8h/día = 100% · 🟢 aprovechado · 🔴 ocioso (sin contar Almuerzo)</div>'+
-    '<div style="display:flex;gap:4px;align-items:flex-end;overflow-x:auto;padding-bottom:4px;">'+bars+'</div></div>';
+    '<div style="display:flex;">'+
+      '<div style="position:relative;width:26px;height:'+(H+16)+'px;flex-shrink:0;">'+yax+'</div>'+
+      '<div style="overflow-x:auto;flex:1;"><div style="position:relative;height:'+H+'px;min-width:100%;">'+grid+'<div style="position:absolute;inset:0;display:flex;gap:4px;align-items:flex-end;">'+bars+'</div></div></div>'+
+    '</div></div>';
 }
 function estadActividadesHTML(general,cid){
   var h=efficiencyChartHTML(general,cid);
-  var since=Date.now()-30*86400000;
+  var since=Math.max(Date.now()-30*86400000,statsSinceTs());
   var acts=(state.activities||[]).filter(function(a){return (a.startTs||0)>=since&&(general?true:String(a.collabId)===String(cid));});
   var byName={};acts.forEach(function(a){var cn=canonName(a.name);byName[cn]=(byName[cn]||0)+((a.endTs||Date.now())-a.startTs);});
   var names=Object.keys(byName).sort(function(x,y){return byName[y]-byName[x];});
@@ -1767,7 +1777,22 @@ function getFT(){
   return t;
 }
 
+// Reinicia tareas recurrentes cuando empieza un nuevo ciclo (diaria = nuevo día local)
+function resetRecurringCycles(){
+  var changed=false,todayStr=new Date().toLocaleDateString("es");
+  (state.tasks||[]).forEach(function(t){
+    if(t.status!=="completada"||!t.frequency)return;
+    var lastApproved=null;(t.history||[]).forEach(function(h){if(h.approved)lastApproved=h;});
+    if(!lastApproved)return;
+    var reset;
+    if(t.frequency==="diaria")reset=(lastApproved.date!==todayStr);
+    else{var cs=cycleStart(t);reset=((lastApproved.ts||0)<cs);}
+    if(reset){t.status="pendiente";delete t.eppIncomplete;delete t.pendingReport;delete t.pendingAttachments;changed=true;}
+  });
+  if(changed){saveLocal();if(db)saveCloud();}
+}
 function renderTasks(){
+  resetRecurringCycles();
   var ft=getFT(),isBoss=currentUser&&currentUser.type==="boss";
   var team="";
   if(isBoss){

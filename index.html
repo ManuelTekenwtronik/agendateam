@@ -1401,7 +1401,14 @@ var ACT_ALIASES={
 function _aliasMap(){var r={};Object.keys(ACT_ALIASES).forEach(function(c){r[normActName(c)]=c;(ACT_ALIASES[c]||[]).forEach(function(al){r[normActName(al)]=c;});});return r;}
 function _lev(a,b){var m=a.length,n=b.length,d=[],i,j;for(i=0;i<=m;i++)d[i]=[i];for(j=0;j<=n;j++)d[0][j]=j;for(i=1;i<=m;i++)for(j=1;j<=n;j++)d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));return d[m][n];}
 function canonName(name){var al=_aliasMap();return al[normActName(name)]||String(name||"").trim();}
-function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
+function isHomeOfficeName(name){return /^\s*home\s*office/i.test(String(name||""));}
+// Home Office: visible sólo para su creador, el validador y Manuel (jefe)
+function actVisible(a){
+  if(!isHomeOfficeName(a.name))return true;
+  if(isAdmin())return true; // jefe o validador
+  return String(a.collabId)===String(myUid()); // el creador
+}
+function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name||!actVisible(a))return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
 function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
 // Proyectos/sitios registrados con ubicación (incluida la bodega). "CASA" solo la ve el jefe.
@@ -2799,7 +2806,7 @@ function inPeriod(dateStr){
   if(repPeriod==="mes")return diff<=31;
   return true;
 }
-function allActivityNames(){var m={};(state.activities||[]).forEach(function(a){if(a.name){var cn=canonName(a.name);m[normActName(cn)]=cn;}});return Object.keys(m).map(function(k){return m[k];}).sort();}
+function allActivityNames(){var m={};(state.activities||[]).forEach(function(a){if(a.name&&actVisible(a)){var cn=canonName(a.name);m[normActName(cn)]=cn;}});return Object.keys(m).map(function(k){return m[k];}).sort();}
 function repStat(color,val,lbl){return'<div style="text-align:center;background:#f7f8fc;border-radius:12px;padding:12px 6px;border-top:3px solid '+color+';"><div style="font-weight:800;font-size:18px;">'+val+'</div><div style="font-size:10px;color:#999;font-weight:600;margin-top:3px;">'+lbl+'</div></div>';}
 function barRow(name,ms,total,n,color){
   var pct=total?Math.round(ms/total*100):0;

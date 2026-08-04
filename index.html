@@ -905,26 +905,31 @@ function timeCountdown(t){
 // ── TIMELINE ──
 function timelineHTML(task){
   var history=task.history||[];
-  var cycles=[];
-  // Fill up to 20 slots
-  for(var i=0;i<20;i++){
-    if(i<history.length){cycles.push(history[history.length-1-i]);}
-    else{cycles.push(null);}
-  }
-  cycles=cycles.reverse();
-  var dots=cycles.map(function(h,i){
-    if(!h)return'<div class="tl-dot empty" title="Sin registro"></div>';
-    var col=h.result==="green"?"green":h.result==="yellow"?"yellow":"red";
-    var label=h.result==="green"?"✓ A tiempo":h.result==="yellow"?"⚠ Fuera de tiempo":"✗ No cumplida";
-    return'<div class="tl-dot '+col+'" title="'+label+' - '+escH(h.date||"")+'"></div>';
+  // UN punto POR DÍA con el mejor resultado del día (verde > amarillo > rojo)
+  function rank(r){return r==="green"?2:(r==="yellow"?1:0);}
+  var byDay={},order=[];
+  history.forEach(function(h){
+    var d=h.date||"";var rk=rank(h.result);
+    if(!(d in byDay)){byDay[d]={rk:rk,ts:h.ts||0};order.push(d);}
+    else{if(rk>byDay[d].rk)byDay[d].rk=rk;if((h.ts||0)>byDay[d].ts)byDay[d].ts=h.ts||0;}
+  });
+  order.sort(function(a,b){return byDay[a].ts-byDay[b].ts;});
+  var days=order.slice(-20);
+  var slots=[];for(var i=0;i<20-days.length;i++)slots.push(null);days.forEach(function(d){slots.push(d);});
+  var dots=slots.map(function(d){
+    if(!d)return'<div class="tl-dot empty" title="Sin registro"></div>';
+    var rk=byDay[d].rk;
+    var col=rk===2?"green":rk===1?"yellow":"red";
+    var label=rk===2?"✓ Cumplida":rk===1?"⚠ Parcial / sin EPP completas":"✗ No cumplida";
+    return'<div class="tl-dot '+col+'" title="'+label+' - '+escH(d)+'"></div>';
   }).join("");
-  var legend='<span style="font-size:10px;color:#aaa;margin-left:4px;">Últimos '+Math.min(history.length,20)+' ciclos</span>';
+  var legend='<span style="font-size:10px;color:#aaa;margin-left:4px;">Últimos '+Math.min(days.length,20)+' días</span>';
   return'<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f0f2f7;">'+
-    '<div style="font-size:11px;color:#999;margin-bottom:6px;font-weight:700;">📊 Historial de cumplimiento</div>'+
+    '<div style="font-size:11px;color:#999;margin-bottom:6px;font-weight:700;">📊 Historial de cumplimiento (por día)</div>'+
     '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:3px;">'+dots+legend+'</div>'+
     '<div style="display:flex;gap:12px;margin-top:6px;">'+
-    '<span style="font-size:10px;color:#27ae60;font-weight:700;">🟢 A tiempo</span>'+
-    '<span style="font-size:10px;color:#f5a623;font-weight:700;">🟡 Fuera de tiempo</span>'+
+    '<span style="font-size:10px;color:#27ae60;font-weight:700;">🟢 Cumplida</span>'+
+    '<span style="font-size:10px;color:#f5a623;font-weight:700;">🟡 Parcial</span>'+
     '<span style="font-size:10px;color:#e74c3c;font-weight:700;">🔴 No cumplida</span>'+
     '</div></div>';
 }
@@ -2530,7 +2535,7 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
       var missingEpp=(result.criteriaResults||[]).filter(function(cr){return cr.cumplido===false;}).map(function(cr){return cr.criterio;});
       if(isEpp&&pctVal>60&&missingEpp.length){
         if(!t.history)t.history=[];
-        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"yellow",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
+        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
         t.status="en-progreso";
         t.eppIncomplete={pct:pctVal,missing:missingEpp};
@@ -2579,7 +2584,7 @@ function seguirSinEpp(taskId){
     var missing=(tt.eppIncomplete&&tt.eppIncomplete.missing)||[];
     var pct=(tt.eppIncomplete&&tt.eppIncomplete.pct)||0;
     if(!tt.history)tt.history=[];
-    tt.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:true,eppIncomplete:true,eppMissing:missing,report:(tt.pendingReport||"")+" [REGISTRADO SIN EPP COMPLETAS]"});
+    tt.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"yellow",approved:true,eppIncomplete:true,eppMissing:missing,report:(tt.pendingReport||"")+" [REGISTRADO SIN EPP COMPLETAS]"});
     if(tt.history.length>20)tt.history=tt.history.slice(-20);
     tt.status="completada";delete tt.eppIncomplete;
     if(ck){if(!state.messages[ck])state.messages[ck]=[];

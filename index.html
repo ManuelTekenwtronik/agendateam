@@ -1646,22 +1646,23 @@ function renderEstadisticas(){
 function estadSubBtn(s,label){return'<button class="btn btn-sm" style="flex:1;border-radius:10px;'+(estadSub===s?"background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;":"background:#f0f2f7;color:#555;")+'" onclick="estadSetSub(\''+s+'\')">'+label+'</button>';}
 function estadSetSub(s){estadSub=s;renderEstadisticas();}
 function estadSetCollab(v){estadCollab=v;renderEstadisticas();}
-// Cumplimiento por día (últimos 30 días) — verde/amarillo/rojo
-function taskDayResults(t){
-  var cutoff=Date.now()-30*86400000,byDay={};
-  (t.history||[]).forEach(function(hh){
-    if((hh.ts||0)<cutoff)return;
-    var d=hh.date||"",rk=hh.result==="green"?2:(hh.result==="yellow"?1:0);
-    if(!(d in byDay)||rk>byDay[d])byDay[d]=rk;
+// % de cumplimiento por tarea (promedio de los últimos 30 días)
+function taskCompliancePct(t){
+  var cutoff=Date.now()-30*86400000,pcts=[];
+  (t.history||[]).forEach(function(h){
+    if((h.ts||0)<cutoff)return;
+    var p;
+    if(typeof h.pct==="number")p=h.pct;
+    else if(h.criteriaResults&&h.criteriaResults.length){var ok=h.criteriaResults.filter(function(cr){return cr.cumplido;}).length;p=Math.round(ok/h.criteriaResults.length*100);}
+    else p=h.approved?100:0;
+    pcts.push(Math.max(0,Math.min(100,p)));
   });
-  var c=0,p=0,r=0;
-  Object.keys(byDay).forEach(function(d){var rk=byDay[d];if(rk===2)c++;else if(rk===1)p++;else r++;});
-  return{cumplido:c,parcial:p,incumplido:r};
+  if(!pcts.length)return null;
+  return Math.round(pcts.reduce(function(s,x){return s+x;},0)/pcts.length);
 }
 function taskBarsChartHTML(group){
-  var data=group.map(function(t){var r=taskDayResults(t);return{title:t.title,c:r.cumplido,p:r.parcial,r:r.incumplido};});
-  var maxV=1;data.forEach(function(d){maxV=Math.max(maxV,d.c+d.p,d.r);});
-  var HALF=90;function px(v){return Math.round(v/maxV*HALF);}
+  var data=group.map(function(t){return{title:t.title,pct:taskCompliancePct(t)};});
+  var HALF=90;
   var marks=[25,50,75,100];
   var plotW=Math.max(data.length*52,200);
   // Líneas de referencia (25/50/75/100%) positivas y negativas + eje cero
@@ -1670,14 +1671,14 @@ function taskBarsChartHTML(group){
   marks.forEach(function(m){grid+='<div style="position:absolute;left:0;right:0;top:'+(HALF+Math.round(m/100*HALF))+'px;border-top:1px dashed #f6dede;"></div>';});
   grid+='<div style="position:absolute;left:0;right:0;top:'+HALF+'px;border-top:2px solid #cfd4e0;"></div>';
   var bars=data.map(function(d){
-    var gH=px(d.c),yH=px(d.p),rH=px(d.r);
+    if(d.pct==null)return'<div style="flex:1;min-width:44px;"></div>';
+    var gH=Math.round(d.pct/100*HALF),rH=Math.round((100-d.pct)/100*HALF);
     return'<div style="flex:1;min-width:44px;display:flex;flex-direction:column;">'+
       '<div style="height:'+HALF+'px;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;">'+
-        (yH?'<div style="width:60%;max-width:30px;height:'+yH+'px;background:#f5a623;" title="parcial '+d.p+'"></div>':'')+
-        (gH?'<div style="width:60%;max-width:30px;height:'+gH+'px;background:#27ae60;border-radius:3px 3px 0 0;" title="cumplido '+d.c+'"></div>':'')+
+        (gH?'<div style="width:60%;max-width:30px;height:'+gH+'px;background:#27ae60;border-radius:3px 3px 0 0;" title="cumplido '+d.pct+'%"></div>':'')+
       '</div>'+
       '<div style="height:'+HALF+'px;display:flex;flex-direction:column;justify-content:flex-start;align-items:center;">'+
-        (rH?'<div style="width:60%;max-width:30px;height:'+rH+'px;background:#e74c3c;border-radius:0 0 3px 3px;" title="incumplido '+d.r+'"></div>':'')+
+        (rH?'<div style="width:60%;max-width:30px;height:'+rH+'px;background:#e74c3c;border-radius:0 0 3px 3px;" title="incumplido '+(100-d.pct)+'%"></div>':'')+
       '</div>'+
     '</div>';
   }).join("");
@@ -1685,7 +1686,7 @@ function taskBarsChartHTML(group){
   marks.forEach(function(m){yax+='<div style="position:absolute;right:3px;top:'+(HALF-Math.round(m/100*HALF)-5)+'px;font-size:8px;color:#27ae60;font-weight:700;">'+m+'%</div>';});
   yax+='<div style="position:absolute;right:3px;top:'+(HALF-5)+'px;font-size:8px;color:#aaa;">0</div>';
   marks.forEach(function(m){yax+='<div style="position:absolute;right:3px;top:'+(HALF+Math.round(m/100*HALF)-5)+'px;font-size:8px;color:#e74c3c;font-weight:700;">'+m+'%</div>';});
-  var labels=data.map(function(d){return'<div style="flex:1;min-width:44px;font-size:9px;color:#666;text-align:center;line-height:1.2;">'+escH((d.title||"").slice(0,16))+'<div style="margin-top:2px;"><span style="color:#27ae60;font-weight:700;">'+d.c+'</span> / <span style="color:#e74c3c;font-weight:700;">'+d.r+'</span></div></div>';}).join("");
+  var labels=data.map(function(d){return'<div style="flex:1;min-width:44px;font-size:9px;color:#666;text-align:center;line-height:1.2;">'+escH((d.title||"").slice(0,16))+'<div style="margin-top:2px;color:#27ae60;font-weight:700;">'+(d.pct==null?"—":d.pct+"%")+'</div></div>';}).join("");
   return'<div class="card" style="overflow-x:auto;">'+
     '<div style="display:flex;">'+
       '<div style="position:relative;width:30px;height:'+(2*HALF)+'px;flex-shrink:0;">'+yax+'</div>'+
@@ -1699,7 +1700,7 @@ function estadTareasHTML(general,cid){
   var cards=[["#5a8fe0",tasks.length,"Tareas"],["#f5a623",tasks.filter(function(t){return t.status==="pendiente";}).length,"Pendientes"],["#4a90d9",tasks.filter(function(t){return t.status==="en-progreso";}).length,"En progreso"],["#27ae60",tasks.filter(function(t){return t.status==="completada";}).length,"Completadas"]];
   var h='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;">'+cards.map(function(s){return'<div class="stat-card" style="border-top:3px solid '+s[0]+';padding:16px;"><div class="stat-num" style="font-size:26px;">'+s[1]+'</div><div class="stat-lbl">'+s[2]+'</div></div>';}).join("")+'</div>';
   h+='<div style="font-weight:800;font-size:14px;margin:6px 4px 4px;">Cumplimiento por tarea</div>';
-  h+='<div style="font-size:11px;color:#999;margin:0 4px 8px;">🟢 cumplido (arriba) · 🟡 parcial · 🔴 incumplido (abajo) — últimos 30 días</div>';
+  h+='<div style="font-size:11px;color:#999;margin:0 4px 8px;">🟢 % cumplido (arriba) · 🔴 % incumplido (abajo) — promedio últimos 30 días</div>';
   var withData=tasks.filter(function(t){return (t.history||[]).length;});
   if(!withData.length)h+='<div class="card" style="text-align:center;color:#999;">Aún no hay historial de cumplimiento.</div>';
   else for(var i=0;i<withData.length;i+=5)h+=taskBarsChartHTML(withData.slice(i,i+5));
@@ -2653,7 +2654,7 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
         var now2=new Date();
         var res2="green";
         if(t.endDate){var due2=taskDue(t);var diff2=now2.getTime()-due2;if(diff2>0&&diff2<=OT[t.frequency||"diaria"])res2="yellow";else if(diff2>OT[t.frequency||"diaria"])res2="red";}
-        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
+        t.history.push({date:now2.toLocaleDateString("es"),ts:now2.getTime(),result:res2,approved:true,pct:(typeof result.porcentaje==="number"?result.porcentaje:100),report:t.pendingReport||"",attachments:attachments,photoHashes:t._pendingHashes||[],criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
         if(t.history.length>20)t.history=t.history.slice(-20);
       }
       t.status="completada";delete t.eppIncomplete;
@@ -2672,7 +2673,7 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
       var missingEpp=(result.criteriaResults||[]).filter(function(cr){return cr.cumplido===false;}).map(function(cr){return cr.criterio;});
       if(isEpp&&pctVal>60&&missingEpp.length){
         if(!t.history)t.history=[];
-        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
+        t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,pct:pctVal,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
         t.status="en-progreso";
         t.eppIncomplete={pct:pctVal,missing:missingEpp};
@@ -2684,7 +2685,7 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
         _aiLastTs=Date.now();saveLocal();if(db)saveCloud();render();return;
       }
       if(!t.history)t.history=[];
-      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
+      t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,pct:(typeof result.porcentaje==="number"?result.porcentaje:0),report:t.pendingReport||"",criteriaResults:result.criteriaResults||[],datos_extraidos:result.datos_extraidos||""});
       if(t.history.length>20)t.history=t.history.slice(-20);
       t.status="en-progreso";
       var razonNok=result.razon||result.reason||"Criterios no cumplidos.";
@@ -2721,7 +2722,7 @@ function seguirSinEpp(taskId){
     var missing=(tt.eppIncomplete&&tt.eppIncomplete.missing)||[];
     var pct=(tt.eppIncomplete&&tt.eppIncomplete.pct)||0;
     if(!tt.history)tt.history=[];
-    tt.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"yellow",approved:true,eppIncomplete:true,eppMissing:missing,report:(tt.pendingReport||"")+" [REGISTRADO SIN EPP COMPLETAS]"});
+    tt.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"yellow",approved:true,eppIncomplete:true,eppMissing:missing,pct:pct,report:(tt.pendingReport||"")+" [REGISTRADO SIN EPP COMPLETAS]"});
     if(tt.history.length>20)tt.history=tt.history.slice(-20);
     tt.status="completada";delete tt.eppIncomplete;
     if(ck){if(!state.messages[ck])state.messages[ck]=[];

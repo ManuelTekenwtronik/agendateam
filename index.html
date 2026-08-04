@@ -1404,8 +1404,15 @@ function canonName(name){var al=_aliasMap();return al[normActName(name)]||String
 function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name)return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
 function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
-// Proyectos/sitios registrados con ubicación (incluida la bodega — también se puede trabajar en ella)
-function projectOptions(){return (state.locations||[]).filter(function(l){return l&&l.lat!=null&&l.name;}).map(function(l){return l.name;});}
+// Proyectos/sitios registrados con ubicación (incluida la bodega). "CASA" solo la ve el jefe.
+function projectOptions(){
+  var boss=currentUser&&currentUser.type==="boss";
+  return (state.locations||[]).filter(function(l){
+    if(!l||l.lat==null||!l.name)return false;
+    if(!boss&&normActName(l.name)==="casa")return false; // CASA solo para Manuel
+    return true;
+  }).map(function(l){return l.name;});
+}
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
 function isHomeOffice(name){return normActName(name)==="home office";}
 // Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto

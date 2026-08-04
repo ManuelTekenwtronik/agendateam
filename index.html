@@ -1303,10 +1303,11 @@ function registrarAsistencia(kind,photoUrl,live){
   else{rec.outTime=Date.now();rec.outPhoto=photoUrl||null;rec.outLive=live||null;}
   saveLocal();if(db)saveCloud();renderIngreso();
   if(kind==="out")checkLunch(); // reporte de almuerzo al cerrar la jornada
+  var remote=isRemoteWorker(); // Samuel/Franklin/Henry/Javier: siempre verde (trabajan desde casa)
   getGeo(function(loc){
     var r=attById(recId);if(!r)return; // re-buscar el registro vivo (onSnapshot pudo reemplazar el arreglo)
-    if(kind==="in"){r.inLoc=loc||r.inLoc||null;r.inSite=checkSite(r.inLoc);}
-    else{r.outLoc=loc||r.outLoc||null;r.outSite=checkSite(r.outLoc);}
+    if(kind==="in"){r.inLoc=loc||r.inLoc||null;r.inSite=remote?{status:"ok",name:"Home Office"}:checkSite(r.inLoc);}
+    else{r.outLoc=loc||r.outLoc||null;r.outSite=remote?{status:"ok",name:"Home Office"}:checkSite(r.outLoc);}
     evalAttendanceFlags(r,kind);
     saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
   });
@@ -1479,12 +1480,13 @@ function projectOptions(){
 }
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
 function isHomeOffice(name){return normActName(name)==="home office";}
-// Home Office solo lo pueden usar estos colaboradores
-function canUseHomeOffice(){
-  if(!currentUser||currentUser.type!=="collab")return false;
+// Colaboradores que trabajan desde casa (Home Office / asistencia sin validar bodega)
+function isRemoteWorker(){
+  if(!currentUser)return false;
   var n=normActName(currentUser.name||"");
   return /franklin/.test(n)||/henr/.test(n)||/javier/.test(n)||/samuel/.test(n);
 }
+function canUseHomeOffice(){return currentUser&&currentUser.type==="collab"&&isRemoteWorker();}
 // Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto
 function activityOptions(cid){
   var set={},list=[];

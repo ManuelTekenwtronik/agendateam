@@ -413,6 +413,21 @@ function saveCloud(){
 window.addEventListener("online",function(){
   if(window._pendingSave&&db){console.log("Red recuperada, reintentando guardar...");saveCloud();}
 });
+// ── AUTO-ACTUALIZADOR DE VERSIÓN ──
+// En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
+// (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
+// NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
+var APP_BUILD=20260805001; // subir en CADA despliegue
+function checkVersion(){
+  if(!db)return;
+  var ov=document.getElementById("live-overlay");
+  if(ov&&!ov.classList.contains("hidden"))return; // no recargar durante la prueba de vida
+  db.collection("at").doc("meta").get().then(function(s){
+    var b=(s.exists&&s.data()&&Number(s.data().build))||0;
+    if(b>APP_BUILD){location.reload();return;}           // hay versión más nueva → actualizar
+    if(APP_BUILD>b)db.collection("at").doc("meta").set({build:APP_BUILD},{merge:true}).catch(function(){}); // publicar la mía
+  }).catch(function(){});
+}
 
 function startSync(){
   if(!db)return;
@@ -546,10 +561,11 @@ function init(){
   setInterval(runAlerts,30000);
   setInterval(runReminders,5*60000);
   setInterval(function(){if(currentUser&&currentTab==="tareas")renderTasks();},60000);
+  setInterval(checkVersion,90000);
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();checkVersion();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -563,6 +579,7 @@ function init(){
       _cloudSynced=true; // a partir de aquí saveCloud puede escribir con seguridad
       showMainLogin();
       startSync();
+      checkVersion();
     }).catch(function(){if(!done){done=true;_cloudSynced=true;clearTimeout(t);showMainLogin();}});
   }else{
     showMainLogin();

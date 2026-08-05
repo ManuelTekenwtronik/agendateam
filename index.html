@@ -782,9 +782,9 @@ var TEAM_CLIENTS=[
   {key:"nacel",name:"Nacel",color:"#e67e22"},
   {key:"aurora",name:"Aurora",color:"#8e44ad"},
   {key:"commscope",name:"Commscope",color:"#5dade2"},
-  {key:"npaw",name:"Npaw",color:"#7f8c8d"}
+  {key:"npaw",name:"Npaw",color:"#7f8c8d"},
+  {key:"otros",name:"Otros",color:"#27ae60"}
 ];
-var TEAM_OTHER_COLOR="#27ae60";
 // Perfiles/niveles dentro de cada cliente.
 var TEAM_PROFILES=[
   {key:"desarrollo",abbr:"D",name:"Desarrollo"},
@@ -805,7 +805,6 @@ function renderAsignTeam(){
     '<div style="font-size:11px;color:#777;margin-bottom:8px;font-weight:700;">Perfiles: <b>D</b> Desarrollo · <b>S</b> Supervisión · <b>E</b> Ejecución · <b>L</b> Liquidación</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+
       TEAM_CLIENTS.map(function(cl){return'<span style="font-size:10px;font-weight:700;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+cl.name+'</span>';}).join("")+
-      '<span style="font-size:10px;font-weight:700;color:#fff;background:'+TEAM_OTHER_COLOR+';padding:3px 8px;border-radius:8px;">Otros</span>'+
     '</div>'+
   '</div>';
   var cols=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});

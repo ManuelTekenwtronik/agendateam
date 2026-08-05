@@ -829,7 +829,7 @@ function renderAsignTeam(){
       TEAM_CLIENTS.map(function(cl){
         var v=teams[cl.key]||{};
         return TEAM_PROFILES.map(function(p,pi){
-          return'<td style="text-align:center;padding:4px 6px;background:#fff;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="width:16px;height:16px;accent-color:'+cl.color+';cursor:pointer;"></td>';
+          return'<td style="text-align:center;padding:4px 6px;background:#fff;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="-webkit-appearance:checkbox;appearance:checkbox;width:18px;height:18px;accent-color:'+cl.color+';cursor:pointer;"></td>';
         }).join("");
       }).join("")+
     '</tr>';

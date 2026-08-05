@@ -521,6 +521,7 @@ var filterFreq="todas",filterStat="todas",filterCollab="todas";
 var repMode="colaborador",repCollab="",repActivity="",repPeriod="todo";
 var estadSub="tareas";
 var estadCollab="";
+var ingDate="",ingCollab="";
 // Primer día considerado en estadísticas (se descartan datos anteriores). Cambiar a la fecha real de inicio.
 var STATS_SINCE="2026-08-03";
 function statsSinceTs(){var p=STATS_SINCE.split("-");return new Date(Number(p[0]),Number(p[1])-1,Number(p[2]),0,0,0,0).getTime();}
@@ -1402,16 +1403,59 @@ function renderIngreso(){
   else h+='<div style="text-align:center;color:#27ae60;font-weight:700;padding:8px;">✅ Jornada completa · '+fmtDur(rec.outTime-rec.inTime)+'</div>';
   h+='</div></div>';
   if(isBoss){
-    var todays=(state.attendance||[]).filter(function(a){return a.date===tk&&a.collabId!=="boss"&&a.collabId!=="validador";});
-    h+='<div style="font-weight:800;font-size:15px;margin:18px 4px 10px;">Equipo hoy</div>';
-    if(!todays.length)h+='<div class="card" style="text-align:center;color:#999;">Nadie del equipo ha marcado aún.</div>';
-    else h+=todays.map(function(a){
-      return'<div class="card" style="padding:14px;'+(a.needsValidation?'border-left:4px solid '+flagBorder(a.flagLevel)+';':'')+'"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-weight:700;">'+escH(a.collabName)+(a.needsValidation?' '+flagIcon(a.flagLevel):'')+'</div><div style="font-size:13px;"><span style="color:#27ae60;font-weight:700;">'+fmtTime(a.inTime)+'</span> → <span style="color:#e74c3c;font-weight:700;">'+(a.outTime?fmtTime(a.outTime):"…")+'</span></div></div>'+
-        '<div style="display:flex;gap:10px;margin-top:8px;align-items:center;">'+(a.inPhoto?photoThumb(a.inPhoto)+faceBadge(a.inFace)+liveBadge(a.inLive):'')+(a.outPhoto?photoThumb(a.outPhoto)+faceBadge(a.outFace)+liveBadge(a.outLive):'')+'</div>'+
-        '<div style="font-size:11px;color:#888;margin-top:6px;">'+locLabel(a.inLoc)+siteStr(a.inSite)+'</div></div>';
-    }).join("");
+    if(!ingDate)ingDate=tk;
+    var acollabs=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+    h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:10px;">📋 Registros de asistencia</div>'+
+      '<div class="field" style="margin-bottom:8px;"><label>Día</label><input type="date" value="'+ingDate+'" onchange="ingSetDate(this.value)" style="width:100%;padding:10px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;outline:none;"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label>Colaborador (récord del mes)</label><select onchange="ingSetCollab(this.value)"><option value="">— Todos: orden de llegada del día —</option>'+
+        acollabs.map(function(c){return'<option value="'+c.id+'"'+(String(ingCollab)===String(c.id)?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>'+
+    '</div>';
+    if(ingCollab)h+=collabMonthRecordHTML(ingCollab,ingDate);
+    else h+=dayArrivalsHTML(ingDate);
   }
   document.getElementById("content").innerHTML=h;
+}
+function ingSetDate(v){ingDate=v||todayKey();renderIngreso();}
+function ingSetCollab(v){ingCollab=v;renderIngreso();}
+// Registros del día en orden de llegada; al final los que NO registraron
+function dayArrivalsHTML(dateKey){
+  var recs=(state.attendance||[]).filter(function(a){return a.date===dateKey&&a.collabId!=="boss"&&a.collabId!=="validador"&&a.inTime;});
+  recs.sort(function(a,b){return (a.inTime||0)-(b.inTime||0);});
+  var reg={};recs.forEach(function(a){reg[String(a.collabId)]=true;});
+  var noReg=(state.collaborators||[]).filter(function(c){return !reg[String(c.id)];}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+  var h='<div style="font-weight:800;font-size:14px;margin:14px 4px 8px;">🕐 Orden de llegada · '+escH(dateKey)+' ('+recs.length+')</div>';
+  if(recs.length){
+    h+='<div class="card" style="padding:8px 14px;">'+recs.map(function(a,i){
+      var s=a.inSite,ok=s&&(s.status==="ok"||s.status==="yellow");
+      return'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f0f2f7;gap:8px;">'+
+        '<div style="min-width:0;"><span style="font-size:11px;color:#bbb;font-weight:800;">'+(i+1)+'.</span> <span style="font-weight:700;font-size:13px;">'+escH(a.collabName)+'</span>'+(a.needsValidation?' '+flagIcon(a.flagLevel):'')+'<div style="font-size:10px;color:'+(ok?"#27ae60":"#e74c3c")+';">'+(ok?"✓ "+escH((s&&s.name)||"autorizado"):"✗ "+escH((s&&s.name)||"no autorizado"))+'</div></div>'+
+        '<div style="text-align:right;white-space:nowrap;"><span style="color:#27ae60;font-weight:800;font-size:15px;">'+fmtTime(a.inTime)+'</span>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+'</div>':'')+'</div>'+
+      '</div>';
+    }).join("")+'</div>';
+  }else h+='<div class="card" style="text-align:center;color:#999;">Nadie marcó ingreso ese día.</div>';
+  if(noReg.length){
+    h+='<div style="font-weight:800;font-size:13px;margin:14px 4px 8px;color:#e74c3c;">🔴 No registraron ingreso ('+noReg.length+')</div>';
+    h+='<div class="card" style="padding:8px 14px;">'+noReg.map(function(c){return'<div style="padding:6px 0;border-bottom:1px solid #f0f2f7;font-size:13px;color:#999;">'+escH(c.name)+'</div>';}).join("")+'</div>';
+  }
+  return h;
+}
+// Récord mensual de un colaborador: día, hora ingreso y hora egreso
+function collabMonthRecordHTML(cid,dateKey){
+  var ym=(dateKey||todayKey()).slice(0,7);
+  var recs=(state.attendance||[]).filter(function(a){return String(a.collabId)===String(cid)&&(a.date||"").slice(0,7)===ym;});
+  recs.sort(function(a,b){return (a.inTime||0)-(b.inTime||0);});
+  var h='<div style="font-weight:800;font-size:14px;margin:14px 4px 8px;">📅 '+escH(collabNameById(cid))+' · '+escH(ym)+' ('+recs.length+' día(s))</div>';
+  if(!recs.length)return h+'<div class="card" style="text-align:center;color:#999;">Sin registros este mes.</div>';
+  h+='<div class="card" style="padding:8px 14px;">'+
+    '<div style="display:flex;justify-content:space-between;font-size:10px;color:#aaa;font-weight:700;text-transform:uppercase;padding-bottom:6px;border-bottom:1px solid #e8eaf0;"><span>Día</span><span>Ingreso → Salida</span></div>'+
+    recs.map(function(a){
+      var s=a.inSite,ok=s&&(s.status==="ok"||s.status==="yellow");
+      return'<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f0f2f7;gap:8px;">'+
+        '<div><span style="font-weight:700;font-size:13px;">'+escH(a.date)+'</span> <span style="font-size:10px;color:'+(ok?"#27ae60":"#e74c3c")+';">'+(ok?"✓":"✗")+'</span></div>'+
+        '<div style="white-space:nowrap;font-size:13px;"><span style="color:#27ae60;font-weight:800;">'+(a.inTime?fmtTime(a.inTime):"—")+'</span> → <span style="color:#e74c3c;font-weight:800;">'+(a.outTime?fmtTime(a.outTime):"—")+'</span></div>'+
+      '</div>';
+    }).join("")+'</div>';
+  return h;
 }
 function renderValidacion(){
   var h=sectionHead("🔍 Validación","Registros que requieren revisión");

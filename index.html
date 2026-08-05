@@ -369,6 +369,19 @@ function sendNotif(userKey,title,body){
   });
 }
 
+// Cuenta campos con dato (para elegir el registro más completo/reciente al fusionar)
+function _completeness(r){var n=0;for(var k in r){if(r[k]!=null&&r[k]!=="")n++;}return n;}
+// Fusiona dos arreglos por id: conserva todos; en conflicto gana el más completo (evita perder registros de otros)
+function _mergeById(cloudArr,localArr){
+  var map={},order=[];
+  (cloudArr||[]).forEach(function(r){if(r&&r.id!=null){map[r.id]=r;order.push(r.id);}});
+  (localArr||[]).forEach(function(r){
+    if(!r||r.id==null)return;
+    if(!(r.id in map)){map[r.id]=r;order.push(r.id);}
+    else if(_completeness(r)>=_completeness(map[r.id]))map[r.id]=r;
+  });
+  return order.map(function(id){return map[id];});
+}
 function saveCloud(){
   if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
@@ -376,14 +389,20 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[],attendance:state.attendance||[],activities:state.activities||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
   };
   window._pendingSave=true;
-  db.collection("at").doc("data").set(fc).then(function(){
-    window._pendingSave=false;
-  }).catch(function(e){
-    console.warn("save:",e);
-    window._pendingSave=true;
+  var ref=db.collection("at").doc("data");
+  // Transacción: fusiona asistencia y actividades con lo último de la nube (alta concurrencia en la mañana)
+  db.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      var cloud=doc.exists?doc.data():{};
+      fc.attendance=_mergeById(cloud.attendance,state.attendance);
+      fc.activities=_mergeById(cloud.activities,state.activities);
+      tx.set(ref,fc);
+    });
+  }).then(function(){window._pendingSave=false;}).catch(function(e){
+    console.warn("save tx:",e);window._pendingSave=true;
   });
 }
 // Reintento automático cuando vuelve la red
@@ -407,7 +426,11 @@ function startSync(){
     });
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
+    var localAttendance=state.attendance||[],localActivities=state.activities||[];
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
+    // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
+    state.attendance=_mergeById(state.attendance,localAttendance);
+    state.activities=_mergeById(state.activities,localActivities);
     state.tasks=state.tasks.map(function(t){
       var ls=localStatuses[t.id];
       var lh=localHistories[t.id]||[];

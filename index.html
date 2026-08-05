@@ -808,25 +808,26 @@ function renderAsignTeam(){
     '</div>'+
   '</div>';
   var cols=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
-  var t='<div class="card" style="padding:8px;overflow-x:auto;">'+
-    '<table style="border-collapse:collapse;font-size:11px;white-space:nowrap;">';
-  // Encabezado fila 1: clientes (colspan 4)
+  var GB="1px solid #cfd3dc",GS="2px solid #9aa0ab"; // cuadrícula y separador de grupo
+  var t='<div class="card" style="padding:8px;overflow:auto;max-height:72vh;">'+
+    '<table style="border-collapse:separate;border-spacing:0;font-size:11px;white-space:nowrap;border-top:'+GB+';border-left:'+GB+';">';
+  // Encabezado fila 1: clientes (colspan 4) — fijo arriba
   t+='<thead><tr>'+
-    '<th rowspan="2" style="position:sticky;left:0;background:#fff;z-index:2;text-align:left;padding:6px 8px;border-bottom:2px solid #eee;min-width:120px;">Colaborador</th>'+
-    TEAM_CLIENTS.map(function(cl){return'<th colspan="4" style="background:'+cl.color+';color:#fff;text-align:center;padding:5px 4px;border-radius:6px 6px 0 0;">'+cl.name+'</th>';}).join('<th style="width:6px;"></th>')+
+    '<th rowspan="2" style="position:sticky;left:0;top:0;z-index:5;background:#fff;text-align:left;padding:6px 8px;border-right:'+GS+';border-bottom:'+GB+';min-width:120px;">Colaborador</th>'+
+    TEAM_CLIENTS.map(function(cl){return'<th colspan="4" style="position:sticky;top:0;z-index:4;height:22px;background:'+cl.color+';color:#fff;text-align:center;padding:4px;border-right:'+GS+';border-bottom:'+GB+';">'+cl.name+'</th>';}).join("")+
   '</tr><tr>'+
-    TEAM_CLIENTS.map(function(cl){return TEAM_PROFILES.map(function(p){return'<th style="padding:4px 6px;color:'+cl.color+';border-bottom:1px solid #eee;">'+p.abbr+'</th>';}).join("");}).join('<th></th>')+
+    TEAM_CLIENTS.map(function(cl){return TEAM_PROFILES.map(function(p,pi){return'<th style="position:sticky;top:22px;z-index:4;height:100px;background:#fbfbfd;padding:2px;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';">'+'<div style="writing-mode:vertical-rl;transform:rotate(180deg);color:'+cl.color+';font-weight:700;font-size:10px;line-height:1;margin:0 auto;">'+p.name+'</div></th>';}).join("");}).join("")+
   '</tr></thead><tbody>';
   cols.forEach(function(c){
     var teams=c.teams||{};
     t+='<tr>'+
-      '<td style="position:sticky;left:0;background:#fff;z-index:1;padding:6px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;">'+escH(c.name)+'</td>'+
+      '<td style="position:sticky;left:0;z-index:2;background:#fff;padding:6px 8px;border-right:'+GS+';border-bottom:'+GB+';font-weight:600;">'+escH(c.name)+'</td>'+
       TEAM_CLIENTS.map(function(cl){
         var v=teams[cl.key]||{};
-        return TEAM_PROFILES.map(function(p){
-          return'<td style="text-align:center;padding:4px 6px;border-bottom:1px solid #f0f0f0;"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="width:16px;height:16px;accent-color:'+cl.color+';cursor:pointer;"></td>';
+        return TEAM_PROFILES.map(function(p,pi){
+          return'<td style="text-align:center;padding:4px 6px;background:#fff;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="width:16px;height:16px;accent-color:'+cl.color+';cursor:pointer;"></td>';
         }).join("");
-      }).join('<td></td>')+
+      }).join("")+
     '</tr>';
   });
   t+='</tbody></table></div>';

@@ -399,6 +399,10 @@ function saveCloud(){
       var cloud=doc.exists?doc.data():{};
       fc.attendance=_mergeById(cloud.attendance,state.attendance);
       fc.activities=_mergeById(cloud.activities,state.activities);
+      // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
+      // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
+      var cloudTeams={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null)cloudTeams[cc.id]=cc.teams;});
+      fc.collaborators=fc.collaborators.map(function(cc){return(cloudTeams[cc.id]!==undefined)?Object.assign({},cc,{teams:cloudTeams[cc.id]}):cc;});
       tx.set(ref,fc);
     });
   }).then(function(){window._pendingSave=false;}).catch(function(e){
@@ -838,8 +842,26 @@ function toggleTeam(cid,clientKey,profileKey,checked){
   if(!c)return;
   if(!c.teams)c.teams={};
   if(!c.teams[clientKey])c.teams[clientKey]={};
-  c.teams[clientKey][profileKey]=checked;
-  saveLocal();if(db)saveCloud();
+  c.teams[clientKey][profileKey]=checked; // optimista local
+  saveLocal();
+  // Escritura atómica y aislada del cambio: aplica SOLO este perfil sobre lo último de la nube.
+  // Así no compite con otros dispositivos que guardan asistencia/actividades en paralelo.
+  if(db&&_cloudSynced){
+    var ref=db.collection("at").doc("data");
+    db.runTransaction(function(tx){
+      return tx.get(ref).then(function(doc){
+        var cloud=doc.exists?doc.data():{};
+        var arr=cloud.collaborators||[];
+        var f=arr.find(function(x){return String(x.id)===String(cid);});
+        if(f){
+          if(!f.teams)f.teams={};
+          if(!f.teams[clientKey])f.teams[clientKey]={};
+          f.teams[clientKey][profileKey]=checked;
+          tx.update(ref,{collaborators:arr});
+        }
+      });
+    }).catch(function(e){console.warn("toggleTeam tx:",e);});
+  }
 }
 
 // ── ALERTS ──

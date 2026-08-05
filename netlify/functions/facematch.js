@@ -25,11 +25,17 @@ exports.handler = async function(event) {
     params.append("image_url1", profileUrl);
     params.append("image_url2", evidenceUrl);
 
-    const res = await fetch("https://api-us.faceplusplus.com/facepp/v3/compare", {
-      method: "POST",
-      body: params
-    });
-    const data = await res.json();
+    // Reintento con espera ante límite de concurrencia/cuota de Face++
+    let data;
+    for (let i = 0; i < 3; i++) {
+      const res = await fetch("https://api-us.faceplusplus.com/facepp/v3/compare", { method: "POST", body: params });
+      data = await res.json();
+      if (data.error_message && /CONCURRENCY|LIMIT/i.test(data.error_message) && i < 2) {
+        await new Promise(r => setTimeout(r, 500 + Math.random() * 800));
+        continue;
+      }
+      break;
+    }
 
     if (data.error_message) {
       // Cualquier error de API (sin rostro, imagen no descargable, etc.) → omitir, no bloquear

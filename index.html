@@ -1244,8 +1244,8 @@ function processLiveness(kind,chId){
         var d1=r[0],d2=r[1],live={challenge:chId,skipped:false,live:false};
         if((d1&&d1.skipped)||(d2&&d2.skipped))live.skipped=true;
         else{var v=verifyLive(chId,d1,d2);if(v===null)live.skipped=true;else live.live=v;}
-        // NO registrar si no pasa la prueba de vida
-        if(live.live){closeLiveOverlay();registrarAsistencia(kind,url1,live);}
+        // Verificada -> registra. No se pudo verificar (cuota/API) -> registra con bandera. Falla real -> bloquea.
+        if(live.live||live.skipped){closeLiveOverlay();registrarAsistencia(kind,url1,live);}
         else livenessFailed(kind,live.skipped,d1,d2,chId);
       });
     });
@@ -1359,6 +1359,8 @@ function evalAttendanceFlags(rec,kind){
   if(face&&!face.skipped&&!face.matched)reasons.push({t:"Rostro no coincide"+(face.confidence?" ("+face.confidence+"%)":""),lvl:"red"});
   // Sin prueba de vida = rojo (posible suplantación con foto)
   if(live&&!live.skipped&&live.live===false)reasons.push({t:"Sin prueba de vida (posible suplantación)",lvl:"red"});
+  // Prueba de vida no verificable (cuota/API) = rojo para revisión
+  else if(live&&live.skipped)reasons.push({t:"Prueba de vida no verificada",lvl:"red"});
   // Ubicación: BODEGA TKTK ok · otro sitio = amarillo · ninguno = rojo
   if(site){
     if(site.status==="yellow")reasons.push({t:"Marcó desde "+site.name+" (no es BODEGA TKTK)",lvl:"yellow"});

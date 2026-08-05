@@ -757,7 +757,7 @@ function renderMenu(){
       ["actividades","📝","Actividades","#f5a623"],
       ["reportes","📈","Reportes","#9b59b6"]
     ];
-    if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);}
+    if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);}
   }
   document.getElementById("menu-screen").innerHTML=
     '<div class="menu-wrap">'+
@@ -773,6 +773,73 @@ function renderMenu(){
         }).join("")+
       '</div>'+
     '</div>';
+}
+
+// ── ASIGNACIÓN DE TEAM (perfiles por cliente) ──
+// Clientes con color de identidad. "Otros" (cualquier otro) = verde.
+var TEAM_CLIENTS=[
+  {key:"claro",name:"Claro",color:"#e74c3c"},
+  {key:"nacel",name:"Nacel",color:"#e67e22"},
+  {key:"aurora",name:"Aurora",color:"#8e44ad"},
+  {key:"commscope",name:"Commscope",color:"#5dade2"},
+  {key:"npaw",name:"Npaw",color:"#7f8c8d"}
+];
+var TEAM_OTHER_COLOR="#27ae60";
+// Perfiles/niveles dentro de cada cliente.
+var TEAM_PROFILES=[
+  {key:"desarrollo",abbr:"D",name:"Desarrollo"},
+  {key:"supervision",abbr:"S",name:"Supervisión"},
+  {key:"ejecucion",abbr:"E",name:"Ejecución"},
+  {key:"liquidacion",abbr:"L",name:"Liquidación"}
+];
+
+function renderAsignTeam(){
+  var host=document.getElementById("content");
+  if(!currentUser||currentUser.type!=="boss"){
+    host.innerHTML=sectionHead("👥 Asignación de Team","")+'<div class="card">Solo el administrador puede asignar teams.</div>';
+    return;
+  }
+  var h=sectionHead("👥 Asignación de Team","Marca el perfil de cada colaborador por cliente");
+  // Leyenda de perfiles y clientes
+  h+='<div class="card" style="padding:12px;">'+
+    '<div style="font-size:11px;color:#777;margin-bottom:8px;font-weight:700;">Perfiles: <b>D</b> Desarrollo · <b>S</b> Supervisión · <b>E</b> Ejecución · <b>L</b> Liquidación</div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+
+      TEAM_CLIENTS.map(function(cl){return'<span style="font-size:10px;font-weight:700;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+cl.name+'</span>';}).join("")+
+      '<span style="font-size:10px;font-weight:700;color:#fff;background:'+TEAM_OTHER_COLOR+';padding:3px 8px;border-radius:8px;">Otros</span>'+
+    '</div>'+
+  '</div>';
+  var cols=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+  var t='<div class="card" style="padding:8px;overflow-x:auto;">'+
+    '<table style="border-collapse:collapse;font-size:11px;white-space:nowrap;">';
+  // Encabezado fila 1: clientes (colspan 4)
+  t+='<thead><tr>'+
+    '<th rowspan="2" style="position:sticky;left:0;background:#fff;z-index:2;text-align:left;padding:6px 8px;border-bottom:2px solid #eee;min-width:120px;">Colaborador</th>'+
+    TEAM_CLIENTS.map(function(cl){return'<th colspan="4" style="background:'+cl.color+';color:#fff;text-align:center;padding:5px 4px;border-radius:6px 6px 0 0;">'+cl.name+'</th>';}).join('<th style="width:6px;"></th>')+
+  '</tr><tr>'+
+    TEAM_CLIENTS.map(function(cl){return TEAM_PROFILES.map(function(p){return'<th style="padding:4px 6px;color:'+cl.color+';border-bottom:1px solid #eee;">'+p.abbr+'</th>';}).join("");}).join('<th></th>')+
+  '</tr></thead><tbody>';
+  cols.forEach(function(c){
+    var teams=c.teams||{};
+    t+='<tr>'+
+      '<td style="position:sticky;left:0;background:#fff;z-index:1;padding:6px 8px;border-bottom:1px solid #f0f0f0;font-weight:600;">'+escH(c.name)+'</td>'+
+      TEAM_CLIENTS.map(function(cl){
+        var v=teams[cl.key]||{};
+        return TEAM_PROFILES.map(function(p){
+          return'<td style="text-align:center;padding:4px 6px;border-bottom:1px solid #f0f0f0;"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="width:16px;height:16px;accent-color:'+cl.color+';cursor:pointer;"></td>';
+        }).join("");
+      }).join('<td></td>')+
+    '</tr>';
+  });
+  t+='</tbody></table></div>';
+  host.innerHTML=h+t;
+}
+function toggleTeam(cid,clientKey,profileKey,checked){
+  var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(cid);});
+  if(!c)return;
+  if(!c.teams)c.teams={};
+  if(!c.teams[clientKey])c.teams[clientKey]={};
+  c.teams[clientKey][profileKey]=checked;
+  saveLocal();if(db)saveCloud();
 }
 
 // ── ALERTS ──
@@ -1016,6 +1083,7 @@ function renderContent(){
   else if(t==="ingreso")renderIngreso();
   else if(t==="actividades")renderActividades();
   else if(t==="validacion")renderValidacion();
+  else if(t==="asignteam")renderAsignTeam();
   else renderChat();
 }
 

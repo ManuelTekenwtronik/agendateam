@@ -10,3 +10,6 @@ deno.lock
 # Env
 .env
 .env.*
+
+# Backups de la base (respaldos locales, no subir)
+backups/

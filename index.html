@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260805001; // subir en CADA despliegue
+var APP_BUILD=20260807001; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -2870,6 +2870,26 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
       _aiLastTs=Date.now();
       saveLocal();if(db)saveCloud();render();return;
     }
+    // ── EPP: acumular resultados entre la foto inicial y las de complemento ──
+    // Si esto es un "Completar EPP" (ya hubo una validación EPP previa con resultados),
+    // NO perder lo ya reconocido: se conserva cumplido:true de antes y la foto nueva solo SUMA.
+    var eppPrev=t.eppIncomplete;
+    var eppIsCompletion=!!(eppPrev&&eppPrev.results);
+    if(eppIsCompletion&&Array.isArray(result.criteriaResults)){
+      var _pmap={};(eppPrev.results||[]).forEach(function(cr){_pmap[cr.criterio]=cr;});
+      var _nmap={};(result.criteriaResults||[]).forEach(function(cr){_nmap[cr.criterio]=cr;});
+      var _all={};Object.keys(_pmap).forEach(function(k){_all[k]=1;});Object.keys(_nmap).forEach(function(k){_all[k]=1;});
+      var _merged=Object.keys(_all).map(function(k){
+        var p=_pmap[k],n=_nmap[k];
+        var ok=(p&&p.cumplido===true)||(n&&n.cumplido===true); // monótono: una vez visto, se conserva
+        var det=(n&&n.cumplido===true)?(n.detalle||""):((p&&p.cumplido===true)?(p.detalle||""):((n&&n.detalle)||(p&&p.detalle)||""));
+        return{criterio:k,cumplido:ok,detalle:det};
+      });
+      result.criteriaResults=_merged;
+      var _ok=_merged.filter(function(cr){return cr.cumplido;}).length;
+      result.porcentaje=_merged.length?Math.round(_ok/_merged.length*100):0;
+      result.aprobada=(_ok===_merged.length); // aprobada solo cuando YA no falta ninguna EPP
+    }
     var approved=result.aprobada===true;
     if(approved){
       var cs=cycleStart(t);
@@ -2901,10 +2921,23 @@ function validateTaskCompletion(taskId,report,attachments,bioSummary){
         if(!t.history)t.history=[];
         t.history.push({date:new Date().toLocaleDateString("es"),ts:Date.now(),result:"red",approved:false,pct:pctVal,report:t.pendingReport||"",criteriaResults:result.criteriaResults||[]});
         if(t.history.length>20)t.history=t.history.slice(-20);
-        t.status="en-progreso";
-        t.eppIncomplete={pct:pctVal,missing:missingEpp};
         var crEpp=(result.criteriaResults||[]).map(function(cr){return(cr.cumplido?"✅":"❌")+" "+cr.criterio+(cr.detalle?": "+cr.detalle:"");}).join("\n");
-        state.messages[ck].push({id:Date.now(),from:"ai",text:"🦺 EPP incompleto — "+pctVal+"% cumplido.\n\n"+crEpp+"\n\n📷 Sube evidencia SOLO de las EPP que faltan ("+missingEpp.join(", ")+") con \"📷 Completar EPP\", una por una hasta completar.\n\n⚠️ Si NO cuentas con ellas, usa \"Seguir sin EPP\": se registrará el trabajo y se enviará un reporte de incumplimiento de EPP a tu jefe y al validador.",ts:Date.now()});
+        // Contador de fotos de complemento: inicial=0; cada "Completar EPP" suma 1. Máximo 2.
+        var eppAttempts=eppIsCompletion?((eppPrev.attempts||0)+1):0;
+        if(eppIsCompletion&&eppAttempts>=2){
+          // Se agotaron las 2 fotos de complemento y aún falta EPP → reiniciar el registro.
+          t.status="pendiente";delete t.eppIncomplete;
+          state.messages[ck].push({id:Date.now(),from:"ai",text:"🦺 EPP aún incompleto tras 2 fotos de complemento — "+pctVal+"% cumplido.\n\n"+crEpp+"\n\nAún falta: "+missingEpp.join(", ")+".\n\n🔄 Se reinicia el registro: toma de nuevo las fotos con todas las EPP puestas (o usa \"Seguir sin EPP\" al reintentar si no cuentas con ellas).",ts:Date.now()});
+          sendNotif("boss","🦺 EPP no completado","\""+t.title+"\""+(col?" — "+col.name:"")+": reinició registro, aún falta "+missingEpp.join(", "));
+          if(col)sendNotif("collab_"+col.id,"🦺 Reinicia el registro","No se completaron las EPP en 2 intentos. Vuelve a tomar las fotos.");
+          delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;
+          _aiLastTs=Date.now();saveLocal();if(db)saveCloud();render();return;
+        }
+        t.status="en-progreso";
+        // Guardar el progreso acumulado (results) para no perder lo ya reconocido en la próxima foto.
+        t.eppIncomplete={pct:pctVal,missing:missingEpp,results:result.criteriaResults||[],attempts:eppAttempts};
+        var restantes=2-eppAttempts;
+        state.messages[ck].push({id:Date.now(),from:"ai",text:"🦺 EPP incompleto — "+pctVal+"% cumplido.\n\n"+crEpp+"\n\n📷 Sube evidencia SOLO de las EPP que faltan ("+missingEpp.join(", ")+") con \"📷 Completar EPP\". Puedes enviar hasta "+restantes+" foto(s) más; lo ya reconocido se conserva.\n\n⚠️ Si NO cuentas con ellas, usa \"Seguir sin EPP\": se registrará el trabajo y se enviará un reporte de incumplimiento de EPP a tu jefe y al validador.",ts:Date.now()});
         sendNotif("boss","🦺 EPP incompleto","\""+t.title+"\""+(col?" — "+col.name:"")+": "+pctVal+"%, faltan "+missingEpp.join(", "));
         if(col)sendNotif("collab_"+col.id,"🦺 EPP incompleto","Completa las EPP que faltan o marca 'Seguir sin EPP'.");
         delete t.pendingReport;delete t.pendingAttachments;delete t._pendingHashes;

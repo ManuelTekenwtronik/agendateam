@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808001; // subir en CADA despliegue
+var APP_BUILD=20260808002; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -931,17 +931,33 @@ function ftStartCam(){
   }).catch(function(e){faceLog("❌ Cámara: "+e.message);});
 }
 function stopFaceCam(){if(_faceTestStream){try{_faceTestStream.getTracks().forEach(function(t){t.stop();});}catch(e){}_faceTestStream=null;}}
+function ftDevice(){return{ua:(navigator.userAgent||"").slice(0,180),ram:navigator.deviceMemory||null,cores:navigator.hardwareConcurrency||null,platform:navigator.platform||""};}
+function ftLabel(){return((document.getElementById("ft-label")||{}).value||"").slice(0,60);}
+// Guarda cada prueba en un documento APARTE (at/facetests) — aislado, no toca datos reales.
+// Transacción: seguro aunque 3 teléfonos guarden al mismo tiempo.
+function saveFaceTest(rec){
+  if(!db||!_cloudSynced){faceLog("(sin nube: no se guardó)");return;}
+  var ref=db.collection("at").doc("facetests");
+  db.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      var arr=(doc.exists&&doc.data().records)||[];
+      arr.push(rec);if(arr.length>300)arr=arr.slice(-300);
+      tx.set(ref,{records:arr});
+    });
+  }).then(function(){faceLog("💾 Guardado en la nube ✓");}).catch(function(e){faceLog("❌ No se guardó: "+e.message);});
+}
 function ftCompare(){
   if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
   if(!_faceRefDesc){faceLog("Elige una foto de referencia primero (paso 2)");return;}
   var v=document.getElementById("ft-video");if(!v||!_faceTestStream){faceLog("Activa la cámara primero (paso 3)");return;}
   var t0=performance.now();faceLog("Comparando…");
   faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor().then(function(r){
-    var ms=Math.round(performance.now()-t0);_faceStats.inferMs=ms;
-    if(!r){faceLog("❌ No se detectó rostro en cámara ("+ms+" ms)");return;}
+    var ms=Math.round(performance.now()-t0);_faceStats.inferMs=ms;var dev=ftDevice();
+    if(!r){faceLog("❌ No se detectó rostro en cámara ("+ms+" ms)");saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"compare",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,loadMs:_faceStats.loadMs||null,ref:_faceRefName,faceFound:false,inferMs:ms});return;}
     var dist=faceapi.euclideanDistance(r.descriptor,_faceRefDesc);
     var pct=Math.max(0,Math.min(100,Math.round((1-dist/0.6)*100)));
     faceLog((dist<0.5?"✅ COINCIDE":"❌ NO coincide")+" con "+_faceRefName+" · dist="+dist.toFixed(3)+" · match≈"+pct+"% · "+ms+" ms");
+    saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"compare",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,loadMs:_faceStats.loadMs||null,ref:_faceRefName,faceFound:true,dist:Number(dist.toFixed(3)),matchPct:pct,matched:dist<0.5,inferMs:ms});
   }).catch(function(e){faceLog("❌ Error: "+e.message);});
 }
 function _ear(eye){function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}return(d(eye[1],eye[5])+d(eye[2],eye[4]))/(2*d(eye[0],eye[3]));}
@@ -949,14 +965,19 @@ function ftLiveness(){
   if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
   var v=document.getElementById("ft-video");if(!v||!_faceTestStream){faceLog("Activa la cámara primero (paso 3)");return;}
   faceLog("👁 Prueba de vida: PARPADEA una vez…");
-  var maxE=0,minE=1,frames=0,blinked=false,t0=Date.now();
+  var maxE=0,minE=1,frames=0,t0=Date.now();
+  function finishLive(ok){
+    var dev=ftDevice();
+    faceLog(ok?("✅ VIDA CONFIRMADA (parpadeo) · "+frames+" frames · "+(Date.now()-t0)+" ms"):("❌ No se detectó parpadeo en 6 s · "+frames+" frames"));
+    saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"liveness",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,liveness:ok,frames:frames,liveMs:Date.now()-t0});
+  }
   (function loop(){
-    if(blinked||Date.now()-t0>6000){if(!blinked)faceLog("❌ No se detectó parpadeo en 6 s");return;}
+    if(Date.now()-t0>6000){finishLive(false);return;}
     faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().then(function(r){
       if(r&&r.landmarks){
         var ear=(_ear(r.landmarks.getLeftEye())+_ear(r.landmarks.getRightEye()))/2;
         maxE=Math.max(maxE,ear);minE=Math.min(minE,ear);frames++;
-        if(maxE-minE>0.12&&minE<0.20){blinked=true;faceLog("✅ VIDA CONFIRMADA (parpadeo detectado) · "+frames+" frames");return;}
+        if(maxE-minE>0.12&&minE<0.20){finishLive(true);return;}
       }
       setTimeout(loop,120);
     }).catch(function(){setTimeout(loop,150);});
@@ -976,6 +997,7 @@ function renderFaceTest(){
      (_faceRefName?("<br><b>🎯 Referencia:</b> "+escH(_faceRefName)):"")+
      '</div></div>';
   h+='<div class="card">'+
+     '<div class="field" style="margin-bottom:12px;"><label>0) Equipo / persona (para identificar el registro)</label><input id="ft-label" value="'+escH(ftLabel())+'" placeholder="Ej: Samuel · Samsung A54" style="width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;box-sizing:border-box;"></div>'+
      '<button id="ft-prep" class="btn btn-block" style="background:#16a085;color:#fff;margin-bottom:12px;" onclick="ftPrep()">'+(_faceModelsReady?"✅ Modelos cargados (recargar)":"⬇ 1) Cargar modelos")+'</button>'+
      '<div class="field" style="margin-bottom:12px;"><label>2) Foto de referencia (colaborador)</label><select onchange="ftSetRef(this.value)"><option value="">— elige —</option>'+withPhoto.map(function(c){return'<option value="'+c.id+'"'+(_faceRefName===c.name?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>'+
      '<video id="ft-video" autoplay playsinline muted style="width:100%;max-height:300px;background:#000;border-radius:12px;object-fit:cover;margin-bottom:10px;"></video>'+

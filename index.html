@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808004; // subir en CADA despliegue
+var APP_BUILD=20260808005; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -904,6 +904,7 @@ function loadFaceModels(){
   return faceapi.nets.tinyFaceDetector.loadFromUri(U)
     .then(function(){return faceapi.nets.faceLandmark68Net.loadFromUri(U);})
     .then(function(){return faceapi.nets.faceRecognitionNet.loadFromUri(U);})
+    .then(function(){return faceapi.nets.ssdMobilenetv1.loadFromUri(U).catch(function(){});}) // detector robusto para fotos difíciles
     .then(function(){_faceModelsReady=true;_faceStats.loadMs=Math.round(performance.now()-t0);faceLog("✅ Modelos listos en "+_faceStats.loadMs+" ms");});
 }
 function ftPrep(){
@@ -921,7 +922,7 @@ function ftSetRef(cid){
   if(!c.photo){faceLog("Ese colaborador no tiene foto");return;}
   faceLog("Analizando foto de perfil de "+c.name+"…");
   faceapi.fetchImage(cloudinaryForAI(c.photo)).then(function(img){
-    return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    return faceapi.detectSingleFace(img,_detOpts()).withFaceLandmarks().withFaceDescriptor();
   }).then(function(r){
     if(!r){faceLog("❌ No se detectó rostro en la foto de perfil de "+c.name);_faceRefDesc=null;return;}
     _faceRefDesc=r.descriptor;_faceRefName=c.name;faceLog("✅ Referencia lista: "+c.name);
@@ -950,7 +951,7 @@ function ftEnrollAll(){
     }
     var c=list[i];
     faceapi.fetchImage(cloudinaryForAI(c.photo)).then(function(img){
-      return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+      return faceapi.detectSingleFace(img,_detOpts()).withFaceLandmarks().withFaceDescriptor();
     }).then(function(r){
       if(r){results[c.id]=Array.prototype.slice.call(r.descriptor);ok++;faceLog("  ✅ "+c.name);}
       else faceLog("  ❌ sin rostro: "+c.name);
@@ -985,7 +986,7 @@ function ftCompare(){
   if(!_faceRefDesc){faceLog("Elige una foto de referencia primero (paso 2)");return;}
   var v=document.getElementById("ft-video");if(!v||!_faceTestStream){faceLog("Activa la cámara primero (paso 3)");return;}
   var t0=performance.now();faceLog("Comparando…");
-  faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor().then(function(r){
+  faceapi.detectSingleFace(v,_detOpts()).withFaceLandmarks().withFaceDescriptor().then(function(r){
     var ms=Math.round(performance.now()-t0);_faceStats.inferMs=ms;var dev=ftDevice();
     if(!r){faceLog("❌ No se detectó rostro en cámara ("+ms+" ms)");saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"compare",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,loadMs:_faceStats.loadMs||null,ref:_faceRefName,faceFound:false,inferMs:ms});return;}
     var dist=faceapi.euclideanDistance(r.descriptor,_faceRefDesc);
@@ -1007,7 +1008,7 @@ function ftLiveness(){
   }
   (function loop(){
     if(Date.now()-t0>6000){finishLive(false);return;}
-    faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().then(function(r){
+    faceapi.detectSingleFace(v,_detOpts()).withFaceLandmarks().then(function(r){
       if(r&&r.landmarks){
         var ear=(_ear(r.landmarks.getLeftEye())+_ear(r.landmarks.getRightEye()))/2;
         maxE=Math.max(maxE,ear);minE=Math.min(minE,ear);frames++;
@@ -1556,11 +1557,13 @@ function faceDetect(url){
 }
 // ── MOTOR ON-DEVICE (Nivel 1): identidad + prueba de vida en el teléfono, sin Face++ ──
 function faceReady(){if(window.faceapi&&_faceModelsReady)return Promise.resolve();return loadFaceApi().then(function(){return _faceModelsReady?null:loadFaceModels();});}
+// Detector: usa SSD MobileNet (robusto, para fotos difíciles) si está cargado; si no, cae al Tiny (rápido).
+function _detOpts(){return(window.faceapi&&faceapi.nets&&faceapi.nets.ssdMobilenetv1&&faceapi.nets.ssdMobilenetv1.isLoaded)?new faceapi.SsdMobilenetv1Options({minConfidence:0.35}):new faceapi.TinyFaceDetectorOptions();}
 function _imgFromDataUrl(d){return new Promise(function(res,rej){var im=new Image();im.onload=function(){res(im);};im.onerror=function(){rej(new Error("img"));};im.src=d;});}
 function _mar(m){function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}return d(m[3],m[9])/d(m[0],m[6]);}
 function localFaceDetect(dataUrl){
   return faceReady().then(function(){return _imgFromDataUrl(dataUrl);}).then(function(img){
-    return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    return faceapi.detectSingleFace(img,_detOpts()).withFaceLandmarks().withFaceDescriptor();
   }).then(function(r){
     if(!r)return{faceFound:false,skipped:false};
     var lm=r.landmarks,ear=(_ear(lm.getLeftEye())+_ear(lm.getRightEye()))/2,mar=_mar(lm.getMouth());
@@ -1572,7 +1575,7 @@ function localIdentity(user,frameDesc){
   if(!frameDesc)return Promise.resolve({skipped:true});
   var refP;
   if(user&&user.faceDescriptor&&user.faceDescriptor.length)refP=Promise.resolve(Float32Array.from(user.faceDescriptor));
-  else if(user&&user.photo)refP=faceReady().then(function(){return faceapi.fetchImage(cloudinaryForAI(user.photo));}).then(function(img){return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});
+  else if(user&&user.photo)refP=faceReady().then(function(){return faceapi.fetchImage(cloudinaryForAI(user.photo));}).then(function(img){return faceapi.detectSingleFace(img,_detOpts()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});
   else refP=Promise.resolve(null);
   return refP.then(function(ref){
     if(!ref)return{skipped:true};
@@ -1580,7 +1583,7 @@ function localIdentity(user,frameDesc){
     return{matched:dist<0.5,confidence:pct,skipped:false};
   }).catch(function(){return{skipped:true};});
 }
-function _descFromUrl(url){return faceapi.fetchImage(cloudinaryForAI(url)).then(function(img){return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});}
+function _descFromUrl(url){return faceapi.fetchImage(cloudinaryForAI(url)).then(function(img){return faceapi.detectSingleFace(img,_detOpts()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});}
 // Identidad entre dos imágenes (perfil vs evidencia) para TAREAS con reconocimiento facial.
 function localFaceMatchUrls(profileUrl,evidenceUrl){
   return faceReady().then(function(){return Promise.all([_descFromUrl(profileUrl),_descFromUrl(evidenceUrl)]);}).then(function(ds){

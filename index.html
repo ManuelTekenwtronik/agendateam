@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260807001; // subir en CADA despliegue
+var APP_BUILD=20260808001; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -756,6 +756,7 @@ function goMenu(){
   renderMenu();
 }
 function openSection(tab){
+  if(typeof stopFaceCam==="function")stopFaceCam(); // apagar cámara de prueba al navegar
   currentTab=tab;
   document.getElementById("menu-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -778,7 +779,7 @@ function renderMenu(){
       ["actividades","📝","Actividades","#f5a623"],
       ["reportes","📈","Reportes","#9b59b6"]
     ];
-    if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);}
+    if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);items.push(["facetest","🧪","Prueba Rostro","#16a085"]);}
   }
   document.getElementById("menu-screen").innerHTML=
     '<div class="menu-wrap">'+
@@ -879,6 +880,114 @@ function toggleTeam(cid,clientKey,profileKey,checked){
       });
     }).catch(function(e){console.warn("toggleTeam tx:",e);});
   }
+}
+
+// ── POC RECONOCIMIENTO FACIAL ON-DEVICE (face-api.js) ──
+// Todo corre en el teléfono: identidad (descriptor 128-d) + prueba de vida (parpadeo por landmarks).
+// Sin Face++, sin servidor. Mide y registra tiempos/RAM reales de cada dispositivo.
+var FACEAPI_VER="1.7.13";
+var _faceapiReady=false,_faceModelsReady=false,_faceStats={},_faceTestStream=null,_faceRefDesc=null,_faceRefName="";
+function faceLog(m){var el=document.getElementById("ft-log");var line="["+new Date().toLocaleTimeString()+"] "+m;if(el)el.textContent=line+"\n"+el.textContent;try{console.log("[FACETEST]",m);}catch(e){}}
+function loadFaceApi(){
+  return new Promise(function(res,rej){
+    if(window.faceapi){_faceapiReady=true;return res();}
+    var s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@"+FACEAPI_VER+"/dist/face-api.js";
+    s.onload=function(){_faceapiReady=true;faceLog("Librería face-api cargada");res();};
+    s.onerror=function(){rej(new Error("No se pudo descargar face-api.js (revisa internet)"));};
+    document.head.appendChild(s);
+  });
+}
+function loadFaceModels(){
+  var U="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@"+FACEAPI_VER+"/model/";
+  var t0=performance.now();faceLog("Descargando modelos…");
+  return faceapi.nets.tinyFaceDetector.loadFromUri(U)
+    .then(function(){return faceapi.nets.faceLandmark68Net.loadFromUri(U);})
+    .then(function(){return faceapi.nets.faceRecognitionNet.loadFromUri(U);})
+    .then(function(){_faceModelsReady=true;_faceStats.loadMs=Math.round(performance.now()-t0);faceLog("✅ Modelos listos en "+_faceStats.loadMs+" ms");});
+}
+function ftPrep(){
+  var btn=document.getElementById("ft-prep");if(btn){btn.disabled=true;btn.textContent="Cargando…";}
+  loadFaceApi().then(loadFaceModels).then(function(){renderFaceTest();faceLog("Listo. Elige referencia y activa la cámara.");})
+  .catch(function(e){faceLog("❌ "+e.message);if(btn){btn.disabled=false;btn.textContent="Reintentar carga";}});
+}
+function ftSetRef(cid){
+  if(!cid)return;
+  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
+  var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(cid);});
+  if(!c||!c.photo){faceLog("Ese colaborador no tiene foto");return;}
+  faceLog("Analizando foto de perfil de "+c.name+"…");
+  faceapi.fetchImage(cloudinaryForAI(c.photo)).then(function(img){
+    return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  }).then(function(r){
+    if(!r){faceLog("❌ No se detectó rostro en la foto de perfil de "+c.name);_faceRefDesc=null;return;}
+    _faceRefDesc=r.descriptor;_faceRefName=c.name;faceLog("✅ Referencia lista: "+c.name);
+  }).catch(function(e){faceLog("❌ Error foto perfil: "+e.message);});
+}
+function ftStartCam(){
+  stopFaceCam();
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"user"},audio:false}).then(function(st){
+    _faceTestStream=st;var v=document.getElementById("ft-video");if(v){v.srcObject=st;v.play();}faceLog("Cámara activa");
+  }).catch(function(e){faceLog("❌ Cámara: "+e.message);});
+}
+function stopFaceCam(){if(_faceTestStream){try{_faceTestStream.getTracks().forEach(function(t){t.stop();});}catch(e){}_faceTestStream=null;}}
+function ftCompare(){
+  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
+  if(!_faceRefDesc){faceLog("Elige una foto de referencia primero (paso 2)");return;}
+  var v=document.getElementById("ft-video");if(!v||!_faceTestStream){faceLog("Activa la cámara primero (paso 3)");return;}
+  var t0=performance.now();faceLog("Comparando…");
+  faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor().then(function(r){
+    var ms=Math.round(performance.now()-t0);_faceStats.inferMs=ms;
+    if(!r){faceLog("❌ No se detectó rostro en cámara ("+ms+" ms)");return;}
+    var dist=faceapi.euclideanDistance(r.descriptor,_faceRefDesc);
+    var pct=Math.max(0,Math.min(100,Math.round((1-dist/0.6)*100)));
+    faceLog((dist<0.5?"✅ COINCIDE":"❌ NO coincide")+" con "+_faceRefName+" · dist="+dist.toFixed(3)+" · match≈"+pct+"% · "+ms+" ms");
+  }).catch(function(e){faceLog("❌ Error: "+e.message);});
+}
+function _ear(eye){function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}return(d(eye[1],eye[5])+d(eye[2],eye[4]))/(2*d(eye[0],eye[3]));}
+function ftLiveness(){
+  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
+  var v=document.getElementById("ft-video");if(!v||!_faceTestStream){faceLog("Activa la cámara primero (paso 3)");return;}
+  faceLog("👁 Prueba de vida: PARPADEA una vez…");
+  var maxE=0,minE=1,frames=0,blinked=false,t0=Date.now();
+  (function loop(){
+    if(blinked||Date.now()-t0>6000){if(!blinked)faceLog("❌ No se detectó parpadeo en 6 s");return;}
+    faceapi.detectSingleFace(v,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().then(function(r){
+      if(r&&r.landmarks){
+        var ear=(_ear(r.landmarks.getLeftEye())+_ear(r.landmarks.getRightEye()))/2;
+        maxE=Math.max(maxE,ear);minE=Math.min(minE,ear);frames++;
+        if(maxE-minE>0.12&&minE<0.20){blinked=true;faceLog("✅ VIDA CONFIRMADA (parpadeo detectado) · "+frames+" frames");return;}
+      }
+      setTimeout(loop,120);
+    }).catch(function(){setTimeout(loop,150);});
+  })();
+}
+function renderFaceTest(){
+  var host=document.getElementById("content");
+  if(!currentUser||currentUser.type!=="boss"){host.innerHTML=sectionHead("🧪 Prueba Rostro","")+'<div class="card">Solo el administrador.</div>';return;}
+  var dm=navigator.deviceMemory||"?",cores=navigator.hardwareConcurrency||"?";
+  var withPhoto=(state.collaborators||[]).filter(function(c){return c.photo;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+  var prevLog=(document.getElementById("ft-log")||{}).textContent||"";
+  var h=sectionHead("🧪 Prueba Rostro (on-device)","Identidad + prueba de vida en el teléfono, sin servidor ni Face++");
+  h+='<div class="card"><div style="font-size:12px;color:#555;line-height:1.7;">'+
+     '<b>📱 Dispositivo:</b> RAM≈'+dm+' GB · '+cores+' núcleos<br>'+
+     '<b>📦 Modelos:</b> '+(_faceModelsReady?("✅ cargados ("+(_faceStats.loadMs||"?")+" ms)"):"⛔ no cargados")+
+     (_faceStats.inferMs?("<br><b>⚡ Último análisis:</b> "+_faceStats.inferMs+" ms"):"")+
+     (_faceRefName?("<br><b>🎯 Referencia:</b> "+escH(_faceRefName)):"")+
+     '</div></div>';
+  h+='<div class="card">'+
+     '<button id="ft-prep" class="btn btn-block" style="background:#16a085;color:#fff;margin-bottom:12px;" onclick="ftPrep()">'+(_faceModelsReady?"✅ Modelos cargados (recargar)":"⬇ 1) Cargar modelos")+'</button>'+
+     '<div class="field" style="margin-bottom:12px;"><label>2) Foto de referencia (colaborador)</label><select onchange="ftSetRef(this.value)"><option value="">— elige —</option>'+withPhoto.map(function(c){return'<option value="'+c.id+'"'+(_faceRefName===c.name?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>'+
+     '<video id="ft-video" autoplay playsinline muted style="width:100%;max-height:300px;background:#000;border-radius:12px;object-fit:cover;margin-bottom:10px;"></video>'+
+     '<div style="display:flex;gap:8px;margin-bottom:12px;">'+
+       '<button class="btn btn-sm" style="flex:1;background:#2d3561;color:#fff;" onclick="ftStartCam()">3) 📷 Cámara</button>'+
+       '<button class="btn btn-sm" style="flex:1;background:#5a8fe0;color:#fff;" onclick="ftCompare()">4) 🔍 Comparar</button>'+
+       '<button class="btn btn-sm" style="flex:1;background:#9b59b6;color:#fff;" onclick="ftLiveness()">5) 👁 Vida</button>'+
+     '</div>'+
+     '<div style="font-size:11px;color:#888;font-weight:700;margin-bottom:4px;">📋 Registro de diagnóstico:</div>'+
+     '<pre id="ft-log" style="background:#0d1117;color:#3fb950;font-size:11px;padding:10px;border-radius:10px;max-height:220px;overflow:auto;white-space:pre-wrap;margin:0;">'+escH(prevLog)+'</pre>'+
+     '</div>';
+  host.innerHTML=h;
 }
 
 // ── ALERTS ──
@@ -1123,6 +1232,7 @@ function renderContent(){
   else if(t==="actividades")renderActividades();
   else if(t==="validacion")renderValidacion();
   else if(t==="asignteam")renderAsignTeam();
+  else if(t==="facetest")renderFaceTest();
   else renderChat();
 }
 

@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808003; // subir en CADA despliegue
+var APP_BUILD=20260808004; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1453,14 +1453,16 @@ function attendancePhoto(kind){
   inp.click();
 }
 // ── PRUEBA DE VIDA (liveness activo con reto aleatorio) ──
-var _liveStream=null,_liveFrame1=null,_liveFrame2=null;
+var _liveStream=null,_liveFrame1=null,_liveFrame2=null,_liveDesc=null;
+var LOCAL_FACE=true; // Nivel 1: identidad + prueba de vida ON-DEVICE (sin Face++). Poner false para volver a Face++.
 var LIVE_CHALLENGES=[
   {id:"ojos",instr:"CIERRA los ojos y mantenlos cerrados 👀"},
   {id:"boca",instr:"ABRE bien la boca y mantenla abierta 😮"}
 ];
 function startLiveness(kind){
+  if(LOCAL_FACE)faceReady().catch(function(){}); // precargar modelos on-device mientras el usuario se prepara
   var ch=LIVE_CHALLENGES[Math.floor(Math.random()*LIVE_CHALLENGES.length)];
-  _liveFrame1=null;_liveFrame2=null;
+  _liveFrame1=null;_liveFrame2=null;_liveDesc=null;
   var ov=document.getElementById("live-overlay");
   ov.classList.remove("hidden");
   ov.innerHTML='<div class="live-box">'+
@@ -1512,6 +1514,7 @@ function processLiveness(kind,chId){
   stopLiveStream();
   var msg=document.getElementById("live-msg");if(msg)msg.textContent="Verificando prueba de vida…";
   if(!_liveFrame1||!_liveFrame2){toast("No se capturaron las fotos","error");cancelLiveness();return;}
+  if(LOCAL_FACE){processLivenessLocal(kind,chId);return;} // Nivel 1: prueba de vida on-device
   uploadDataUrl(_liveFrame1,"agendateam_asistencia",function(url1){
     if(!url1){toast("Error al subir la foto — intenta de nuevo","error");closeLiveOverlay();return;}
     uploadDataUrl(_liveFrame2,"agendateam_asistencia",function(url2){
@@ -1529,7 +1532,7 @@ function processLiveness(kind,chId){
 function livenessFailed(kind,skipped,d1,d2,chId){
   var ov=document.getElementById("live-overlay");if(!ov)return;
   ov.classList.remove("hidden");
-  function dd(d){if(!d)return"?";if(d.skipped)return"skip("+(d.reason||"api")+")";if(!d.faceFound)return"SIN ROSTRO";return"ojos="+d.eyesOpen+" boca="+d.mouthOpen+" yaw="+(d.headpose?Math.round(d.headpose.yaw_angle):"?");}
+  function dd(d){if(!d)return"?";if(d.skipped)return"skip("+(d.reason||"api")+")";if(!d.faceFound)return"SIN ROSTRO";return"ojos="+d.eyesOpen+" boca="+d.mouthOpen+(d.ear!=null?" ear="+d.ear.toFixed(2):"")+(d.mar!=null?" mar="+d.mar.toFixed(2):"")+(d.headpose?" yaw="+Math.round(d.headpose.yaw_angle):"");}
   var diag='reto='+(chId||"?")+'  f1['+dd(d1)+']  f2['+dd(d2)+']';
   ov.innerHTML='<div class="live-box">'+
     '<div style="font-size:56px;">🚫</div>'+
@@ -1550,6 +1553,56 @@ function uploadDataUrl(dataUrl,folder,cb){
 }
 function faceDetect(url){
   return fetch("/.netlify/functions/facedetect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({imageUrl:cloudinaryForAI(url)})}).then(function(r){return r.json();}).catch(function(){return{skipped:true};});
+}
+// ── MOTOR ON-DEVICE (Nivel 1): identidad + prueba de vida en el teléfono, sin Face++ ──
+function faceReady(){if(window.faceapi&&_faceModelsReady)return Promise.resolve();return loadFaceApi().then(function(){return _faceModelsReady?null:loadFaceModels();});}
+function _imgFromDataUrl(d){return new Promise(function(res,rej){var im=new Image();im.onload=function(){res(im);};im.onerror=function(){rej(new Error("img"));};im.src=d;});}
+function _mar(m){function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}return d(m[3],m[9])/d(m[0],m[6]);}
+function localFaceDetect(dataUrl){
+  return faceReady().then(function(){return _imgFromDataUrl(dataUrl);}).then(function(img){
+    return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+  }).then(function(r){
+    if(!r)return{faceFound:false,skipped:false};
+    var lm=r.landmarks,ear=(_ear(lm.getLeftEye())+_ear(lm.getRightEye()))/2,mar=_mar(lm.getMouth());
+    return{faceFound:true,skipped:false,eyesOpen:ear>0.18,mouthOpen:mar>0.5,ear:ear,mar:mar,descriptor:r.descriptor};
+  }).catch(function(e){return{skipped:true,reason:(e&&e.message)||"error"};});
+}
+// Compara el descriptor de un frame contra la referencia enrolada (o la foto de perfil). Devuelve {matched,confidence,skipped}.
+function localIdentity(user,frameDesc){
+  if(!frameDesc)return Promise.resolve({skipped:true});
+  var refP;
+  if(user&&user.faceDescriptor&&user.faceDescriptor.length)refP=Promise.resolve(Float32Array.from(user.faceDescriptor));
+  else if(user&&user.photo)refP=faceReady().then(function(){return faceapi.fetchImage(cloudinaryForAI(user.photo));}).then(function(img){return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});
+  else refP=Promise.resolve(null);
+  return refP.then(function(ref){
+    if(!ref)return{skipped:true};
+    var dist=faceapi.euclideanDistance(frameDesc,ref),pct=Math.round(Math.max(0,Math.min(100,(1-dist)*100)));
+    return{matched:dist<0.5,confidence:pct,skipped:false};
+  }).catch(function(){return{skipped:true};});
+}
+function _descFromUrl(url){return faceapi.fetchImage(cloudinaryForAI(url)).then(function(img){return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();}).then(function(r){return r?r.descriptor:null;});}
+// Identidad entre dos imágenes (perfil vs evidencia) para TAREAS con reconocimiento facial.
+function localFaceMatchUrls(profileUrl,evidenceUrl){
+  return faceReady().then(function(){return Promise.all([_descFromUrl(profileUrl),_descFromUrl(evidenceUrl)]);}).then(function(ds){
+    if(!ds[0])return{skipped:true,reason:"perfil sin rostro",matched:null,confidence:0};
+    if(!ds[1])return{skipped:true,reason:"sin rostro en evidencia",matched:null,confidence:0};
+    var dist=faceapi.euclideanDistance(ds[0],ds[1]),pct=Math.round(Math.max(0,Math.min(100,(1-dist)*100)));
+    return{matched:dist<0.5,confidence:pct,skipped:false};
+  }).catch(function(e){return{skipped:true,reason:(e&&e.message)||"error",matched:null,confidence:0};});
+}
+function processLivenessLocal(kind,chId){
+  var msg=document.getElementById("live-msg");if(msg)msg.textContent="Verificando (local)…";
+  Promise.all([localFaceDetect(_liveFrame1),localFaceDetect(_liveFrame2)]).then(function(r){
+    var d1=r[0],d2=r[1],live={challenge:chId,skipped:false,live:false,engine:"local"};
+    if((d1&&d1.skipped)||(d2&&d2.skipped))live.skipped=true;
+    else{var v=verifyLive(chId,d1,d2);if(v===null)live.skipped=true;else live.live=v;}
+    _liveDesc=(d1&&d1.descriptor)||(d2&&d2.descriptor)||null;
+    if(live.live||live.skipped){uploadDataUrl(_liveFrame1,"agendateam_asistencia",function(url1){closeLiveOverlay();registrarAsistencia(kind,url1||"",live);});}
+    else livenessFailed(kind,live.skipped,d1,d2,chId);
+  }).catch(function(e){
+    var live={challenge:chId,skipped:true,live:false,engine:"local",reason:(e&&e.message)||"error"};
+    uploadDataUrl(_liveFrame1,"agendateam_asistencia",function(url1){closeLiveOverlay();registrarAsistencia(kind,url1||"",live);});
+  });
 }
 function liveBadge(live){
   if(!live)return"";
@@ -1611,18 +1664,18 @@ function registrarAsistencia(kind,photoUrl,live){
     saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
   });
   var profile=currentUser&&currentUser.photo;
-  if(profile&&photoUrl){
-    checkFaceIdentity(profile,photoUrl).then(function(res){
-      var r=attById(recId);if(!r)return; // re-buscar el registro vivo antes de escribir el resultado facial
-      var face={matched:!!(res&&res.matched),confidence:Math.round((res&&res.confidence)||0),skipped:!!(res&&res.skipped)};
-      if(kind==="in")r.inFace=face;else r.outFace=face;
-      evalAttendanceFlags(r,kind);
-      saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
-      if(face.skipped)toast("⚠️ Rostro no verificado");
-      else if(face.matched)toast("✅ Identidad verificada ("+face.confidence+"%)");
-      else toast("❌ El rostro no coincide — se creó alerta","error");
-    });
+  function applyFace(res){
+    var r=attById(recId);if(!r)return; // re-buscar el registro vivo antes de escribir el resultado facial
+    var face={matched:!!(res&&res.matched),confidence:Math.round((res&&res.confidence)||0),skipped:!!(res&&res.skipped),engine:LOCAL_FACE?"local":"faceplusplus"};
+    if(kind==="in")r.inFace=face;else r.outFace=face;
+    evalAttendanceFlags(r,kind);
+    saveLocal();if(db)saveCloud();if(currentTab==="ingreso")renderIngreso();
+    if(face.skipped)toast("⚠️ Rostro no verificado");
+    else if(face.matched)toast("✅ Identidad verificada ("+face.confidence+"%)");
+    else toast("❌ El rostro no coincide — se creó alerta","error");
   }
+  if(LOCAL_FACE){var fd=_liveDesc;_liveDesc=null;localIdentity(currentUser,fd).then(applyFace);}
+  else if(profile&&photoUrl){checkFaceIdentity(profile,photoUrl).then(applyFace);}
   toast((kind==="in"?"✅ Ingreso ":"✅ Salida ")+fmtTime(kind==="in"?rec.inTime:rec.outTime));
 }
 function evalAttendanceFlags(rec,kind){
@@ -2807,10 +2860,10 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
     // 2. RECONOCIMIENTO FACIAL — solo si la tarea lo requiere
     var validProfileUrl=col&&col.photo&&!col.photo.startsWith("data:")&&!col.photo.startsWith("blob:");
     if(t.faceRecognition&&validProfileUrl){
-      var result=await checkFaceIdentity(col.photo,imgs[i].url);
-      // Umbral de coincidencia configurable por tarea (default 70%)
+      // Umbral configurable por tarea (default 70%) — aplica a Face++. On-device decide por distancia.
       var faceThr=t.faceThreshold||70;
-      if(!result.skipped)result.matched=(result.confidence||0)>=faceThr;
+      var result=LOCAL_FACE?await localFaceMatchUrls(col.photo,imgs[i].url):await checkFaceIdentity(col.photo,imgs[i].url);
+      if(!LOCAL_FACE&&!result.skipped)result.matched=(result.confidence||0)>=faceThr;
       // confidence===0 con matched===false indica error de API (no un 0% real) → tratar como skip
       if(!result.skipped&&result.matched===false&&(result.confidence||0)>0){
         return{passed:false,reason:"face_mismatch",

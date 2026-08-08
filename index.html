@@ -401,8 +401,8 @@ function saveCloud(){
       fc.activities=_mergeById(cloud.activities,state.activities);
       // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
       // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
-      var cloudTeams={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null)cloudTeams[cc.id]=cc.teams;});
-      fc.collaborators=fc.collaborators.map(function(cc){return(cloudTeams[cc.id]!==undefined)?Object.assign({},cc,{teams:cloudTeams[cc.id]}):cc;});
+      var cloudTeams={},cloudFD={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null){cloudTeams[cc.id]=cc.teams;cloudFD[cc.id]=cc.faceDescriptor;}});
+      fc.collaborators=fc.collaborators.map(function(cc){var o=cc;if(cloudTeams[cc.id]!==undefined)o=Object.assign({},o,{teams:cloudTeams[cc.id]});if(cloudFD[cc.id]!==undefined)o=Object.assign({},o,{faceDescriptor:cloudFD[cc.id]});return o;});
       tx.set(ref,fc);
     });
   }).then(function(){window._pendingSave=false;}).catch(function(e){
@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808002; // subir en CADA despliegue
+var APP_BUILD=20260808003; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -913,9 +913,12 @@ function ftPrep(){
 }
 function ftSetRef(cid){
   if(!cid)return;
-  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
   var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(cid);});
-  if(!c||!c.photo){faceLog("Ese colaborador no tiene foto");return;}
+  if(!c)return;
+  // Si ya está enrolado, usar el descriptor guardado (rápido, offline).
+  if(c.faceDescriptor&&c.faceDescriptor.length){_faceRefDesc=Float32Array.from(c.faceDescriptor);_faceRefName=c.name;faceLog("✅ Referencia (enrolada): "+c.name);return;}
+  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
+  if(!c.photo){faceLog("Ese colaborador no tiene foto");return;}
   faceLog("Analizando foto de perfil de "+c.name+"…");
   faceapi.fetchImage(cloudinaryForAI(c.photo)).then(function(img){
     return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
@@ -923,6 +926,37 @@ function ftSetRef(cid){
     if(!r){faceLog("❌ No se detectó rostro en la foto de perfil de "+c.name);_faceRefDesc=null;return;}
     _faceRefDesc=r.descriptor;_faceRefName=c.name;faceLog("✅ Referencia lista: "+c.name);
   }).catch(function(e){faceLog("❌ Error foto perfil: "+e.message);});
+}
+// Enrola (calcula y guarda el descriptor 128-d) de todos los colaboradores con foto.
+// Escritura por transacción sobre la nube (como toggleTeam) + saveCloud preserva faceDescriptor → sin clobber.
+function ftEnrollAll(){
+  if(!_faceModelsReady){faceLog("Carga los modelos primero (paso 1)");return;}
+  var list=(state.collaborators||[]).filter(function(c){return c.photo;});
+  faceLog("📝 Enrolando "+list.length+" rostros… (puede tardar)");
+  var results={},ok=0;
+  (function next(i){
+    if(i>=list.length){
+      if(!db||!_cloudSynced){faceLog("(sin nube: no se guardó el enrolamiento)");return;}
+      var ref=db.collection("at").doc("data");
+      db.runTransaction(function(tx){return tx.get(ref).then(function(doc){
+        var cloud=doc.exists?doc.data():{};var arr=cloud.collaborators||[];
+        arr.forEach(function(cc){if(results[cc.id])cc.faceDescriptor=results[cc.id];});
+        tx.update(ref,{collaborators:arr});
+      });}).then(function(){
+        (state.collaborators||[]).forEach(function(cc){if(results[cc.id])cc.faceDescriptor=results[cc.id];});
+        saveLocal();faceLog("✅ Enrolados "+ok+"/"+list.length+" y guardados en la nube");renderFaceTest();
+      }).catch(function(e){faceLog("❌ Guardado enroll: "+e.message);});
+      return;
+    }
+    var c=list[i];
+    faceapi.fetchImage(cloudinaryForAI(c.photo)).then(function(img){
+      return faceapi.detectSingleFace(img,new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+    }).then(function(r){
+      if(r){results[c.id]=Array.prototype.slice.call(r.descriptor);ok++;faceLog("  ✅ "+c.name);}
+      else faceLog("  ❌ sin rostro: "+c.name);
+      next(i+1);
+    }).catch(function(e){faceLog("  ❌ "+c.name+": "+e.message);next(i+1);});
+  })(0);
 }
 function ftStartCam(){
   stopFaceCam();
@@ -988,6 +1022,7 @@ function renderFaceTest(){
   if(!currentUser||currentUser.type!=="boss"){host.innerHTML=sectionHead("🧪 Prueba Rostro","")+'<div class="card">Solo el administrador.</div>';return;}
   var dm=navigator.deviceMemory||"?",cores=navigator.hardwareConcurrency||"?";
   var withPhoto=(state.collaborators||[]).filter(function(c){return c.photo;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+  var enrolledCount=(state.collaborators||[]).filter(function(c){return c.faceDescriptor&&c.faceDescriptor.length;}).length;
   var prevLog=(document.getElementById("ft-log")||{}).textContent||"";
   var h=sectionHead("🧪 Prueba Rostro (on-device)","Identidad + prueba de vida en el teléfono, sin servidor ni Face++");
   h+='<div class="card"><div style="font-size:12px;color:#555;line-height:1.7;">'+
@@ -998,7 +1033,8 @@ function renderFaceTest(){
      '</div></div>';
   h+='<div class="card">'+
      '<div class="field" style="margin-bottom:12px;"><label>0) Equipo / persona (para identificar el registro)</label><input id="ft-label" value="'+escH(ftLabel())+'" placeholder="Ej: Samuel · Samsung A54" style="width:100%;padding:11px 14px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;outline:none;box-sizing:border-box;"></div>'+
-     '<button id="ft-prep" class="btn btn-block" style="background:#16a085;color:#fff;margin-bottom:12px;" onclick="ftPrep()">'+(_faceModelsReady?"✅ Modelos cargados (recargar)":"⬇ 1) Cargar modelos")+'</button>'+
+     '<button id="ft-prep" class="btn btn-block" style="background:#16a085;color:#fff;margin-bottom:10px;" onclick="ftPrep()">'+(_faceModelsReady?"✅ Modelos cargados (recargar)":"⬇ 1) Cargar modelos")+'</button>'+
+     '<button class="btn btn-block" style="background:#8e44ad;color:#fff;margin-bottom:12px;" onclick="ftEnrollAll()">📝 Enrolar rostros ('+enrolledCount+'/'+withPhoto.length+')</button>'+
      '<div class="field" style="margin-bottom:12px;"><label>2) Foto de referencia (colaborador)</label><select onchange="ftSetRef(this.value)"><option value="">— elige —</option>'+withPhoto.map(function(c){return'<option value="'+c.id+'"'+(_faceRefName===c.name?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>'+
      '<video id="ft-video" autoplay playsinline muted style="width:100%;max-height:300px;background:#000;border-radius:12px;object-fit:cover;margin-bottom:10px;"></video>'+
      '<div style="display:flex;gap:8px;margin-bottom:12px;">'+

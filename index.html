@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809011; // subir en CADA despliegue
+var APP_BUILD=20260809012; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1145,6 +1145,7 @@ function renderProyectos(){
          ((pp.approve&&p.status==="validado")?'<button class="btn btn-sm" style="background:#27ae60;color:#fff;" onclick="projApprove(\''+p.id+'\')">✅ Aprobar/Publicar</button>':"")+
          (((pp.validate&&(p.status==="borrador"||p.status==="rechazado"))||(pp.approve&&p.status==="validado"))?'<button class="btn btn-sm" style="background:#e74c3c;color:#fff;" onclick="projRejectOpen(\''+p.id+'\')">✖ Rechazar</button>':"")+
          '<button class="btn btn-sm btn-gray" onclick="projView(\''+p.id+'\')">👁 Ver</button>'+
+         ((pp.load||pp.validate||pp.approve)?'<button class="btn btn-sm" style="background:#fff0f0;color:#c0392b;" onclick="projDelete(\''+p.id+'\')">🗑️ Eliminar</button>':"")+
        '</div></div>';
   });
   h+='</div>';
@@ -1475,6 +1476,23 @@ function projSave(){
 }
 function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.rejectComment="";p.rejectedRows=[];p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
 // Rechazo: comentario + casillas por fila para marcar los ítems incorrectos.
+function projDelete(id){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
+  showConfirm("¿Eliminar proyecto?","\""+(p.name||"(sin nombre)")+"\" se eliminará permanentemente. Esta acción no se puede deshacer.",function(){
+    state.projects=(state.projects||[]).filter(function(x){return String(x.id)!==String(id);});
+    if(String(_projViewId)===String(id))_projViewId="";
+    saveLocal();
+    // Borrado directo en at/projects (transacción) para que no reaparezca por merge.
+    if(db&&_cloudSynced){
+      var ref=db.collection("at").doc("projects");
+      db.runTransaction(function(tx){return tx.get(ref).then(function(doc){
+        var cloud=(doc.exists&&doc.data().records)||[];
+        tx.set(ref,{records:cloud.filter(function(x){return String(x.id)!==String(id);}).map(_stripBig)});
+      });}).catch(function(e){console.warn("projDelete:",e);toast("⚠️ No se pudo eliminar en la nube","error");});
+    }
+    renderProyectos();toast("🗑️ Proyecto eliminado");
+  },"Eliminar","#e74c3c");
+}
 function projRejectOpen(id){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
   var GB="1px solid #cfd3dc",marked=p.rejectedRows||[];

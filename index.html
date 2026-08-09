@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808025; // subir en CADA despliegue
+var APP_BUILD=20260808026; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1177,14 +1177,14 @@ function parseExcelItems(f){
     return items;
   });
 }
-function _projParseAI(d){
-  if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}
-  var raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+function _parseInner(raw){
+  raw=String(raw||"");
   try{var m=raw.match(/\{[\s\S]*\}/);if(m)return JSON.parse(m[0]);}catch(e){}
-  // Salvamento si el JSON viene truncado (respuesta cortada por longitud): recupera los objetos completos.
+  // Salvamento si el JSON viene truncado: recupera los objetos completos.
   try{var items=[],re=/\{[^{}]*\}/g,mm;while((mm=re.exec(raw))){try{var o=JSON.parse(mm[0]);if(o&&(o.descripcion!==undefined||o.codigo!==undefined))items.push(o);}catch(e2){}}if(items.length)return{items:items};}catch(e3){}
   return null;
 }
+function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}return _parseInner((d&&d.content&&d.content[0]&&d.content[0].text)||"");}
 function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
 function _projSetItems(items){_projItems=(items||[]).map(function(it){return{codigo:String(it.codigo||it.item||""),cantidad:String(it.cantidad||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),valorUnitario:String(it.valorUnitario||""),valorTotal:String(it.valorTotal||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
@@ -1193,11 +1193,21 @@ function _projErr(msg){toast("error IA","error");var el=document.getElementById(
 var _projTrace=[];
 function _projDiag(m){_projTrace.push(m);var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<pre style="background:#0d1117;color:#3fb950;font-size:11px;padding:8px;border-radius:8px;white-space:pre-wrap;max-height:240px;overflow:auto;margin:0;">'+escH(_projTrace.join("\n"))+'</pre>';try{console.log("[PROY]",m);}catch(e){}}
 // POST al validador de IA y devuelve el JSON interno. Lanza error claro si vino HTML (timeout).
+// Llama a la IA por STREAMING (mantiene la conexión activa → sin "Inactivity Timeout"). Rearma el JSON.
 function _claudeJSON(body){
-  return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.text();}).then(function(t){
-    var d;try{d=JSON.parse(t);}catch(e){throw new Error("servidor respondió HTML/no-JSON (timeout o tamaño). Inicio: "+String(t).replace(/\s+/g," ").slice(0,60));}
-    if(d.error)throw new Error(d.error.message||"error IA");
-    return _projParseAI(d);
+  return fetch("/.netlify/functions/claudestream",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){
+    if(!r.body||!r.body.getReader){
+      return r.text().then(function(t){var d;try{d=JSON.parse(t);}catch(e){throw new Error("servidor respondió HTML/no-JSON. Inicio: "+String(t).replace(/\s+/g," ").slice(0,60));}if(d&&d.error)throw new Error(d.error.message||"error IA");return _parseInner((d&&d.content&&d.content[0]&&d.content[0].text)||"");});
+    }
+    var reader=r.body.getReader(),dec=new TextDecoder(),buf="",text="",errMsg=null;
+    function pump(){return reader.read().then(function(res){
+      if(res.done)return;
+      buf+=dec.decode(res.value,{stream:true});
+      var parts=buf.split("\n");buf=parts.pop();
+      parts.forEach(function(line){line=line.replace(/\r$/,"").trim();if(line.indexOf("data:")!==0)return;var p=line.slice(5).trim();if(!p||p==="[DONE]")return;try{var ev=JSON.parse(p);if(ev.type==="content_block_delta"&&ev.delta&&ev.delta.text)text+=ev.delta.text;else if(ev.type==="error"&&ev.error)errMsg=ev.error.message||"error IA";}catch(e){}});
+      return pump();
+    });}
+    return pump().then(function(){if(errMsg)throw new Error(errMsg);if(!text)throw new Error("respuesta vacía del servidor (posible HTML/timeout)");return _parseInner(text);});
   });
 }
 // Carga pdf.js y extrae el TEXTO del PDF localmente (rápido, sin mandar el archivo a la nube).

@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808026; // subir en CADA despliegue
+var APP_BUILD=20260809001; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1079,7 +1079,7 @@ function projFichaHTML(p){
       (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["valorTotal","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(it[c[0]]||"")+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody></table></div>';})()+
+    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(it[c[0]]||"")+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody></table></div>';})()+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
@@ -1141,13 +1141,13 @@ function projForm(p){
 }
 function projItemsPreviewHTML(){
   if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div>';
-  var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"],["valorUnitario","V.Unit"],["valorTotal","V.Total"]];
+  var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"],["valorUnitario","V.Unit"]];
   return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+cols.map(function(c){return'<td style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(it[c[0]]||"")+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
 }
 function projParsePaste(){
   var ta=document.getElementById("proj-paste");if(!ta)return;
   var rows=ta.value.split(/\r?\n/).filter(function(l){return l.trim();}).map(function(l){
-    var c=l.split("\t");return{codigo:(c[0]||"").trim(),cantidad:(c[1]||"").trim(),descripcion:(c[2]||"").trim(),unidad:(c[3]||"").trim(),valorUnitario:(c[4]||"").trim(),valorTotal:(c[5]||"").trim()};
+    var c=l.split("\t");return{codigo:(c[0]||"").trim(),cantidad:(c[1]||"").trim(),descripcion:(c[2]||"").trim(),unidad:(c[3]||"").trim(),valorUnitario:(c[4]||"").trim()};
   });
   if(!rows.length){toast("No se detectaron filas","error");return;}
   _projItems=rows;var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();toast("✅ "+rows.length+" filas cargadas");
@@ -1172,7 +1172,7 @@ function parseExcelItems(f){
       var c0=String(r[0]||"").trim();
       if(!c0&&!String(r[1]||"").trim())return;
       if(i===0&&/item|[ií]tem|c[oó]digo|descrip|cantidad/i.test(String(r[0]||"")+" "+String(r[1]||"")+" "+String(r[2]||"")))return; // salta encabezado
-      items.push({codigo:c0,cantidad:String(r[1]||"").trim(),descripcion:String(r[2]||"").trim(),unidad:String(r[3]||"").trim(),valorUnitario:String(r[4]||"").trim(),valorTotal:String(r[5]||"").trim()});
+      items.push({codigo:c0,cantidad:String(r[1]||"").trim(),descripcion:String(r[2]||"").trim(),unidad:String(r[3]||"").trim(),valorUnitario:String(r[4]||"").trim()});
     });
     return items;
   });
@@ -1186,7 +1186,7 @@ function _parseInner(raw){
 }
 function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}return _parseInner((d&&d.content&&d.content[0]&&d.content[0].text)||"");}
 function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
-function _projSetItems(items){_projItems=(items||[]).map(function(it){return{codigo:String(it.codigo||it.item||""),cantidad:String(it.cantidad||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),valorUnitario:String(it.valorUnitario||""),valorTotal:String(it.valorTotal||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
+function _projSetItems(items){_projItems=(items||[]).map(function(it){return{codigo:String(it.codigo||it.item||""),cantidad:String(it.cantidad||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),valorUnitario:String(it.valorUnitario||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
 function _projErr(msg){toast("error IA","error");var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:10px;padding:10px;font-size:12px;color:#c0392b;word-break:break-word;">🔎 '+escH(String(msg))+'</div>';}
 // Banderas de diagnóstico: rastro paso a paso visible en pantalla.
@@ -1222,7 +1222,7 @@ function pdfExtractText(f){
 }
 // Extrae ítems de UN PDF: primero texto local (rápido); si es escaneo sin texto, cae al PDF a la IA.
 function _num(s){if(s==null)return 0;var t=String(s).replace(/[^0-9.,-]/g,"").replace(/,/g,"");var n=parseFloat(t);return isNaN(n)?0:n;}
-function _sumRows(items){return(items||[]).reduce(function(a,it){return a+_num(it.valorTotal);},0);}
+function _sumRows(items){return(items||[]).reduce(function(a,it){return a+(_num(it.cantidad)*_num(it.valorUnitario));},0);}
 function _mergeItemsByCode(a,b){
   function key(it){return String(it.codigo||"").replace(/[^A-Za-z0-9]/g,"")||String(it.descripcion||"").toLowerCase().replace(/\s+/g,"").slice(0,40);}
   var seen={};(a||[]).forEach(function(it){seen[key(it)]=true;});var out=(a||[]).slice();
@@ -1232,7 +1232,7 @@ function _mergeItemsByCode(a,b){
 // Extrae {items,totales} de un PDF (texto local + IA). Incluye precios por línea y totales del documento.
 function _extractDoc(f,label){
   label=label||"DOC";var t0=Date.now();
-  var sysT="Del texto de un documento comercial extrae su tabla, totales y cabecera. Por cada línea: codigo (si existe), cantidad, descripcion, unidad, valorUnitario, valorTotal. Totales: totalBruto (subtotal antes de IVA), iva, valorTotal (total final). Cabecera: nombreProyecto, numeroPO (número de orden de compra P.O), solpec, fechaPO (fecha de la P.O). Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"valorUnitario\":\"\",\"valorTotal\":\"\"}],\"totales\":{\"totalBruto\":\"\",\"iva\":\"\",\"valorTotal\":\"\"},\"cabecera\":{\"nombreProyecto\":\"\",\"numeroPO\":\"\",\"solpec\":\"\",\"fechaPO\":\"\"}}";
+  var sysT="Del texto de un documento comercial extrae su tabla, totales y cabecera. Por cada línea: codigo (si existe), cantidad, descripcion, unidad, valorUnitario (precio unitario). Totales del documento: totalBruto (subtotal antes de IVA), iva, valorTotal (total final). Cabecera: nombreProyecto, numeroPO (número de orden de compra P.O), solpec, fechaPO (fecha de la P.O). Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"valorUnitario\":\"\"}],\"totales\":{\"totalBruto\":\"\",\"iva\":\"\",\"valorTotal\":\"\"},\"cabecera\":{\"nombreProyecto\":\"\",\"numeroPO\":\"\",\"solpec\":\"\",\"fechaPO\":\"\"}}";
   _projDiag(label+": leyendo texto local (pdf.js)…");
   return pdfExtractText(f).catch(function(){_projDiag(label+": ⚠️ pdf.js falló → PDF a la IA");return "";}).then(function(txt){
     txt=(txt||"").trim();_projDiag(label+": texto="+txt.length+" chars ("+(Date.now()-t0)+"ms)");
@@ -1275,11 +1275,11 @@ function _codeCount(items){return(items||[]).filter(function(it){return String(i
 // Comparación semántica por descripción (IA) — para ítems que NO se emparejaron por código.
 // La IA SOLO empareja (por significado) y devuelve las cantidades tal cual; la comparación de cantidades la hace JS.
 function _aiCompare(po,cot){
-  function line(it,i){return(i+1)+". ["+(it.codigo||"s/cod")+"] "+it.descripcion+" · cant:"+it.cantidad;}
+  function line(it,i){return(i+1)+". ["+(it.codigo||"s/cod")+"] "+it.descripcion+" · cant:"+it.cantidad+" · vu:"+(it.valorUnitario||"");}
   var poT=po.map(line).join("\n"),cotT=cot.map(line).join("\n");
-  var sys="Emparejas ítems del MISMO proyecto eléctrico entre una COTIZACIÓN y un P.O, redactados distinto (abreviaturas, mayúsculas, orden, unidad distinta). Empareja los que sean el mismo material/concepto AUNQUE la descripción solo sea PARECIDA. IGNORA por completo la unidad de medida (no la uses para emparejar ni la reportes como diferencia). Devuelve las cantidades TAL CUAL aparecen (no las compares tú). Responde SOLO JSON: {\"pares\":[{\"cot\":\"descripcion cotizacion\",\"cotCant\":\"\",\"po\":\"descripcion po\",\"poCant\":\"\"}],\"cotSinPar\":[\"descripcion\"],\"poSinPar\":[\"descripcion\"]}";
+  var sys="Emparejas ítems del MISMO proyecto eléctrico entre una COTIZACIÓN y un P.O, redactados distinto (abreviaturas, mayúsculas, orden, unidad distinta). Empareja los que sean el mismo material/concepto AUNQUE la descripción solo sea PARECIDA. IGNORA por completo la unidad de medida. Devuelve cantidad (cant) y valor unitario (vu) TAL CUAL aparecen (no los compares tú). Responde SOLO JSON: {\"pares\":[{\"cot\":\"descripcion cotizacion\",\"cotCant\":\"\",\"cotVU\":\"\",\"po\":\"descripcion po\",\"poCant\":\"\",\"poVU\":\"\"}],\"cotSinPar\":[\"descripcion\"],\"poSinPar\":[\"descripcion\"]}";
   var msg="COTIZACIÓN ("+cot.length+"):\n"+cotT+"\n\nP.O ("+po.length+"):\n"+poT+"\n\nEmpareja. Solo JSON.";
-  return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:msg}]});
+  return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:6000,system:sys,messages:[{role:"user",content:msg}]});
 }
 // Compara P.O vs Cotización: 1) por CÓDIGO exacto; 2) lo que no empareja, por DESCRIPCIÓN (IA).
 function _projCompare(po,cot){
@@ -1293,7 +1293,7 @@ function _projCompare(po,cot){
     if(c&&poByCode[c]&&poByCode[c].length){
       var match=poByCode[c].shift();var idx=poRemaining.indexOf(match);if(idx>=0)poRemaining.splice(idx,1);
       if(ncant(it.cantidad)!==ncant(match.cantidad))diffs.push("Cantidad distinta (código "+it.codigo+" · "+String(it.descripcion||"").slice(0,30)+"): Cot="+it.cantidad+" vs P.O="+match.cantidad);
-      var vc=_num(it.valorTotal),vp=_num(match.valorTotal);if(vc>0&&vp>0&&Math.abs(vc-vp)>0.5)diffs.push("Valor de línea distinto (código "+it.codigo+" · "+String(it.descripcion||"").slice(0,25)+"): Cot="+it.valorTotal+" vs P.O="+match.valorTotal);
+      var vc=_num(it.valorUnitario),vp=_num(match.valorUnitario);if(vc>0&&vp>0&&Math.abs(vc-vp)>0.01)diffs.push("Valor unitario distinto (código "+it.codigo+" · "+String(it.descripcion||"").slice(0,25)+"): Cot="+it.valorUnitario+" vs P.O="+match.valorUnitario);
     }else cotRemaining.push(it);
   });
   _projDiag("Por código: "+(cot.length-cotRemaining.length)+" emparejados · quedan "+cotRemaining.length+" cot y "+poRemaining.length+" P.O → análisis por descripción");
@@ -1303,6 +1303,7 @@ function _projCompare(po,cot){
     // Comparar cantidades de cada par emparejado por descripción (JS, determinístico).
     (res.pares||[]).forEach(function(p){
       if(ncant(p.cotCant)!==ncant(p.poCant))diffs.push("Cantidad distinta: \""+String(p.cot||"").slice(0,45)+"\" → Cot="+p.cotCant+" vs P.O="+p.poCant);
+      var vc=_num(p.cotVU),vp=_num(p.poVU);if(vc>0&&vp>0&&Math.abs(vc-vp)>0.01)diffs.push("Valor unitario distinto: \""+String(p.cot||"").slice(0,45)+"\" → Cot="+p.cotVU+" vs P.O="+p.poVU);
     });
     (res.cotSinPar||[]).forEach(function(d){diffs.push("En Cotización pero NO en P.O: "+d);});
     (res.poSinPar||[]).forEach(function(d){diffs.push("En P.O pero NO en Cotización: "+d);});
@@ -1336,11 +1337,11 @@ function projExtractCompare(){
       _projDiag("P.O: "+poItems.length+" ítems ("+_codeCount(poItems)+" con código). Comparando…");var tc=Date.now();
       return _projCompare(poItems,cotItems).then(function(cmp){
         var diffs=(cmp.diferencias||[]).slice();
-        var cotT=_num((cotRes.totales||{}).valorTotal),poT=_num((poRes.totales||{}).valorTotal);
-        if(cotT>0&&poT>0){
-          if(Math.abs(cotT-poT)>Math.max(1,poT*0.005))diffs.unshift("⚠️ TOTAL GENERAL NO coincide: Cot="+cotT.toFixed(2)+" vs P.O="+poT.toFixed(2)+" (dif "+(cotT-poT).toFixed(2)+")");
-          else _projDiag("✅ Total general coincide: "+poT.toFixed(2));
-        }else _projDiag("ℹ️ Falta total general en algún documento (¿son los CON precios?)");
+        var cT=cotRes.totales||{},pT=poRes.totales||{};
+        function _cmpTot(lbl,a,b){var na=_num(a),nb=_num(b);if(na>0&&nb>0){if(Math.abs(na-nb)>Math.max(1,nb*0.005))diffs.unshift("⚠️ "+lbl+" NO coincide: Cot="+na.toFixed(2)+" vs P.O="+nb.toFixed(2)+" (dif "+(na-nb).toFixed(2)+")");else _projDiag("✅ "+lbl+" coincide: "+nb.toFixed(2));}else _projDiag("ℹ️ "+lbl+" ausente en algún doc");}
+        _cmpTot("Total bruto",cT.totalBruto,pT.totalBruto);
+        _cmpTot("IVA",cT.iva,pT.iva);
+        _cmpTot("Valor total",cT.valorTotal,pT.valorTotal);
         _projDiag("Comparación lista ("+(Date.now()-tc)+"ms)");
         _projDiag(diffs.length===0?"✅ RESULTADO: COINCIDEN (líneas y total)":"⚠️ RESULTADO: "+diffs.length+" punto(s) a revisar:");
         diffs.forEach(function(x){_projDiag("   • "+x);});

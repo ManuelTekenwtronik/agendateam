@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809003; // subir en CADA despliegue
+var APP_BUILD=20260809004; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1079,7 +1079,7 @@ function projFichaHTML(p){
       (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody></table></div>';})()+
+    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody></table></div>';})()+(canSeePrices()?_projTotalsHTML(p.items):"")+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
@@ -1140,10 +1140,22 @@ function projForm(p){
   showSheet(_projEditId?"Editar proyecto":"Nuevo proyecto",body);
 }
 function _projVT(it){var v=_num(it.cantidad)*_num(it.valorUnitario);return v?v.toFixed(2):"";}
+function _money(n){return Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
+// Totaliza V.Total (Σ cantidad×V.Unit) = valor bruto, IVA 12%, y total.
+function _projTotalsHTML(items){
+  var bruto=(items||[]).reduce(function(a,it){return a+(_num(it.cantidad)*_num(it.valorUnitario));},0);
+  if(!bruto)return"";
+  var iva=bruto*0.12,total=bruto+iva;
+  return'<div style="margin-top:8px;font-size:13px;text-align:right;line-height:1.8;">'+
+    '<div>Valor bruto: <b>'+_money(bruto)+'</b></div>'+
+    '<div>IVA (12%): <b>'+_money(iva)+'</b></div>'+
+    '<div style="font-weight:800;border-top:1.5px solid #cfd3dc;display:inline-block;padding-top:2px;margin-top:2px;">TOTAL: '+_money(total)+'</div>'+
+  '</div>';
+}
 function projItemsPreviewHTML(){
   if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div>';
   var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"],["valorUnitario","V.Unit"],["_vt","V.Total"]];
-  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
+  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>'+_projTotalsHTML(_projItems);
 }
 function projParsePaste(){
   var ta=document.getElementById("proj-paste");if(!ta)return;

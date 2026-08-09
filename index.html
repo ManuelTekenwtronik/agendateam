@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808014; // subir en CADA despliegue
+var APP_BUILD=20260808015; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1182,6 +1182,7 @@ function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),
 function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
 function _projSetItems(items){_projItems=(items||[]).map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
+function _projErr(msg){toast("error IA","error");var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:10px;padding:10px;font-size:12px;color:#c0392b;word-break:break-word;">🔎 '+escH(String(msg))+'</div>';}
 function projExtractCompare(){
   if(!_projPO||!_projPO.url){toast("Sube el P.O primero","error");return;}
   if(!_projCot||!_projCot.url){toast("Sube la Cotización primero","error");return;}
@@ -1197,7 +1198,7 @@ function projExtractCompare(){
         var content=[{type:"text",text:"COTIZACIÓN (item | descripcion | unidad | cantidad):\n"+cotText},{type:"text",text:"ORDEN DE COMPRA (P.O) PDF:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:pob}},{type:"text",text:"Compara. Solo JSON."}];
         return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2500,system:sys,messages:[{role:"user",content:content}]})});
       }).then(function(r){return r.json();}).then(function(d){var res=_projParseAI(d);_projShowCmp(res&&res.comparacion);_projBtn(false);});
-    }).catch(function(e){_projBtn(false);toast("Error Excel: "+((e&&e.message)||"fallo"),"error");});
+    }).catch(function(e){_projBtn(false);_projErr("Error Excel: "+((e&&e.message)||"fallo"));});
     return;
   }
   toast("🤖 Leyendo P.O y Cotización (PDF)…");
@@ -1207,10 +1208,10 @@ function projExtractCompare(){
     return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:content}]})});
   }).then(function(r){return r.json();}).then(function(d){
     var res=_projParseAI(d);_projBtn(false);
-    if(!res){var rw=(d&&d.content&&d.content[0]&&d.content[0].text)||(d&&d.error&&d.error.message)||"";toast("IA no devolvió datos claros: "+String(rw).slice(0,120),"error");return;}
-    if(!(res.cotizacion||[]).length)toast("La IA no encontró ítems en la cotización","error");
+    if(!res){var rw=(d&&d.content&&d.content[0]&&d.content[0].text)||(d&&d.error&&d.error.message)||JSON.stringify(d).slice(0,200);_projErr("IA no devolvió JSON. Respuesta: "+String(rw).slice(0,300));return;}
+    if(!(res.cotizacion||[]).length)_projErr("La IA no encontró ítems en la cotización (¿el PDF tiene tabla legible?)");
     _projSetItems(res.cotizacion||[]);_projShowCmp(res.comparacion);toast("✅ "+_projItems.length+" ítems extraídos");
-  }).catch(function(e){_projBtn(false);toast("Error: "+((e&&e.message)||"fallo"),"error");});
+  }).catch(function(e){_projBtn(false);_projErr("Error: "+((e&&e.message)||"fallo"));});
 }
 function projUpload(file,slot){
   if(!file)return;

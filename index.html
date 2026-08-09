@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809014; // subir en CADA despliegue
+var APP_BUILD=20260809015; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -850,7 +850,8 @@ var TEAM_PROFILES=[
   {key:"desarrollo",abbr:"D",name:"Desarrollo"},
   {key:"supervision",abbr:"S",name:"Supervisión"},
   {key:"ejecucion",abbr:"E",name:"Ejecución"},
-  {key:"liquidacion",abbr:"L",name:"Liquidación"}
+  {key:"liquidacion",abbr:"L",name:"Liquidación"},
+  {key:"facturacion",abbr:"F",name:"Facturación"}
 ];
 
 function renderAsignTeam(){
@@ -862,7 +863,7 @@ function renderAsignTeam(){
   var h=sectionHead("👥 Asignación de Team","Marca el perfil de cada colaborador por cliente");
   // Leyenda de perfiles y clientes
   h+='<div class="card" style="padding:12px;">'+
-    '<div style="font-size:11px;color:#777;margin-bottom:8px;font-weight:700;">Perfiles: <b>D</b> Desarrollo · <b>S</b> Supervisión · <b>E</b> Ejecución · <b>L</b> Liquidación</div>'+
+    '<div style="font-size:11px;color:#777;margin-bottom:8px;font-weight:700;">Perfiles: <b>D</b> Desarrollo · <b>S</b> Supervisión · <b>E</b> Ejecución · <b>L</b> Liquidación · <b>F</b> Facturación</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px;">'+
       TEAM_CLIENTS.map(function(cl){return'<span style="font-size:10px;font-weight:700;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+cl.name+'</span>';}).join("")+
     '</div>'+
@@ -874,9 +875,9 @@ function renderAsignTeam(){
   // Encabezado fila 1: clientes (colspan 4) — fijo arriba
   t+='<thead><tr>'+
     '<th rowspan="2" style="position:sticky;left:0;top:0;z-index:5;background:#fff;text-align:left;padding:6px 8px;border-right:'+GS+';border-bottom:'+GB+';min-width:120px;">Colaborador</th>'+
-    TEAM_CLIENTS.map(function(cl){return'<th colspan="4" style="position:sticky;top:0;z-index:4;height:22px;background:'+cl.color+';color:#fff;text-align:center;padding:4px;border-right:'+GS+';border-bottom:'+GB+';">'+cl.name+'</th>';}).join("")+
+    TEAM_CLIENTS.map(function(cl){return'<th colspan="'+TEAM_PROFILES.length+'" style="position:sticky;top:0;z-index:4;height:22px;background:'+cl.color+';color:#fff;text-align:center;padding:4px;border-right:'+GS+';border-bottom:'+GB+';">'+cl.name+'</th>';}).join("")+
   '</tr><tr>'+
-    TEAM_CLIENTS.map(function(cl){return TEAM_PROFILES.map(function(p,pi){return'<th style="position:sticky;top:22px;z-index:4;height:100px;background:#fbfbfd;padding:2px;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';">'+'<div style="writing-mode:vertical-rl;transform:rotate(180deg);color:'+cl.color+';font-weight:700;font-size:10px;line-height:1;margin:0 auto;">'+p.name+'</div></th>';}).join("");}).join("")+
+    TEAM_CLIENTS.map(function(cl){return TEAM_PROFILES.map(function(p,pi){return'<th style="position:sticky;top:22px;z-index:4;height:100px;background:#fbfbfd;padding:2px;border-right:'+((pi===TEAM_PROFILES.length-1)?GS:GB)+';border-bottom:'+GB+';">'+'<div style="writing-mode:vertical-rl;transform:rotate(180deg);color:'+cl.color+';font-weight:700;font-size:10px;line-height:1;margin:0 auto;">'+p.name+'</div></th>';}).join("");}).join("")+
   '</tr></thead><tbody>';
   cols.forEach(function(c){
     var teams=c.teams||{};
@@ -885,7 +886,7 @@ function renderAsignTeam(){
       TEAM_CLIENTS.map(function(cl){
         var v=teams[cl.key]||{};
         return TEAM_PROFILES.map(function(p,pi){
-          return'<td style="text-align:center;padding:4px 6px;background:#fff;border-right:'+((pi===3)?GS:GB)+';border-bottom:'+GB+';"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="-webkit-appearance:checkbox;appearance:checkbox;width:18px;height:18px;accent-color:'+cl.color+';cursor:pointer;"></td>';
+          return'<td style="text-align:center;padding:4px 6px;background:#fff;border-right:'+((pi===TEAM_PROFILES.length-1)?GS:GB)+';border-bottom:'+GB+';"><input type="checkbox"'+(v[p.key]?" checked":"")+' onchange="toggleTeam(\''+c.id+'\',\''+cl.key+'\',\''+p.key+'\',this.checked)" style="-webkit-appearance:checkbox;appearance:checkbox;width:18px;height:18px;accent-color:'+cl.color+';cursor:pointer;"></td>';
         }).join("");
       }).join("")+
     '</tr>';

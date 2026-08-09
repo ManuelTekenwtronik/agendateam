@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808022; // subir en CADA despliegue
+var APP_BUILD=20260808023; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1249,7 +1249,8 @@ function _aiCompare(po,cot){
 // Compara P.O vs Cotización: 1) por CÓDIGO exacto; 2) lo que no empareja, por DESCRIPCIÓN (IA).
 function _projCompare(po,cot){
   function nc(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
-  function ncant(s){return String(s||"").replace(/\s/g,"");}
+  // Normaliza cantidad: quita comas de miles/espacios y compara el VALOR numérico (1,600 == 1600 == 1600.00).
+  function ncant(s){var t=String(s==null?"":s).replace(/[,\s]/g,"").trim();var n=parseFloat(t);return isNaN(n)?t.toLowerCase():String(n);}
   var diffs=[],poRemaining=po.slice(),cotRemaining=[],poByCode={};
   po.forEach(function(it){var c=nc(it.codigo);if(c){poByCode[c]=poByCode[c]||[];poByCode[c].push(it);}});
   cot.forEach(function(it){

@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809028; // subir en CADA despliegue
+var APP_BUILD=20260809029; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -795,7 +795,7 @@ function goMenu(){
 }
 function openSection(tab){
   if(typeof stopFaceCam==="function")stopFaceCam(); // apagar cámara de prueba al navegar
-  if(tab==="proyectos"){_projClient="";_projTab="";_projViewId="";} // entrar a Proyectos siempre en la rejilla de clientes
+  if(tab==="proyectos"){_projClient="";_projSection="";_projOpenId="";_projViewId="";} // entrar a Proyectos siempre en la rejilla de clientes
   currentTab=tab;
   document.getElementById("menu-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -1180,47 +1180,108 @@ function projFichaHTML(p){
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
-var _projTab="",_projClient="";
-function projSetTab(t){_projTab=t;renderProyectos();}
-function projOpenClient(k){_projClient=k;_projTab="";_projViewId="";renderProyectos();}
-function projBackClients(){_projClient="";_projTab="";_projViewId="";renderProyectos();}
-// Clientes que el usuario puede ver (tiene algún perfil ahí). Boss = todos.
+var _projClient="",_projSection="",_projOpenId="";
+function projOpenClient(k){_projClient=k;_projSection="";_projOpenId="";_projViewId="";renderProyectos();}
+function projBackClients(){_projClient="";_projSection="";_projOpenId="";_projViewId="";renderProyectos();}
+function projOpenSection(s){_projSection=s;_projOpenId="";renderProyectos();}
+function projBackSections(){_projSection="";_projOpenId="";renderProyectos();}
+function projOpenProject(id){_projOpenId=id;renderProyectos();}
+function projBackProjects(){_projOpenId="";renderProyectos();}
 function projVisibleClients(){return TEAM_CLIENTS.filter(function(c){return userHasAnyProfile(c.key);});}
+function _bigCard(color,icon,label,onclick){return'<button onclick="'+onclick+'" style="border:none;border-radius:16px;padding:24px 12px;background:'+color+';color:#fff;font-weight:800;font-size:16px;box-shadow:0 4px 14px rgba(0,0,0,.15);cursor:pointer;min-height:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;"><span style="font-size:30px;">'+icon+'</span>'+escH(label)+'</button>';}
+function _projBar(client){var c=TEAM_CLIENTS.filter(function(x){return x.key===client;})[0]||{name:client,color:"#7f8c8d"};return'<span style="font-size:13px;font-weight:800;color:#fff;background:'+c.color+';padding:5px 12px;border-radius:10px;">'+escH(c.name)+'</span>';}
 function renderProyectos(){
   var host=document.getElementById("content");
-  // NIVEL 1 — recuadros de clientes (grandes, para móvil)
+  // NIVEL 1 — recuadros de clientes
   if(!_projClient){
     var cls=projVisibleClients();
     var h=sectionHead("🏗️ Proyectos","Elige un cliente");
     if(!cls.length){host.innerHTML=h+'<div class="card" style="text-align:center;color:#999;padding:24px;">No tienes clientes asignados.</div>';return;}
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px;">'+
-      cls.map(function(c){return'<button onclick="projOpenClient(\''+c.key+'\')" style="border:none;border-radius:16px;padding:26px 12px;background:'+c.color+';color:#fff;font-weight:800;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,.15);cursor:pointer;min-height:92px;display:flex;align-items:center;justify-content:center;text-align:center;">'+escH(c.name)+'</button>';}).join("")+
+      cls.map(function(c){return _bigCard(c.color,"🏢",c.name,"projOpenClient('"+c.key+"')");}).join("")+
     '</div>';
     host.innerHTML=h;return;
   }
-  // NIVEL 2 — sub-menú del cliente elegido
   var pp=projPerms();
   var clObj=TEAM_CLIENTS.filter(function(c){return c.key===_projClient;})[0]||{name:_projClient,color:"#7f8c8d"};
-  var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
+  var canCrear=pp.load||pp.validate||pp.approve;
   var canBitacoras=(currentUser&&currentUser.type==="boss")||userHasTeamProfile("supervision",_projClient)||userHasTeamProfile("liquidacion",_projClient)||userHasTeamProfile("facturacion",_projClient);
-  var tabs=[];
-  if(canBitacoras)tabs.push(["bitacoras","📒 Bitácoras"]);
-  tabs.push(["documentacion","📄 Documentación"]);
-  if(canCrear)tabs.push(["creacion","🛠️ Creación"]);
-  if(!tabs.some(function(t){return t[0]===_projTab;}))_projTab=(tabs[0]||["documentacion"])[0];
-  var h=sectionHead("🏗️ Proyectos","");
-  h+='<div style="display:flex;align-items:center;gap:8px;margin:0 4px 10px;">'+
-    '<button class="btn btn-sm btn-gray" onclick="projBackClients()">← Clientes</button>'+
-    '<span style="font-size:13px;font-weight:800;color:#fff;background:'+clObj.color+';padding:5px 12px;border-radius:10px;">'+escH(clObj.name)+'</span>'+
-  '</div>';
-  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 4px 12px;">'+
-    tabs.map(function(t){var on=_projTab===t[0];return'<button class="btn btn-sm" style="background:'+(on?"#2c82c9":"#eef2f9")+';color:'+(on?"#fff":"#2d3561")+';font-weight:700;" onclick="projSetTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join("")+
-  '</div>';
-  if(_projTab==="creacion")h+=projCreacionBody(_projClient);
-  else if(_projTab==="bitacoras")h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📒 <b>Bitácoras — '+escH(clObj.name)+'</b><br><span style="font-size:13px;">Sección en construcción — definiremos el contenido próximamente.</span></div>';
-  else h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📄 <b>Documentación — '+escH(clObj.name)+'</b><br><span style="font-size:13px;">Sección en construcción — definiremos el contenido próximamente.</span></div>';
-  host.innerHTML=h;
+  // NIVEL 2 — recuadros de opciones del cliente
+  if(!_projSection){
+    var secs=[];
+    if(canBitacoras)secs.push(["bitacoras","📒","Bitácoras","#9b59b6"]);
+    secs.push(["documentacion","📄","Documentación","#2c82c9"]);
+    if(canCrear)secs.push(["creacion","🛠️","Creación","#e67e22"]);
+    var h2=sectionHead("🏗️ Proyectos","");
+    h2+='<div style="margin:0 4px 12px;"><button class="btn btn-sm btn-gray" onclick="projBackClients()">← Clientes</button> '+_projBar(_projClient)+'</div>';
+    h2+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px;">'+secs.map(function(s){return _bigCard(s[3],s[1],s[2],"projOpenSection('"+s[0]+"')");}).join("")+'</div>';
+    host.innerHTML=h2;return;
+  }
+  // Creación mantiene el flujo de gestión completo
+  if(_projSection==="creacion"){
+    var h3=sectionHead("🏗️ Proyectos","🛠️ Creación");
+    h3+='<div style="margin:0 4px 12px;"><button class="btn btn-sm btn-gray" onclick="projBackSections()">← Opciones</button> '+_projBar(_projClient)+'</div>';
+    h3+=projCreacionBody(_projClient);
+    host.innerHTML=h3;return;
+  }
+  // NIVEL 3 — lista de proyectos PUBLICADOS del cliente (recuadros)
+  var pubs=(state.projects||[]).filter(function(p){return p.status==="publicado"&&p.client===_projClient&&canSeeProject(p);});
+  if(!_projOpenId){
+    var secLbl=_projSection==="bitacoras"?"📒 Bitácoras":"📄 Documentación";
+    var h4=sectionHead("🏗️ Proyectos",secLbl);
+    h4+='<div style="margin:0 4px 12px;"><button class="btn btn-sm btn-gray" onclick="projBackSections()">← Opciones</button> '+_projBar(_projClient)+'</div>';
+    if(!pubs.length)h4+='<div class="card" style="text-align:center;color:#999;padding:24px;">No hay proyectos publicados para este cliente.</div>';
+    else h4+='<div style="display:grid;grid-template-columns:1fr;gap:10px;padding:4px;">'+pubs.map(function(p){return'<button onclick="projOpenProject(\''+p.id+'\')" style="border:none;border-radius:14px;padding:18px 16px;background:#1a1d2e;color:#fff;font-weight:700;font-size:15px;text-align:left;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.12);">🏗️ '+escH(p.name)+'<div style="font-size:11px;color:#aab;font-weight:500;margin-top:4px;">P.O '+escH(p.poNumber||p.poDate||"—")+'</div></button>';}).join("")+'</div>';
+    host.innerHTML=h4;return;
+  }
+  // NIVEL 4 — detalle del proyecto según sección
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(_projOpenId);});
+  var h5=sectionHead("🏗️ "+(p?p.name:"Proyecto"),_projSection==="bitacoras"?"📒 Bitácoras":"📄 Documentación");
+  h5+='<div style="margin:0 4px 12px;"><button class="btn btn-sm btn-gray" onclick="projBackProjects()">← Proyectos</button> '+_projBar(_projClient)+'</div>';
+  if(!p){host.innerHTML=h5+'<div class="card">Proyecto no encontrado.</div>';return;}
+  if(_projSection==="documentacion")h5+=projDocsHTML(p);
+  else h5+=projBitacorasHTML(p);
+  host.innerHTML=h5;
 }
+// DOCUMENTACIÓN de un proyecto: archivos según permiso. Sin perfil Desarrollo/Facturación en el cliente → solo SIN precios.
+function projDocsHTML(p){
+  var pr=canSeePrices(p.client);
+  function row(icon,lbl,f){return'<div style="display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border:1px solid #eee;border-radius:12px;margin-bottom:8px;"><span style="font-weight:600;font-size:13px;">'+icon+' '+lbl+'</span>'+((f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;font-weight:700;">Abrir</a>':'<span style="color:#bbb;font-size:12px;">—</span>')+'</div>';}
+  var h='<div class="card">';
+  h+=row("📄","P.O sin precios",p.poFile);
+  h+=row("💲","Cotización sin precios",p.cotFile);
+  h+=row("📎","Orden de Trabajo (OT)",p.otFile);
+  if(pr){
+    h+='<div style="font-size:11px;font-weight:800;color:#c0392b;margin:10px 0 6px;">🔒 CON PRECIOS (solo Desarrollo/Facturación)</div>';
+    h+=row("💵","P.O con precios",p.poFilePriced);
+    h+=row("💰","Cotización con precios",p.cotFilePriced);
+  }else{
+    h+='<div style="font-size:11px;color:#999;margin-top:8px;">🔒 Los archivos con precios no están disponibles para tu perfil en este cliente.</div>';
+  }
+  h+='</div>';
+  return h;
+}
+// BITÁCORAS de un proyecto: lista (colaborador, supervisor firmó, fecha/hora, lugar) + Nueva bitácora.
+function projBitacorasHTML(p){
+  var list=(p.bitacoras||[]).slice().sort(function(a,b){return(b.ts||0)-(a.ts||0);});
+  var h='<div class="card">';
+  h+='<div style="font-weight:800;font-size:14px;margin-bottom:10px;">📒 Bitácoras ('+list.length+')</div>';
+  if(!list.length)h+='<div style="font-size:13px;color:#999;margin-bottom:10px;">Aún no hay bitácoras para este proyecto.</div>';
+  else h+=list.map(function(b){
+    return'<div style="border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
+      '<div style="font-weight:700;font-size:13px;">'+escH(b.title||("Bitácora "+(b.date||"")))+'</div>'+
+      '<div style="font-size:11px;color:#777;margin-top:4px;line-height:1.7;">'+
+        '👷 Creó: '+escH(b.createdBy||"—")+'<br>'+
+        '✍️ Supervisor firmó: '+escH(b.supervisor||"—")+'<br>'+
+        '🗓️ '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br>'+
+        '📍 '+escH(b.place||"—")+
+      '</div></div>';
+  }).join("");
+  h+='<button class="btn btn-block" style="background:#9b59b6;color:#fff;margin-top:6px;" onclick="projNuevaBitacora(\''+p.id+'\')">+ Nueva bitácora</button>';
+  h+='</div>';
+  return h;
+}
+function projNuevaBitacora(id){toast("📒 El formulario de nueva bitácora se creará próximamente");}
 function projCreacionBody(clientKey){
   var pp=projPerms();
   var projs=(state.projects||[]).filter(function(p){return canSeeProject(p)&&(!clientKey||p.client===clientKey);}).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});

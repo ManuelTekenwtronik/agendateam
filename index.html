@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809012; // subir en CADA despliegue
+var APP_BUILD=20260809013; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -599,7 +599,7 @@ function init(){
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();checkVersion();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();startTeamsSync();checkVersion();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -614,6 +614,7 @@ function init(){
       showMainLogin();
       startSync();
       startProjectsSync();
+      startTeamsSync();
       checkVersion();
     }).catch(function(){if(!done){done=true;_cloudSynced=true;clearTimeout(t);showMainLogin();}});
   }else{
@@ -898,24 +899,34 @@ function toggleTeam(cid,clientKey,profileKey,checked){
   if(!c.teams[clientKey])c.teams[clientKey]={};
   c.teams[clientKey][profileKey]=checked; // optimista local
   saveLocal();
-  // Escritura atómica y aislada del cambio: aplica SOLO este perfil sobre lo último de la nube.
-  // Así no compite con otros dispositivos que guardan asistencia/actividades en paralelo.
+  // Los teams viven en su PROPIO documento at/teams (aislado, ningún otro flujo lo toca → no se pisa).
   if(db&&_cloudSynced){
-    var ref=db.collection("at").doc("data");
+    var ref=db.collection("at").doc("teams");
     db.runTransaction(function(tx){
       return tx.get(ref).then(function(doc){
-        var cloud=doc.exists?doc.data():{};
-        var arr=cloud.collaborators||[];
-        var f=arr.find(function(x){return String(x.id)===String(cid);});
-        if(f){
-          if(!f.teams)f.teams={};
-          if(!f.teams[clientKey])f.teams[clientKey]={};
-          f.teams[clientKey][profileKey]=checked;
-          tx.update(ref,{collaborators:arr});
-        }
+        var map=(doc.exists&&doc.data().byId)||{};
+        if(!map[cid])map[cid]={};
+        if(!map[cid][clientKey])map[cid][clientKey]={};
+        map[cid][clientKey][profileKey]=checked;
+        tx.set(ref,{byId:map});
       });
-    }).catch(function(e){console.warn("toggleTeam tx:",e);});
+    }).catch(function(e){console.warn("toggleTeam tx:",e);toast("⚠️ No se guardó la asignación","error");});
   }
+}
+// Guarda TODOS los teams actuales en at/teams (usado por el enrolamiento masivo/migración).
+function saveTeams(){
+  if(!db||!_cloudSynced)return;
+  var map={};(state.collaborators||[]).forEach(function(c){if(c.teams&&Object.keys(c.teams).length)map[c.id]=c.teams;});
+  db.collection("at").doc("teams").set({byId:map}).catch(function(e){console.warn("saveTeams:",e);});
+}
+function startTeamsSync(){
+  if(!db)return;
+  db.collection("at").doc("teams").onSnapshot(function(snap){
+    var map=(snap.exists&&snap.data().byId)||{};
+    (state.collaborators||[]).forEach(function(c){c.teams=map[c.id]||c.teams||{};});
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+    if(currentUser&&currentTab==="asignteam")renderAsignTeam();
+  },function(e){console.warn("teamsSync:",e);});
 }
 
 // ── POC RECONOCIMIENTO FACIAL ON-DEVICE (face-api.js) ──

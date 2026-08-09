@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808020; // subir en CADA despliegue
+var APP_BUILD=20260808021; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1237,12 +1237,13 @@ function _cmpItems(po,cot){
   return{coinciden:diffs.length===0,diferencias:diffs};
 }
 // Comparación semántica por descripción (IA) — para ítems que NO se emparejaron por código.
+// La IA SOLO empareja (por significado) y devuelve las cantidades tal cual; la comparación de cantidades la hace JS.
 function _aiCompare(po,cot){
   function line(it,i){return(i+1)+". ["+(it.codigo||"s/cod")+"] "+it.descripcion+" · cant:"+it.cantidad;}
   var poT=po.map(line).join("\n"),cotT=cot.map(line).join("\n");
-  var sys="Comparas dos listas de ítems del MISMO proyecto eléctrico, redactados distinto (abreviaturas, mayúsculas, orden). Considera IGUALES los que son el mismo material/concepto aunque el texto difiera. Reporta SOLO: (a) ítems de COTIZACIÓN sin equivalente en P.O, (b) ítems de P.O sin equivalente en COTIZACIÓN, (c) equivalentes con CANTIDAD distinta. Responde SOLO JSON: {\"coinciden\":true,\"diferencias\":[\"texto claro de cada diferencia\"]}";
-  var msg="COTIZACIÓN ("+cot.length+"):\n"+cotT+"\n\nP.O ("+po.length+"):\n"+poT+"\n\nCompara semánticamente. Solo JSON.";
-  return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:3000,system:sys,messages:[{role:"user",content:msg}]});
+  var sys="Emparejas ítems del MISMO proyecto eléctrico entre una COTIZACIÓN y un P.O, redactados distinto (abreviaturas, mayúsculas, orden). Empareja los que sean el mismo material/concepto. Devuelve las cantidades TAL CUAL aparecen (no las compares tú). Responde SOLO JSON: {\"pares\":[{\"cot\":\"descripcion cotizacion\",\"cotCant\":\"\",\"po\":\"descripcion po\",\"poCant\":\"\"}],\"cotSinPar\":[\"descripcion\"],\"poSinPar\":[\"descripcion\"]}";
+  var msg="COTIZACIÓN ("+cot.length+"):\n"+cotT+"\n\nP.O ("+po.length+"):\n"+poT+"\n\nEmpareja. Solo JSON.";
+  return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:msg}]});
 }
 // Compara P.O vs Cotización: 1) por CÓDIGO exacto; 2) lo que no empareja, por DESCRIPCIÓN (IA).
 function _projCompare(po,cot){
@@ -1259,8 +1260,15 @@ function _projCompare(po,cot){
   });
   _projDiag("Por código: "+(cot.length-cotRemaining.length)+" emparejados · quedan "+cotRemaining.length+" cot y "+poRemaining.length+" P.O → análisis por descripción");
   if(!cotRemaining.length&&!poRemaining.length)return Promise.resolve({coinciden:diffs.length===0,diferencias:diffs});
-  return _aiCompare(poRemaining,cotRemaining).then(function(cmp){
-    var ai=(cmp&&cmp.diferencias)||[];return{coinciden:(diffs.length+ai.length)===0,diferencias:diffs.concat(ai)};
+  return _aiCompare(poRemaining,cotRemaining).then(function(res){
+    res=res||{};
+    // Comparar cantidades de cada par emparejado por descripción (JS, determinístico).
+    (res.pares||[]).forEach(function(p){
+      if(ncant(p.cotCant)!==ncant(p.poCant))diffs.push("Cantidad distinta: \""+String(p.cot||"").slice(0,45)+"\" → Cot="+p.cotCant+" vs P.O="+p.poCant);
+    });
+    (res.cotSinPar||[]).forEach(function(d){diffs.push("En Cotización pero NO en P.O: "+d);});
+    (res.poSinPar||[]).forEach(function(d){diffs.push("En P.O pero NO en Cotización: "+d);});
+    return{coinciden:diffs.length===0,diferencias:diffs};
   }).catch(function(e){
     _projDiag("(IA comparación falló: "+((e&&e.message)||"")+") → comparación exacta local");
     var loc=_cmpItems(poRemaining,cotRemaining);return{coinciden:(diffs.length+loc.diferencias.length)===0,diferencias:diffs.concat(loc.diferencias)};

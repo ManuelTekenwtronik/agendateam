@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809033; // subir en CADA despliegue
+var APP_BUILD=20260809034; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1389,6 +1389,9 @@ function projNuevaBitacora(id){
     '<div style="font-weight:800;font-size:13px;margin:8px 0 6px;">Avance por ítem</div>'+
     '<div style="overflow:auto;max-height:44vh;border-radius:8px;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';">'+
       '<thead><tr>'+heads.map(function(hh){return'<th style="position:sticky;top:0;background:#f7f8fc;border-right:'+GB+';border-bottom:'+GB+';padding:4px 6px;white-space:nowrap;">'+hh+'</th>';}).join("")+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    // Líneas adicionales (actividades fuera de la P.O)
+    '<div style="font-weight:800;font-size:13px;margin:14px 0 6px;">➕ Líneas adicionales (no están en la P.O)</div>'+
+    '<div id="bit-extra"></div>'+
     // Firmas
     '<div style="font-weight:800;font-size:13px;margin:14px 0 6px;">Firmas</div>'+
     '<div style="border:1px solid #eee;border-radius:12px;padding:10px;margin-bottom:10px;">'+
@@ -1407,6 +1410,7 @@ function projNuevaBitacora(id){
     '</div>'+
     '<button class="btn btn-block" style="background:#9b59b6;color:#fff;margin-top:14px;" onclick="guardarBitacora()">💾 Guardar bitácora</button>';
   showSheet("Nueva bitácora — "+(p.name||""),body);
+  _bitExtraN=0;bitAddExtraRow(); // primera línea adicional vacía
   initSig("bit-sig-sup");initSig("bit-sig-col");
   // Autollenar lugar por GPS
   getGeo(function(loc){
@@ -1416,7 +1420,31 @@ function projNuevaBitacora(id){
     if(!loc.address)_geocode(loc,function(g){var e2=document.getElementById("bit-place");if(e2&&g.address)e2.value=g.address;});
   });
 }
-var _bitProjId=null,_bitCoords=null,_bitPrev=[],_bitCant=[];
+var _bitProjId=null,_bitCoords=null,_bitPrev=[],_bitCant=[],_bitExtraN=0;
+// Agrega una línea adicional vacía; al escribir en la última, se genera otra abajo automáticamente.
+function bitAddExtraRow(){
+  var cont=document.getElementById("bit-extra");if(!cont)return;
+  var i=_bitExtraN++;
+  var GB="1px solid #cfd3dc",st="width:100%;border:1px solid #e5e7ef;border-radius:8px;font-size:12px;padding:8px;box-sizing:border-box;";
+  var row=document.createElement("div");row.id="bit-exrow-"+i;row.style.cssText="border:1px solid #eee;border-radius:10px;padding:8px;margin-bottom:8px;";
+  row.innerHTML=
+    '<div style="display:flex;gap:6px;margin-bottom:6px;">'+
+      '<input id="bit-ex-cod-'+i+'" placeholder="Código (opcional)" style="'+st+'flex:1;">'+
+      '<input id="bit-ex-uni-'+i+'" placeholder="Unidad" style="'+st+'width:80px;">'+
+    '</div>'+
+    '<input id="bit-ex-desc-'+i+'" placeholder="Descripción de la actividad" oninput="bitExtraMaybeAdd('+i+')" style="'+st+'margin-bottom:6px;">'+
+    '<div style="display:flex;gap:6px;">'+
+      '<input id="bit-ex-cant-'+i+'" inputmode="decimal" placeholder="Cantidad" style="'+st+'flex:1;text-align:right;">'+
+      '<input id="bit-ex-ej-'+i+'" inputmode="decimal" placeholder="Ejec. hoy" style="'+st+'flex:1;text-align:right;">'+
+    '</div>';
+  cont.appendChild(row);
+}
+function bitExtraMaybeAdd(i){
+  // si es la última fila y ya tiene descripción, genera una nueva abajo
+  if(i!==_bitExtraN-1)return;
+  var d=((document.getElementById("bit-ex-desc-"+i)||{}).value||"").trim();
+  if(d)bitAddExtraRow();
+}
 // Recalcula en vivo acumulado (prev + ejecutado hoy), % y color rojo si supera lo contratado.
 function bitCalcRow(i){
   var ej=_num((document.getElementById("bit-ej-"+i)||{}).value),prev=_bitPrev[i]||0,cant=_bitCant[i]||0,acc=prev+ej;
@@ -1452,6 +1480,16 @@ function guardarBitacora(){
     var k=String(it.codigo||it.descripcion||""),prev=accum[k]||0,ej=_num((document.getElementById("bit-ej-"+i)||{}).value);
     return{codigo:it.codigo||"",cantidad:it.cantidad||"",descripcion:it.descripcion||"",unidad:it.unidad||"",ejecutadoHoy:ej?String(ej):"",acumulado:prev+ej};
   });
+  // Líneas adicionales (fuera de P.O): incluir las que tengan descripción.
+  for(var xi=0;xi<_bitExtraN;xi++){
+    var xd=((document.getElementById("bit-ex-desc-"+xi)||{}).value||"").trim();if(!xd)continue;
+    var xcod=((document.getElementById("bit-ex-cod-"+xi)||{}).value||"").trim();
+    var xuni=((document.getElementById("bit-ex-uni-"+xi)||{}).value||"").trim();
+    var xcant=((document.getElementById("bit-ex-cant-"+xi)||{}).value||"").trim();
+    var xej=_num((document.getElementById("bit-ex-ej-"+xi)||{}).value);
+    var xk=String(xcod||xd),xprev=accum[xk]||0;
+    items.push({codigo:xcod,cantidad:xcant,descripcion:xd,unidad:xuni,ejecutadoHoy:xej?String(xej):"",acumulado:xprev+xej,extra:true});
+  }
   toast("⏳ Guardando firmas…");
   // Subir ambas firmas a Cloudinary (imágenes) y luego guardar la bitácora.
   uploadDataUrl(supSig,"agendateam/bitacoras",function(supUrl){

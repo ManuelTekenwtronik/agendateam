@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808021; // subir en CADA despliegue
+var APP_BUILD=20260808022; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1236,12 +1236,13 @@ function _cmpItems(po,cot){
   po.forEach(function(it){var k=norm(it.descripcion);if(k&&!cotMap[k])diffs.push("En P.O pero NO en Cotización: "+(it.descripcion||it.codigo));});
   return{coinciden:diffs.length===0,diferencias:diffs};
 }
+function _codeCount(items){return(items||[]).filter(function(it){return String(it.codigo||"").replace(/[^A-Za-z0-9]/g,"");}).length;}
 // Comparación semántica por descripción (IA) — para ítems que NO se emparejaron por código.
 // La IA SOLO empareja (por significado) y devuelve las cantidades tal cual; la comparación de cantidades la hace JS.
 function _aiCompare(po,cot){
   function line(it,i){return(i+1)+". ["+(it.codigo||"s/cod")+"] "+it.descripcion+" · cant:"+it.cantidad;}
   var poT=po.map(line).join("\n"),cotT=cot.map(line).join("\n");
-  var sys="Emparejas ítems del MISMO proyecto eléctrico entre una COTIZACIÓN y un P.O, redactados distinto (abreviaturas, mayúsculas, orden). Empareja los que sean el mismo material/concepto. Devuelve las cantidades TAL CUAL aparecen (no las compares tú). Responde SOLO JSON: {\"pares\":[{\"cot\":\"descripcion cotizacion\",\"cotCant\":\"\",\"po\":\"descripcion po\",\"poCant\":\"\"}],\"cotSinPar\":[\"descripcion\"],\"poSinPar\":[\"descripcion\"]}";
+  var sys="Emparejas ítems del MISMO proyecto eléctrico entre una COTIZACIÓN y un P.O, redactados distinto (abreviaturas, mayúsculas, orden, unidad distinta). Empareja los que sean el mismo material/concepto AUNQUE la descripción solo sea PARECIDA. IGNORA por completo la unidad de medida (no la uses para emparejar ni la reportes como diferencia). Devuelve las cantidades TAL CUAL aparecen (no las compares tú). Responde SOLO JSON: {\"pares\":[{\"cot\":\"descripcion cotizacion\",\"cotCant\":\"\",\"po\":\"descripcion po\",\"poCant\":\"\"}],\"cotSinPar\":[\"descripcion\"],\"poSinPar\":[\"descripcion\"]}";
   var msg="COTIZACIÓN ("+cot.length+"):\n"+cotT+"\n\nP.O ("+po.length+"):\n"+poT+"\n\nEmpareja. Solo JSON.";
   return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:msg}]});
 }
@@ -1282,10 +1283,10 @@ function projExtractCompare(){
   _projDiag("▶ Inicio · cot="+(_projCot.name||"")+(isExcel?" (EXCEL)":" (PDF)")+" · po="+(_projPO.name||"")+" (b64 en memoria: cot="+(_projCot.b64?"sí":"no")+", po="+(_projPO.b64?"sí":"no")+")");
   var cotP=isExcel?parseExcelItems(_projCot):_extractItemsFromPdf(_projCot,"COTIZACIÓN");
   cotP.then(function(cotItems){
-    _projDiag("Cotización lista: "+cotItems.length+" ítems");
+    _projDiag("Cotización: "+cotItems.length+" ítems ("+_codeCount(cotItems)+" con código)");
     _projSetItems(cotItems);
     return _extractItemsFromPdf(_projPO,"P.O").then(function(poItems){
-      _projDiag("P.O listo: "+poItems.length+" ítems. Comparando (código → descripción)…");var tc=Date.now();
+      _projDiag("P.O: "+poItems.length+" ítems ("+_codeCount(poItems)+" con código). Comparando (código→descripción, sin unidad)…");var tc=Date.now();
       return _projCompare(poItems,cotItems).then(function(cmp){
         _projDiag("Comparación lista ("+(Date.now()-tc)+"ms)");
         _projDiag(cmp.coinciden?"✅ RESULTADO: P.O y Cotización COINCIDEN":"⚠️ RESULTADO: "+((cmp.diferencias||[]).length)+" diferencia(s):");

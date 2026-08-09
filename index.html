@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809031; // subir en CADA despliegue
+var APP_BUILD=20260809032; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1290,15 +1290,18 @@ function _myEmail(){if(currentUser&&currentUser.email)return currentUser.email;v
 function projVerBitacora(pid,bid){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
   var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(bid);});if(!b)return;
-  var GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;";
-  var heads=["Código","Cant.","Descripción","Unidad","Acum.","Ejec. hoy"];
-  var rows=(b.items||[]).map(function(it){return'<tr>'+
+  var GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;",GRAY="background:#eceff4;font-weight:800;";
+  var heads=["Código","Descripción","Unidad","Cant.","Acum.","Ejec. hoy","%"];
+  var rows=(b.items||[]).map(function(it){
+    var cant=_num(it.cantidad),acc=_num(it.acumulado),over=cant>0&&acc>cant,pct=cant>0?Math.round(acc/cant*100)+"%":"";
+    return'<tr>'+
     '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.codigo||"")+'</td>'+
-    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.cantidad||"")+'</td>'+
     '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;">'+escH(it.descripcion||"")+'</td>'+
     '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.unidad||"")+'</td>'+
-    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.acumulado!=null?it.acumulado:"")+'</td>'+
-    '<td style="border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.ejecutadoHoy||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+GRAY+'">'+escH(it.cantidad||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+(over?"color:#e74c3c;font-weight:800;":"")+'">'+escH(it.acumulado!=null?it.acumulado:"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.ejecutadoHoy||"")+'</td>'+
+    '<td style="border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+pct+'</td>'+
   '</tr>';}).join("");
   function sig(o,rol){return'<div style="flex:1;text-align:center;"><div style="font-size:11px;font-weight:700;">'+rol+'</div>'+((o&&o.signUrl)?'<img src="'+escH(o.signUrl)+'" style="width:100%;max-height:90px;object-fit:contain;border-bottom:1px solid #333;">':'<div style="height:90px;border-bottom:1px solid #333;"></div>')+'<div style="font-size:11px;margin-top:3px;">'+escH((o&&o.name)||"—")+'</div><div style="font-size:10px;color:#777;">'+escH((o&&o.email)||"")+'</div></div>';}
   var body='<div style="font-size:12px;color:#555;line-height:1.9;margin-bottom:10px;">'+
@@ -1311,16 +1314,21 @@ function projNuevaBitacora(id){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
   _bitProjId=id;
   var accum=bitAccumMap(p),GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;";
-  var heads=["Código","Cant.","Descripción","Unidad","Acumulado","Ejec. hoy"];
+  var GRAY="background:#eceff4;font-weight:800;"; // cantidad contratada: negrilla + sombreado
+  var heads=["Código","Descripción","Unidad","Cant.","Acum.","Ejec. hoy","%"];
+  _bitPrev=[];_bitCant=[];
   var rows=(p.items||[]).map(function(it,i){
-    var k=String(it.codigo||it.descripcion||""),acc=accum[k]||0;
+    var k=String(it.codigo||it.descripcion||""),prev=accum[k]||0,cant=_num(it.cantidad);
+    _bitPrev[i]=prev;_bitCant[i]=cant;
+    var over=cant>0&&prev>cant,pct=cant>0?Math.round(prev/cant*100):"";
     return'<tr>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.codigo||"")+'</td>'+
-      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.cantidad||"")+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;">'+escH(it.descripcion||"")+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.unidad||"")+'</td>'+
-      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'" id="bit-acc-'+i+'">'+(acc||"")+'</td>'+
-      '<td style="border-bottom:'+GB+';padding:2px 4px;"><input id="bit-ej-'+i+'" inputmode="decimal" value="" style="width:64px;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:3px;'+NUM+'"></td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+GRAY+'">'+escH(it.cantidad||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+(over?"color:#e74c3c;font-weight:800;":"")+'" id="bit-acc-'+i+'">'+(prev||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:2px 4px;"><input id="bit-ej-'+i+'" inputmode="decimal" value="" oninput="bitCalcRow('+i+')" style="width:60px;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:3px;'+NUM+'"></td>'+
+      '<td style="border-bottom:'+GB+';padding:3px 5px;'+NUM+'" id="bit-pct-'+i+'">'+(pct!==""?pct+"%":"")+'</td>'+
     '</tr>';
   }).join("");
   var today=todayKey();
@@ -1357,7 +1365,14 @@ function projNuevaBitacora(id){
     if(!loc.address)_geocode(loc,function(g){var e2=document.getElementById("bit-place");if(e2&&g.address)e2.value=g.address;});
   });
 }
-var _bitProjId=null,_bitCoords=null;
+var _bitProjId=null,_bitCoords=null,_bitPrev=[],_bitCant=[];
+// Recalcula en vivo acumulado (prev + ejecutado hoy), % y color rojo si supera lo contratado.
+function bitCalcRow(i){
+  var ej=_num((document.getElementById("bit-ej-"+i)||{}).value),prev=_bitPrev[i]||0,cant=_bitCant[i]||0,acc=prev+ej;
+  var accEl=document.getElementById("bit-acc-"+i),pctEl=document.getElementById("bit-pct-"+i);
+  if(accEl){accEl.textContent=acc||"";var over=cant>0&&acc>cant;accEl.style.color=over?"#e74c3c":"";accEl.style.fontWeight=over?"800":"";}
+  if(pctEl)pctEl.textContent=cant>0?(Math.round(acc/cant*100)+"%"):"";
+}
 function initSig(cid){
   var c=document.getElementById(cid);if(!c)return;
   var ctx=c.getContext("2d");ctx.lineWidth=2.2;ctx.lineCap="round";ctx.strokeStyle="#1a1d2e";c._empty=true;

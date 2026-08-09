@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808023; // subir en CADA despliegue
+var APP_BUILD=20260808024; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1180,7 +1180,14 @@ function parseExcelItems(f){
     return items;
   });
 }
-function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}var raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";try{var m=raw.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):null;}catch(e){return null;}}
+function _projParseAI(d){
+  if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}
+  var raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";
+  try{var m=raw.match(/\{[\s\S]*\}/);if(m)return JSON.parse(m[0]);}catch(e){}
+  // Salvamento si el JSON viene truncado (respuesta cortada por longitud): recupera los objetos completos.
+  try{var items=[],re=/\{[^{}]*\}/g,mm;while((mm=re.exec(raw))){try{var o=JSON.parse(mm[0]);if(o&&(o.descripcion!==undefined||o.codigo!==undefined))items.push(o);}catch(e2){}}if(items.length)return{items:items};}catch(e3){}
+  return null;
+}
 function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
 function _projSetItems(items){_projItems=(items||[]).map(function(it){return{codigo:String(it.codigo||it.item||""),cantidad:String(it.cantidad||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
@@ -1217,12 +1224,12 @@ function _extractItemsFromPdf(f,label){
     if(txt.length>40){
       _projDiag(label+": enviando TEXTO a la IA…");var t1=Date.now();
       var sys="Del texto de un documento comercial extrae las líneas de su tabla. Para cada línea: codigo (código de material/artículo si existe; si no, vacío), cantidad, descripcion, unidad. Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\"}]}";
-      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
+      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:8000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
     }
     _projDiag(label+": sin texto (escaneo) → enviando PDF a la IA…");var t2=Date.now();
     return _projB64(f).then(function(b64){
       var sys="Extrae las líneas de la tabla del PDF. Para cada línea: codigo (código de material/artículo si existe), cantidad, descripcion, unidad. Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\"}]}";
-      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
+      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:8000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
     });
   }).then(function(res){return(res&&res.items)||[];});
 }

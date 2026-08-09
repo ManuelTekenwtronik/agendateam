@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808018; // subir en CADA despliegue
+var APP_BUILD=20260808019; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1053,6 +1053,7 @@ function renderFaceTest(){
 // ── MÓDULO PROYECTOS A PRODUCCIÓN ──
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
+var PROJ_AI_MODEL="claude-haiku-4-5-20251001"; // modelo rápido: evita el "Inactivity Timeout" de conexiones lentas
 var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="";
 function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
@@ -1215,12 +1216,12 @@ function _extractItemsFromPdf(f,label){
     if(txt.length>40){
       _projDiag(label+": enviando TEXTO a la IA…");var t1=Date.now();
       var sys="Del texto de un documento comercial extrae las líneas de su tabla. Columnas: item (número/código), descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
-      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
+      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
     }
     _projDiag(label+": sin texto (escaneo) → enviando PDF a la IA…");var t2=Date.now();
     return _projB64(f).then(function(b64){
       var sys="Extrae las líneas de la tabla del PDF: item, descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
-      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
+      return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
     });
   }).then(function(res){return(res&&res.items)||[];});
 }

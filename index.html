@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808011; // subir en CADA despliegue
+var APP_BUILD=20260808012; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1053,12 +1053,15 @@ function renderFaceTest(){
 // ── MÓDULO PROYECTOS A PRODUCCIÓN ──
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
-var _projItems=[],_projPO=null,_projOT=null,_projCot=null,_projEditId=null,_projViewId="";
+var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="";
+function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
   var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
   var isManuel=t==="boss",isAndres=/andres\s*daza/.test(n),isMarianela=/marianela/.test(n),isGiovanni=/giovann|geovann|izquierdo/.test(n);
   return{load:isManuel||isAndres||isMarianela,validate:isGiovanni,approve:isManuel||isAndres};
 }
+// Ver archivos CON precios: solo Manuel Daza, Andres Daza, Giovanni Izquierdo (Erick) y Marianela Oviedo.
+function canSeePrices(){var pp=projPerms();return pp.load||pp.validate||pp.approve;}
 function projView(id){_projViewId=id;renderProyectos();}
 function projFichaHTML(p){
   var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—",color:"#7f8c8d"};
@@ -1069,9 +1072,11 @@ function projFichaHTML(p){
       '🧾 <b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br>'+
       '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
       '🔢 <b>Solpec:</b> '+escH(p.solpec||"—")+'<br>'+
-      '📄 <b>P.O sin precios:</b> '+(p.poFile&&p.poFile.url?'<a href="'+escH(p.poFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.poFile.name||"ver PDF")+'</a>':"—")+'<br>'+
-      '💲 <b>Cotización:</b> '+(p.cotFile&&p.cotFile.url?'<a href="'+escH(p.cotFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.cotFile.name||"ver PDF")+'</a>':"—")+'<br>'+
-      '📎 <b>OT:</b> '+(p.otFile&&p.otFile.url?'<a href="'+escH(p.otFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.otFile.name||"ver PDF")+'</a>':"—")+
+      '📄 <b>P.O sin precios:</b> '+_projLink(p.poFile)+'<br>'+
+      (canSeePrices()?('💵 <b>P.O con precios:</b> '+_projLink(p.poFilePriced)+'<br>'):"")+
+      '💲 <b>Cotización sin precios:</b> '+_projLink(p.cotFile)+'<br>'+
+      (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
+      '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
     '<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;">'+
       '<thead><tr>'+["Ítem","Descripción","Unidad","Cantidad"].map(function(c){return'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;background:#f7f8fc;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+
@@ -1110,8 +1115,8 @@ function renderProyectos(){
   h+='</div>';
   host.innerHTML=h;
 }
-function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projOT=null;_projCot=null;projForm({});}
-function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;projForm(p);}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;projForm({});}
+function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;projForm(p);}
 function projForm(p){
   var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
   var body=''+
@@ -1120,8 +1125,10 @@ function projForm(p){
     '<div class="field"><label>Número de P.O</label><input id="proj-ponum" value="'+escH(p.poNumber||"")+'" placeholder="N° de orden de compra"></div>'+
     '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
     '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
-    '<div class="field"><label>P.O sin precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
-    '<div class="field"><label>Cotización (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir PDF/Excel<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>P.O SIN precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>P.O CON precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💵 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'pop\')"></label> <span id="proj-pop-name" style="font-size:12px;color:#666;">'+(_projPOp?escH(_projPOp.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Cotización SIN precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Cotización CON precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💰 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cotp\')"></label> <span id="proj-cotp-name" style="font-size:12px;color:#666;">'+(_projCotp?escH(_projCotp.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>Orden de Trabajo — OT (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📎 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'ot\')"></label> <span id="proj-ot-name" style="font-size:12px;color:#666;">'+(_projOT?escH(_projOT.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>🤖 Auto-llenar con IA (lee P.O y Cotización)</label>'+
       '<button id="proj-ai-btn" class="btn btn-sm" style="background:#8e44ad;color:#fff;" onclick="projExtractCompare()">🤖 Extraer y comparar (P.O ↔ Cotización)</button>'+
@@ -1207,8 +1214,8 @@ function projUpload(file,slot){
   toast("⏳ Subiendo "+file.name+"…");
   var fd=new FormData();fd.append("file",file);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam/proyectos");
   var xhr=new XMLHttpRequest();xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
-  var slotEl={po:"proj-po-name",ot:"proj-ot-name",cot:"proj-cot-name"};
-  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name};if(slot==="po")_projPO=o;else if(slot==="ot")_projOT=o;else if(slot==="cot")_projCot=o;var el=document.getElementById(slotEl[slot]);if(el)el.textContent=file.name;toast("✅ "+file.name);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
+  var slotEl={po:"proj-po-name",pop:"proj-pop-name",ot:"proj-ot-name",cot:"proj-cot-name",cotp:"proj-cotp-name"};
+  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name};if(slot==="po")_projPO=o;else if(slot==="pop")_projPOp=o;else if(slot==="ot")_projOT=o;else if(slot==="cot")_projCot=o;else if(slot==="cotp")_projCotp=o;var el=document.getElementById(slotEl[slot]);if(el)el.textContent=file.name;toast("✅ "+file.name);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
   xhr.onerror=function(){toast("Error de red al subir","error");};
   xhr.send(fd);
 }
@@ -1223,9 +1230,9 @@ function projSave(){
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.otFile=_projOT;p.cotFile=_projCot;p.items=_projItems.slice();p.status="borrador";}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.status="borrador";}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,otFile:_projOT,cotFile:_projCot,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
   }
   saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }

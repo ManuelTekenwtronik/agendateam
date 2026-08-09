@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808017; // subir en CADA despliegue
+var APP_BUILD=20260808018; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1183,6 +1183,9 @@ function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)ret
 function _projSetItems(items){_projItems=(items||[]).map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
 function _projErr(msg){toast("error IA","error");var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:10px;padding:10px;font-size:12px;color:#c0392b;word-break:break-word;">🔎 '+escH(String(msg))+'</div>';}
+// Banderas de diagnóstico: rastro paso a paso visible en pantalla.
+var _projTrace=[];
+function _projDiag(m){_projTrace.push(m);var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<pre style="background:#0d1117;color:#3fb950;font-size:11px;padding:8px;border-radius:8px;white-space:pre-wrap;max-height:240px;overflow:auto;margin:0;">'+escH(_projTrace.join("\n"))+'</pre>';try{console.log("[PROY]",m);}catch(e){}}
 // POST al validador de IA y devuelve el JSON interno. Lanza error claro si vino HTML (timeout).
 function _claudeJSON(body){
   return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.text();}).then(function(t){
@@ -1202,16 +1205,22 @@ function pdfExtractText(f){
   });
 }
 // Extrae ítems de UN PDF: primero texto local (rápido); si es escaneo sin texto, cae al PDF a la IA.
-function _extractItemsFromPdf(f){
-  return pdfExtractText(f).catch(function(){return "";}).then(function(txt){
+function _extractItemsFromPdf(f,label){
+  label=label||"DOC";
+  _projDiag(label+": leyendo texto local (pdf.js)…");
+  var t0=Date.now();
+  return pdfExtractText(f).catch(function(e){_projDiag(label+": ⚠️ pdf.js falló ("+((e&&e.message)||"?")+") → usaré el PDF");return "";}).then(function(txt){
     txt=(txt||"").trim();
+    _projDiag(label+": texto="+txt.length+" chars ("+(Date.now()-t0)+"ms)");
     if(txt.length>40){
+      _projDiag(label+": enviando TEXTO a la IA…");var t1=Date.now();
       var sys="Del texto de un documento comercial extrae las líneas de su tabla. Columnas: item (número/código), descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
-      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]});
+      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
     }
+    _projDiag(label+": sin texto (escaneo) → enviando PDF a la IA…");var t2=Date.now();
     return _projB64(f).then(function(b64){
       var sys="Extrae las líneas de la tabla del PDF: item, descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
-      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]});
+      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
     });
   }).then(function(res){return(res&&res.items)||[];});
 }
@@ -1228,17 +1237,21 @@ function _cmpItems(po,cot){
 function projExtractCompare(){
   if(!_projPO||!_projPO.url){toast("Sube el P.O primero","error");return;}
   if(!_projCot||!_projCot.url){toast("Sube la Cotización primero","error");return;}
-  _projBtn(true);
+  _projBtn(true);_projTrace=[];
   var isExcel=/\.(xlsx|xls|csv)$/.test((_projCot.name||"").toLowerCase());
-  toast(isExcel?"📊 Leyendo cotización (Excel)…":"🤖 Leyendo cotización (PDF)…");
-  var cotP=isExcel?parseExcelItems(_projCot):_extractItemsFromPdf(_projCot);
+  _projDiag("▶ Inicio · cot="+(_projCot.name||"")+(isExcel?" (EXCEL)":" (PDF)")+" · po="+(_projPO.name||"")+" (b64 en memoria: cot="+(_projCot.b64?"sí":"no")+", po="+(_projPO.b64?"sí":"no")+")");
+  var cotP=isExcel?parseExcelItems(_projCot):_extractItemsFromPdf(_projCot,"COTIZACIÓN");
   cotP.then(function(cotItems){
-    _projSetItems(cotItems);toast("✅ "+cotItems.length+" ítems (cotización)");
-    toast("🤖 Leyendo P.O y comparando…");
-    return _extractItemsFromPdf(_projPO).then(function(poItems){
-      _projShowCmp(_cmpItems(poItems,cotItems));_projBtn(false);toast("✅ Comparación lista");
+    _projDiag("Cotización lista: "+cotItems.length+" ítems");
+    _projSetItems(cotItems);
+    return _extractItemsFromPdf(_projPO,"P.O").then(function(poItems){
+      _projDiag("P.O listo: "+poItems.length+" ítems. Comparando localmente…");
+      var cmp=_cmpItems(poItems,cotItems);
+      _projDiag(cmp.coinciden?"✅ RESULTADO: P.O y Cotización COINCIDEN":"⚠️ RESULTADO: "+cmp.diferencias.length+" diferencia(s):");
+      cmp.diferencias.forEach(function(x){_projDiag("   • "+x);});
+      _projBtn(false);toast("✅ Comparación lista");
     });
-  }).catch(function(e){_projBtn(false);_projErr("Error: "+((e&&e.message)||"fallo"));});
+  }).catch(function(e){_projBtn(false);_projDiag("❌ ERROR: "+((e&&e.message)||"fallo"));});
 }
 function projUpload(file,slot){
   if(!file)return;

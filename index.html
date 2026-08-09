@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809022; // subir en CADA despliegue
+var APP_BUILD=20260809023; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -819,7 +819,7 @@ function renderMenu(){
     ];
     if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);items.push(["facetest","🧪","Prueba Rostro","#16a085"]);}
   }
-  var _pp=projPerms();if(_pp.load||_pp.validate||_pp.approve)items.push(["proyectos","🏗️","Proyectos","#2c82c9"]);
+  items.push(["proyectos","🏗️","Proyectos","#2c82c9"]); // visible para todo el team
   document.getElementById("menu-screen").innerHTML=
     '<div class="menu-wrap">'+
       '<div class="menu-header">'+
@@ -1179,12 +1179,28 @@ function projFichaHTML(p){
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
+var _projTab="bitacoras";
+function projSetTab(t){_projTab=t;renderProyectos();}
 function renderProyectos(){
   var host=document.getElementById("content"),pp=projPerms();
-  if(!pp.load&&!pp.validate&&!pp.approve){host.innerHTML=sectionHead("🏗️ Proyectos","")+'<div class="card">No tienes acceso a Proyectos.</div>';return;}
+  var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
+  var tabs=[["bitacoras","📒 Bitácoras"],["documentacion","📄 Documentación"]];
+  if(canCrear)tabs.push(["creacion","🛠️ Creación"]);
+  if(_projTab==="creacion"&&!canCrear)_projTab="bitacoras";
+  var h=sectionHead("🏗️ Proyectos","");
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 4px 12px;">'+
+    tabs.map(function(t){var on=_projTab===t[0];return'<button class="btn btn-sm" style="background:'+(on?"#2c82c9":"#eef2f9")+';color:'+(on?"#fff":"#2d3561")+';font-weight:700;" onclick="projSetTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join("")+
+  '</div>';
+  if(_projTab==="creacion")h+=projCreacionBody();
+  else if(_projTab==="bitacoras")h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📒 <b>Bitácoras</b><br><span style="font-size:13px;">Sección en construcción — se definirá el contenido próximamente.</span></div>';
+  else h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📄 <b>Documentación</b><br><span style="font-size:13px;">Sección en construcción — se definirá el contenido próximamente.</span></div>';
+  host.innerHTML=h;
+}
+function projCreacionBody(){
+  var pp=projPerms();
   var projs=(state.projects||[]).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
   var pubs=projs.filter(function(p){return p.status==="publicado";});
-  var h=sectionHead("🏗️ Proyectos a Producción","Cargar · validar · aprobar");
+  var h="";
   h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:8px;">📂 Proyectos publicados</div>'+
      (pubs.length?('<select onchange="projView(this.value)"><option value="">— elige un proyecto —</option>'+pubs.map(function(p){return'<option value="'+p.id+'"'+(String(_projViewId)===String(p.id)?" selected":"")+'>'+escH(p.name)+'</option>';}).join("")+'</select>'):'<div style="font-size:13px;color:#999;">Aún no hay proyectos publicados.</div>')+
      '</div>';
@@ -1210,7 +1226,7 @@ function renderProyectos(){
        '</div></div>';
   });
   h+='</div>';
-  host.innerHTML=h;
+  return h;
 }
 function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";_projLeak={po:false,cot:false};projForm({});}
 function projUseMyGPS(){toast("📍 Obteniendo ubicación…");getGeo(function(loc){if(loc&&loc.lat!=null){var la=document.getElementById("proj-lat"),lo=document.getElementById("proj-lng");if(la)la.value=loc.lat;if(lo)lo.value=loc.lng;toast("✅ Ubicación cargada");}else toast("No se pudo obtener el GPS","error");});}

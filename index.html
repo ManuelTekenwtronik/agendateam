@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809009; // subir en CADA despliegue
+var APP_BUILD=20260809010; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1114,7 +1114,7 @@ function projFichaHTML(p){
       (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:'+(/^(cantidad|valorUnitario|_vt)$/.test(c[0])?"right":"left")+';padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||""),num=/^(cantidad|valorUnitario|_vt)$/.test(c[0]);return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';'+(num?"text-align:right;font-variant-numeric:tabular-nums;":"")+'">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody>'+(canSeePrices()?_projTotalsTfoot(p.items,false,cols.length):"")+'</table></div>';})()+
+    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:'+(/^(cantidad|valorUnitario|_vt)$/.test(c[0])?"right":"left")+';padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||""),num=/^(cantidad|valorUnitario|_vt)$/.test(c[0]);return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';'+(num?"text-align:right;font-variant-numeric:tabular-nums;":"")+'">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody>'+(canSeePrices()?_projTotalsTfoot(p.items,false,cols.length,p.totales):"")+'</table></div>';})()+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
@@ -1180,9 +1180,13 @@ function _projBruto(){return _sumRows(_projItems);}
 function _projIvaVal(bruto){return(_projTotales.iva!=null&&_projTotales.iva!=="")?_num(_projTotales.iva):bruto*0.12;}
 function _projTotVal(bruto,iva){return(_projTotales.total!=null&&_projTotales.total!=="")?_num(_projTotales.total):(bruto+iva);}
 // Pie de tabla con totales alineado bajo la columna V.Total. editable=inputs; totalCols=# de columnas de la tabla.
-function _projTotalsTfoot(items,editable,totalCols){
+function _projTotalsTfoot(items,editable,totalCols,saved){
   var bruto=_sumRows(items);if(!bruto)return"";
-  var iva=_projIvaVal(bruto),total=_projTotVal(bruto,iva),GB="1px solid #cfd3dc",trail=totalCols>6?'<td style="border-top:'+GB+';"></td>':"";
+  // En edición usa los totales en memoria (_projTotales); en vista usa los GUARDADOS del proyecto (saved).
+  var iva,total;
+  if(editable){iva=_projIvaVal(bruto);total=_projTotVal(bruto,iva);}
+  else{iva=(saved&&saved.iva!=null&&saved.iva!=="")?_num(saved.iva):bruto*0.12;total=(saved&&saved.total!=null&&saved.total!=="")?_num(saved.total):(bruto+iva);}
+  var GB="1px solid #cfd3dc",trail=totalCols>6?'<td style="border-top:'+GB+';"></td>':"";
   function row(lbl,val){return'<tr><td colspan="5" style="text-align:right;padding:4px 8px;font-weight:700;border-top:'+GB+';">'+lbl+'</td><td style="padding:2px 6px;border-top:'+GB+';border-right:'+GB+';white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;">'+val+'</td>'+trail+'</tr>';}
   var ivaCell=editable?'<input id="proj-iva-input" value="'+_money(iva)+'" onchange="projSetIva(this.value)" style="width:82px;text-align:right;font-variant-numeric:tabular-nums;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:2px 4px;">':('<b>'+escH(_money(iva))+'</b>');
   var totCell=editable?'<input id="proj-total-input" value="'+_money(total)+'" onchange="projSetTotal(this.value)" style="width:92px;text-align:right;font-variant-numeric:tabular-nums;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:2px 4px;font-weight:700;">':('<b>'+escH(_money(total))+'</b>');

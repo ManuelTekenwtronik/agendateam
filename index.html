@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809021; // subir en CADA despliegue
+var APP_BUILD=20260809022; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1168,6 +1168,7 @@ function projFichaHTML(p){
       '🧾 <b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br>'+
       '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
       '🔢 <b>Solpec:</b> '+escH(p.solpec||"—")+'<br>'+
+      '📍 <b>Ubicación:</b> '+(p.lat!=null?(p.lat+", "+p.lng+" · margen "+(p.radius||200)+"m"):'<span style="color:#c0392b;">sin ubicación (requerida para publicar)</span>')+'<br>'+
       '📄 <b>P.O sin precios:</b> '+_projLink(p.poFile)+'<br>'+
       (canSeePrices(p.client)?('💵 <b>P.O con precios:</b> '+_projLink(p.poFilePriced)+'<br>'):"")+
       '💲 <b>Cotización sin precios:</b> '+_projLink(p.cotFile)+'<br>'+
@@ -1212,6 +1213,7 @@ function renderProyectos(){
   host.innerHTML=h;
 }
 function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";_projLeak={po:false,cot:false};projForm({});}
+function projUseMyGPS(){toast("📍 Obteniendo ubicación…");getGeo(function(loc){if(loc&&loc.lat!=null){var la=document.getElementById("proj-lat"),lo=document.getElementById("proj-lng");if(la)la.value=loc.lat;if(lo)lo.value=loc.lng;toast("✅ Ubicación cargada");}else toast("No se pudo obtener el GPS","error");});}
 function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};_projRejRows=(p.rejectComment?(p.rejectedRows||[]):[]).slice();_projRejComment=p.rejectComment||"";_projLeak={po:!!p.priceLeakPo,cot:!!p.priceLeakCot};projForm(p);}
 function projForm(p){
   _projEditClient=p.client||"";
@@ -1223,6 +1225,13 @@ function projForm(p){
     '<div class="field"><label>Número de P.O</label><input id="proj-ponum" value="'+escH(p.poNumber||"")+'" placeholder="N° de orden de compra"></div>'+
     '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
     '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
+    '<div class="field"><label>📍 Ubicación del proyecto (para geocerca)</label>'+
+      '<div style="display:flex;gap:6px;">'+
+        '<input id="proj-lat" value="'+escH(p.lat!=null?p.lat:"")+'" placeholder="Latitud" inputmode="decimal" style="flex:1;padding:11px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;">'+
+        '<input id="proj-lng" value="'+escH(p.lng!=null?p.lng:"")+'" placeholder="Longitud" inputmode="decimal" style="flex:1;padding:11px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;">'+
+      '</div>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projUseMyGPS()">📍 Usar mi ubicación actual</button></div>'+
+    '<div class="field"><label>Margen para ejecutar (metros)</label><input id="proj-radius" value="'+escH(p.radius!=null?p.radius:200)+'" placeholder="200" inputmode="numeric" style="width:120px;padding:11px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;"></div>'+
     '<div class="field"><label>P.O SIN precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span><div id="proj-po-warn" style="font-size:11px;margin-top:4px;">'+(_projLeak.po?'<span style="color:#c0392b;font-weight:700;">⚠️ ¡Este archivo SIN precios parece CONTENER precios! Corrígelo antes de publicar.</span>':'')+'</div></div>'+
     (canSeePrices(p.client)?'<div class="field"><label>P.O CON precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💵 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'pop\')"></label> <span id="proj-pop-name" style="font-size:12px;color:#666;">'+(_projPOp?escH(_projPOp.name):"sin archivo")+'</span></div>':"")+
     '<div class="field"><label>Cotización SIN precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span><div id="proj-cot-warn" style="font-size:11px;margin-top:4px;">'+(_projLeak.cot?'<span style="color:#c0392b;font-weight:700;">⚠️ ¡Este archivo SIN precios parece CONTENER precios! Corrígelo antes de publicar.</span>':'')+'</div></div>'+
@@ -1531,6 +1540,10 @@ function projSave(){
   var poNumber=(document.getElementById("proj-ponum")||{}).value||"";
   var poDate=(document.getElementById("proj-podate")||{}).value||"";
   var solpec=(document.getElementById("proj-solpec")||{}).value||"";
+  var latV=(document.getElementById("proj-lat")||{}).value,lngV=(document.getElementById("proj-lng")||{}).value,radV=(document.getElementById("proj-radius")||{}).value;
+  var lat=(latV!==""&&latV!=null&&!isNaN(parseFloat(latV)))?parseFloat(latV):null;
+  var lng=(lngV!==""&&lngV!=null&&!isNaN(parseFloat(lngV)))?parseFloat(lngV):null;
+  var radius=(radV!==""&&radV!=null&&!isNaN(parseInt(radV,10)))?parseInt(radV,10):200;
   var _b=_sumRows(_projItems),_iv=_projIvaVal(_b),_tt=_projTotVal(_b,_iv),_tot={bruto:_b.toFixed(2),iva:_iv.toFixed(2),total:_tt.toFixed(2)};
   // Guardar SOLO url+name de los archivos (nunca el base64: excede el límite de 1MB de Firestore).
   function _slim(f){return f&&f.url?{url:f.url,name:f.name||""}:null;}
@@ -1538,9 +1551,9 @@ function projSave(){
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_fPO;p.poFilePriced=_fPOp;p.otFile=_fOT;p.cotFile=_fCot;p.cotFilePriced=_fCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.rejectComment="";p.rejectedRows=[];p.priceLeakPo=!!_projLeak.po;p.priceLeakCot=!!_projLeak.cot;p.updatedTs=Date.now();}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.lat=lat;p.lng=lng;p.radius=radius;p.poFile=_fPO;p.poFilePriced=_fPOp;p.otFile=_fOT;p.cotFile=_fCot;p.cotFilePriced=_fCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.rejectComment="";p.rejectedRows=[];p.priceLeakPo=!!_projLeak.po;p.priceLeakCot=!!_projLeak.cot;p.updatedTs=Date.now();}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_fPO,poFilePriced:_fPOp,otFile:_fOT,cotFile:_fCot,cotFilePriced:_fCotp,items:_projItems.slice(),totales:_tot,status:"borrador",priceLeakPo:!!_projLeak.po,priceLeakCot:!!_projLeak.cot,createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,lat:lat,lng:lng,radius:radius,poFile:_fPO,poFilePriced:_fPOp,otFile:_fOT,cotFile:_fCot,cotFilePriced:_fCotp,items:_projItems.slice(),totales:_tot,status:"borrador",priceLeakPo:!!_projLeak.po,priceLeakCot:!!_projLeak.cot,createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
   }
   saveLocal();if(db)saveProjects();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }
@@ -1591,6 +1604,7 @@ function projRejectConfirm(id){
 }
 function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
   if(p.priceLeakPo||p.priceLeakCot){toast("🚫 No se puede publicar: un archivo 'sin precios' contiene precios. Corrige el archivo y guarda.","error");if(typeof sendNotif==="function")try{sendNotif("boss","🚫 Fuga de precios","\""+p.name+"\": un archivo sin precios contiene precios — no se publicó.");}catch(e){}return;}
+  if(p.lat==null||p.lng==null){toast("🚫 Falta la ubicación (latitud/longitud). Edita el proyecto y cárgala antes de publicar.","error");return;}
   showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
 
 // ── ALERTS ──
@@ -2416,14 +2430,23 @@ function actVisible(a){
 function canonicalActivities(){var m={};(state.activities||[]).forEach(function(a){if(!a.name||!actVisible(a))return;var cn=canonName(a.name),k=normActName(cn);if(k&&!m[k])m[k]=cn;});return m;}
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
 function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
-// Proyectos/sitios registrados con ubicación (incluida la bodega). "CASA" solo la ve el jefe.
+function isManuelOrAndres(){if(currentUser&&currentUser.type==="boss")return true;return /andres\s*daza/.test(normActName(myName()||""));}
+// Proyectos PUBLICADOS con ubicación → sitios seleccionables con geocerca.
+function publishedProjectSites(){
+  return (state.projects||[]).filter(function(p){return p.status==="publicado"&&p.lat!=null&&p.name;})
+    .map(function(p){return{name:p.name,lat:p.lat,lng:p.lng,radius:p.radius||200};});
+}
+// Sitios del dropdown de actividades: ubicaciones de referencia + proyectos publicados. "CASA" solo Manuel y Andres.
 function projectOptions(){
-  var boss=currentUser&&currentUser.type==="boss";
-  return (state.locations||[]).filter(function(l){
-    if(!l||l.lat==null||!l.name)return false;
-    if(!boss&&normActName(l.name)==="casa")return false; // CASA solo para Manuel
-    return true;
-  }).map(function(l){return l.name;});
+  var out=[],seen={};
+  function add(n){if(!n)return;var k=normActName(n);if(!seen[k]){seen[k]=1;out.push(n);}}
+  (state.locations||[]).forEach(function(l){
+    if(!l||l.lat==null||!l.name)return;
+    if(normActName(l.name)==="casa"&&!isManuelOrAndres())return; // CASA solo Manuel y Andres
+    add(l.name);
+  });
+  publishedProjectSites().forEach(function(s){add(s.name);});
+  return out;
 }
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}
 function isHomeOffice(name){return normActName(name)==="home office";}
@@ -2435,14 +2458,15 @@ function isRemoteWorker(){
 }
 function canUseHomeOffice(){return currentUser&&currentUser.type==="collab"&&isRemoteWorker();}
 // Orden del dropdown: 1a = última utilizada · 2a = Almuerzo (fija) · proyectos con ubicación · resto
+// Dropdown = Almuerzo (fija) + Home Office (remotos) + ubicaciones de referencia + proyectos publicados.
+// Las actividades LIBRES no se listan (solo visibles a su creador vía "última usada" y en reportes/estadísticas).
 function activityOptions(cid){
   var set={},list=[];
   function add(n){if(!n)return;var k=normActName(n);if(!set[k]){set[k]=1;list.push(n);}}
-  add(lastUsedActivity(cid));
+  add(lastUsedActivity(cid)); // solo del propio colaborador
   add("Almuerzo");
   if(canUseHomeOffice())add("Home Office");
   projectOptions().forEach(add);
-  canonicalActivityNames().forEach(add);
   return list;
 }
 function standardizeName(name){
@@ -2499,6 +2523,10 @@ function iniciarActividad(){
 function actById(id){return(state.activities||[]).find(function(x){return String(x.id)===String(id);});}
 function checkNamedSite(loc,siteName){
   var l=(state.locations||[]).find(function(x){return normActName(x.name)===normActName(siteName);});
+  if(!l||l.lat==null){ // no está en ubicaciones de referencia → buscar en proyectos publicados
+    var ps=publishedProjectSites().filter(function(s){return normActName(s.name)===normActName(siteName);})[0];
+    if(ps)l={name:ps.name,lat:ps.lat,lng:ps.lng,radius:ps.radius};
+  }
   if(!l||l.lat==null)return null;
   if(!loc||loc.lat==null)return{name:l.name,dist:null,radius:l.radius||200,within:false,noloc:true};
   var d=Math.round(haversineMeters(loc.lat,loc.lng,l.lat,l.lng));

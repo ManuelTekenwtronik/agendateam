@@ -389,6 +389,27 @@ function _mergeProjectsByTs(cloudArr,localArr){
   (localArr||[]).forEach(function(r){if(!r||r.id==null)return;if(!(r.id in map)){map[r.id]=r;order.push(r.id);}else if((r.updatedTs||0)>=(map[r.id].updatedTs||0))map[r.id]=r;});
   return order.map(function(id){return map[id];});
 }
+// Proyectos viven en su PROPIO documento at/projects — ningún otro dispositivo lo toca (imposible que lo borren).
+function saveProjects(){
+  if(!db||!_cloudSynced)return;
+  var ref=db.collection("at").doc("projects");
+  db.runTransaction(function(tx){
+    return tx.get(ref).then(function(doc){
+      var cloud=(doc.exists&&doc.data().records)||[];
+      var merged=_mergeProjectsByTs(cloud,state.projects);
+      tx.set(ref,{records:merged});
+    });
+  }).catch(function(e){console.warn("saveProjects:",e);});
+}
+function startProjectsSync(){
+  if(!db)return;
+  db.collection("at").doc("projects").onSnapshot(function(snap){
+    var cloud=(snap.exists&&snap.data().records)||[];
+    state.projects=_mergeProjectsByTs(cloud,state.projects||[]);
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+    if(currentUser&&currentTab==="proyectos")renderProyectos();
+  },function(e){console.warn("projSync:",e);});
+}
 function saveCloud(){
   if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
@@ -396,7 +417,7 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[],projects:state.projects||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
   };
   window._pendingSave=true;
   var ref=db.collection("at").doc("data");
@@ -406,7 +427,6 @@ function saveCloud(){
       var cloud=doc.exists?doc.data():{};
       fc.attendance=_mergeById(cloud.attendance,state.attendance);
       fc.activities=_mergeById(cloud.activities,state.activities);
-      fc.projects=_mergeProjectsByTs(cloud.projects,state.projects); // blindaje: no pisar proyectos con lista vacía
       // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
       // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
       var cloudTeams={},cloudFD={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null){cloudTeams[cc.id]=cc.teams;cloudFD[cc.id]=cc.faceDescriptor;}});
@@ -425,7 +445,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809007; // subir en CADA despliegue
+var APP_BUILD=20260809008; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -454,8 +474,8 @@ function startSync(){
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
     var localAttendance=state.attendance||[],localActivities=state.activities||[],localProjects=state.projects||[];
-    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[],projects:[]},d);
-    state.projects=_mergeProjectsByTs(state.projects,localProjects); // conservar proyectos locales recién guardados
+    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
+    state.projects=localProjects; // los proyectos NO viven en at/data; los mantiene startProjectsSync
     // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
     state.attendance=_mergeById(state.attendance,localAttendance);
     state.activities=_mergeById(state.activities,localActivities);
@@ -574,7 +594,7 @@ function init(){
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();checkVersion();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();checkVersion();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -588,6 +608,7 @@ function init(){
       _cloudSynced=true; // a partir de aquí saveCloud puede escribir con seguridad
       showMainLogin();
       startSync();
+      startProjectsSync();
       checkVersion();
     }).catch(function(){if(!done){done=true;_cloudSynced=true;clearTimeout(t);showMainLogin();}});
   }else{
@@ -1434,10 +1455,10 @@ function projSave(){
   }else{
     state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
   }
-  saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
+  saveLocal();if(db)saveProjects();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }
-function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveCloud();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
-function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveCloud();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
+function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
+function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
 
 // ── ALERTS ──
 function aiNotify(ck,sys,userText){

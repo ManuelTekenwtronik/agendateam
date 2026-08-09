@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809023; // subir en CADA despliegue
+var APP_BUILD=20260809024; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1184,9 +1184,13 @@ function projSetTab(t){_projTab=t;renderProyectos();}
 function renderProyectos(){
   var host=document.getElementById("content"),pp=projPerms();
   var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
-  var tabs=[["bitacoras","📒 Bitácoras"],["documentacion","📄 Documentación"]];
+  var canBitacoras=userHasTeamProfile("supervision"); // solo perfil Supervisión (cualquier cliente) + boss
+  var tabs=[];
+  if(canBitacoras)tabs.push(["bitacoras","📒 Bitácoras"]);
+  tabs.push(["documentacion","📄 Documentación"]);
   if(canCrear)tabs.push(["creacion","🛠️ Creación"]);
-  if(_projTab==="creacion"&&!canCrear)_projTab="bitacoras";
+  // Si la pestaña activa no está permitida, caer a la primera disponible.
+  if(!tabs.some(function(t){return t[0]===_projTab;}))_projTab=(tabs[0]||["documentacion"])[0];
   var h=sectionHead("🏗️ Proyectos","");
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 4px 12px;">'+
     tabs.map(function(t){var on=_projTab===t[0];return'<button class="btn btn-sm" style="background:'+(on?"#2c82c9":"#eef2f9")+';color:'+(on?"#fff":"#2d3561")+';font-weight:700;" onclick="projSetTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join("")+
@@ -2447,6 +2451,17 @@ function canonicalActivities(){var m={};(state.activities||[]).forEach(function(
 function canonicalActivityNames(){var m=canonicalActivities();return Object.keys(m).map(function(k){return m[k];}).sort(function(a,b){return a.localeCompare(b);});}
 function lastUsedActivity(cid){var mine=(state.activities||[]).filter(function(a){return String(a.collabId)===String(cid)&&a.name;});if(!mine.length)return null;mine.sort(function(a,b){return(b.startTs||0)-(a.startTs||0);});return canonName(mine[0].name);}
 function isManuelOrAndres(){if(currentUser&&currentUser.type==="boss")return true;return /andres\s*daza/.test(normActName(myName()||""));}
+// ¿El usuario actual tiene un perfil dado (desarrollo/supervision/ejecucion/liquidacion/facturacion)? Boss siempre.
+// Sin clientKey = en cualquier cliente. Usa la tabla de Team (at/teams).
+function userHasTeamProfile(profileKey,clientKey){
+  if(currentUser&&currentUser.type==="boss")return true;
+  var id=currentUser&&currentUser.id;if(!id)return false;
+  var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
+  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  function has(ck){var v=t[ck]||{};return v[profileKey]===true;}
+  if(clientKey)return has(clientKey);
+  return Object.keys(t).some(has);
+}
 // Proyectos PUBLICADOS con ubicación → sitios seleccionables con geocerca.
 function publishedProjectSites(){
   return (state.projects||[]).filter(function(p){return p.status==="publicado"&&p.lat!=null&&p.name;})

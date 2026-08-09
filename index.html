@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808016; // subir en CADA despliegue
+var APP_BUILD=20260808017; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1183,17 +1183,37 @@ function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)ret
 function _projSetItems(items){_projItems=(items||[]).map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
 function _projErr(msg){toast("error IA","error");var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:10px;padding:10px;font-size:12px;color:#c0392b;word-break:break-word;">🔎 '+escH(String(msg))+'</div>';}
-// Extrae ítems de UN solo PDF (una llamada = payload pequeño, evita timeout/HTML de Netlify).
-function _extractItemsFromPdf(f){
-  return _projB64(f).then(function(b64){
-    var sys="Extrae las líneas de la tabla del PDF. Columnas: item (número/código), descripcion, unidad, cantidad. Responde SOLO JSON, sin texto extra: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
-    var content=[{type:"text",text:"Extrae la tabla de este documento:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}];
-    return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:content}]})}).then(function(r){return r.text();}).then(function(t){
-      var d;try{d=JSON.parse(t);}catch(e){throw new Error("el servidor respondió HTML/no-JSON (el PDF pesa mucho o tardó >10s). Usa un PDF más liviano. Inicio: "+String(t).replace(/\s+/g," ").slice(0,60));}
-      if(d.error)throw new Error(d.error.message||"error IA");
-      var res=_projParseAI(d);return(res&&res.items)||[];
-    });
+// POST al validador de IA y devuelve el JSON interno. Lanza error claro si vino HTML (timeout).
+function _claudeJSON(body){
+  return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){return r.text();}).then(function(t){
+    var d;try{d=JSON.parse(t);}catch(e){throw new Error("servidor respondió HTML/no-JSON (timeout o tamaño). Inicio: "+String(t).replace(/\s+/g," ").slice(0,60));}
+    if(d.error)throw new Error(d.error.message||"error IA");
+    return _projParseAI(d);
   });
+}
+// Carga pdf.js y extrae el TEXTO del PDF localmente (rápido, sin mandar el archivo a la nube).
+function loadPDFJS(){return new Promise(function(res,rej){if(window.pdfjsLib)return res();var s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";s.onload=function(){try{window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";}catch(e){}res();};s.onerror=function(){rej(new Error("no se pudo cargar pdf.js"));};document.head.appendChild(s);});}
+function pdfExtractText(f){
+  return loadPDFJS().then(function(){return _projArrayBuffer(f);}).then(function(buf){
+    return pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
+  }).then(function(pdf){
+    var idx=[];for(var i=1;i<=pdf.numPages;i++)idx.push(i);
+    return idx.reduce(function(chain,n){return chain.then(function(acc){return pdf.getPage(n).then(function(pg){return pg.getTextContent();}).then(function(tc){return acc+"\n"+tc.items.map(function(it){return it.str;}).join(" ");});});},Promise.resolve(""));
+  });
+}
+// Extrae ítems de UN PDF: primero texto local (rápido); si es escaneo sin texto, cae al PDF a la IA.
+function _extractItemsFromPdf(f){
+  return pdfExtractText(f).catch(function(){return "";}).then(function(txt){
+    txt=(txt||"").trim();
+    if(txt.length>40){
+      var sys="Del texto de un documento comercial extrae las líneas de su tabla. Columnas: item (número/código), descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
+      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]});
+    }
+    return _projB64(f).then(function(b64){
+      var sys="Extrae las líneas de la tabla del PDF: item, descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
+      return _claudeJSON({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]});
+    });
+  }).then(function(res){return(res&&res.items)||[];});
 }
 // Compara dos listas de ítems LOCALMENTE (sin IA), por descripción.
 function _cmpItems(po,cot){

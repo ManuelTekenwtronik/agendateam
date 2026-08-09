@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809032; // subir en CADA despliegue
+var APP_BUILD=20260809033; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1264,8 +1264,10 @@ function projDocsHTML(p){
 // BITÁCORAS de un proyecto: lista (colaborador, supervisor firmó, fecha/hora, lugar) + Nueva bitácora.
 function projBitacorasHTML(p){
   var list=(p.bitacoras||[]).slice().sort(function(a,b){return(b.ts||0)-(a.ts||0);});
+  var canDl=canDownloadBitacora(p.client);
   var h='<div class="card">';
-  h+='<div style="font-weight:800;font-size:14px;margin-bottom:10px;">📒 Bitácoras ('+list.length+')</div>';
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;"><span style="font-weight:800;font-size:14px;">📒 Bitácoras ('+list.length+')</span>'+
+     ((canDl&&list.length)?'<button class="btn btn-sm" style="background:#1abc9c;color:#fff;white-space:nowrap;" onclick="descargarTodasBitacoras(\''+p.id+'\')">⬇ Descargar todas</button>':'')+'</div>';
   if(!list.length)h+='<div style="font-size:13px;color:#999;margin-bottom:10px;">Aún no hay bitácoras para este proyecto.</div>';
   else h+=list.map(function(b){
     var sup=(b.supervisor&&b.supervisor.name)||b.supervisor||"—";
@@ -1277,7 +1279,10 @@ function projBitacorasHTML(p){
         '🗓️ '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br>'+
         '📍 '+escH(b.place||"—")+
       '</div>'+
-      '<button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projVerBitacora(\''+p.id+'\',\''+b.id+'\')">👁 Ver</button>'+
+      '<div style="display:flex;gap:6px;margin-top:6px;">'+
+        '<button class="btn btn-sm btn-gray" onclick="projVerBitacora(\''+p.id+'\',\''+b.id+'\')">👁 Ver</button>'+
+        (canDl?'<button class="btn btn-sm" style="background:#1abc9c;color:#fff;" onclick="descargarBitacora(\''+p.id+'\',\''+b.id+'\')">⬇ Descargar</button>':'')+
+      '</div>'+
     '</div>';
   }).join("");
   h+='<button class="btn btn-block" style="background:#9b59b6;color:#fff;margin-top:6px;" onclick="projNuevaBitacora(\''+p.id+'\')">+ Nueva bitácora</button>';
@@ -1287,6 +1292,52 @@ function projBitacorasHTML(p){
 // Acumulado ejecutado por línea (suma de "ejecutado hoy" en bitácoras previas del proyecto).
 function bitAccumMap(p){var m={};(p.bitacoras||[]).forEach(function(b){(b.items||[]).forEach(function(it){var k=String(it.codigo||it.descripcion||"");m[k]=(m[k]||0)+_num(it.ejecutadoHoy);});});return m;}
 function _myEmail(){if(currentUser&&currentUser.email)return currentUser.email;var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(myUid());});return(c&&c.email)||"";}
+// ¿Puede descargar bitácoras? Supervisión/Liquidación/Facturación en ese cliente (+ boss).
+function canDownloadBitacora(clientKey){
+  if(currentUser&&currentUser.type==="boss")return true;
+  return userHasTeamProfile("supervision",clientKey)||userHasTeamProfile("liquidacion",clientKey)||userHasTeamProfile("facturacion",clientKey);
+}
+// HTML imprimible de UNA bitácora (cabecera + tabla + firmas).
+function _bitDocHTML(p,b){
+  var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—"};
+  var rows=(b.items||[]).map(function(it){
+    var cant=_num(it.cantidad),acc=_num(it.acumulado),over=cant>0&&acc>cant,pct=cant>0?Math.round(acc/cant*100)+"%":"";
+    return'<tr><td>'+escH(it.codigo||"")+'</td><td>'+escH(it.descripcion||"")+'</td><td>'+escH(it.unidad||"")+'</td>'+
+      '<td class="num b gray">'+escH(it.cantidad||"")+'</td><td class="num'+(over?" red":"")+'">'+escH(it.acumulado!=null?it.acumulado:"")+'</td>'+
+      '<td class="num">'+escH(it.ejecutadoHoy||"")+'</td><td class="num">'+pct+'</td></tr>';
+  }).join("");
+  function sig(o,rol){return'<div class="sig"><div class="sigimg">'+((o&&o.signUrl)?'<img src="'+escH(o.signUrl)+'">':'')+'</div><div class="signm">'+escH((o&&o.name)||"—")+'</div><div class="sigem">'+escH((o&&o.email)||"")+'</div><div class="sigrol">'+rol+'</div></div>';}
+  return'<div class="bit">'+
+    '<h2>Bitácora de avance — '+escH(cl.name)+'</h2>'+
+    '<div class="meta"><b>Proyecto:</b> '+escH(p.name||"")+' &nbsp; <b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br>'+
+      '<b>Fecha:</b> '+escH((b.date||"")+(b.time?" "+b.time:""))+' &nbsp; <b>Lugar:</b> '+escH(b.place||"—")+'<br>'+
+      '<b>Elaboró:</b> '+escH(b.createdBy||"—")+'</div>'+
+    '<table><thead><tr><th>Código</th><th>Descripción</th><th>Unidad</th><th>Cant.</th><th>Acum.</th><th>Ejec.</th><th>%</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div class="sigs">'+sig(b.supervisor,"Supervisor CLARO")+sig(b.colaborador,"Colaborador TKTK-SINTELSA")+'</div>'+
+  '</div>';
+}
+function _openBitPrint(titulo,inner){
+  var css='<style>@page{margin:14mm;}body{font-family:Arial,Helvetica,sans-serif;color:#1a1d2e;font-size:12px;}h2{font-size:16px;margin:0 0 8px;}.meta{font-size:12px;line-height:1.7;margin-bottom:10px;}table{border-collapse:collapse;width:100%;font-size:11px;margin-bottom:16px;}th,td{border:1px solid #999;padding:4px 6px;}th{background:#eceff4;}.num{text-align:right;}.b{font-weight:bold;}.gray{background:#eceff4;}.red{color:#c00;font-weight:bold;}.sigs{display:flex;gap:40px;margin-top:26px;}.sig{flex:1;text-align:center;}.sigimg{height:70px;border-bottom:1px solid #333;display:flex;align-items:flex-end;justify-content:center;}.sigimg img{max-height:68px;max-width:100%;}.signm{font-weight:bold;margin-top:4px;}.sigem{font-size:10px;color:#555;}.sigrol{font-size:10px;color:#555;}.bit{page-break-after:always;}.bit:last-child{page-break-after:auto;}</style>';
+  var html='<!doctype html><html><head><meta charset="utf-8"><title>'+escH(titulo)+'</title>'+css+'</head><body>'+inner+'</body></html>';
+  var w=window.open("","_blank");
+  if(!w){toast("Permite ventanas emergentes para descargar","error");return;}
+  w.document.write(html);w.document.close();
+  w.onload=function(){setTimeout(function(){try{w.focus();w.print();}catch(e){}},400);};
+  setTimeout(function(){try{w.print();}catch(e){}},1200); // respaldo si onload no dispara
+}
+function descargarBitacora(pid,bid){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
+  if(!canDownloadBitacora(p.client)){toast("Tu perfil no permite descargar bitácoras","error");return;}
+  var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(bid);});if(!b)return;
+  _openBitPrint("Bitácora "+(b.date||""),_bitDocHTML(p,b));
+}
+function descargarTodasBitacoras(pid){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
+  if(!canDownloadBitacora(p.client)){toast("Tu perfil no permite descargar bitácoras","error");return;}
+  var list=(p.bitacoras||[]).slice().sort(function(a,b){return(a.ts||0)-(b.ts||0);});
+  if(!list.length){toast("No hay bitácoras para descargar","error");return;}
+  _openBitPrint("Bitácoras — "+(p.name||""),list.map(function(b){return _bitDocHTML(p,b);}).join(""));
+}
 function projVerBitacora(pid,bid){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
   var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(bid);});if(!b)return;

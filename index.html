@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809017; // subir en CADA despliegue
+var APP_BUILD=20260809018; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1104,7 +1104,7 @@ function renderFaceTest(){
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"},rechazado:{l:"Rechazado",c:"#e74c3c"}};
 var PROJ_AI_MODEL="claude-haiku-4-5-20251001"; // modelo rápido: evita el "Inactivity Timeout" de conexiones lentas
-var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={},_projRejRows=[],_projRejComment="";
+var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={},_projRejRows=[],_projRejComment="",_projEditClient="";
 function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
   var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
@@ -1112,7 +1112,17 @@ function projPerms(){
   return{load:isManuel||isAndres||isMarianela,validate:isGiovanni,approve:isManuel||isAndres};
 }
 // Ver archivos CON precios: solo Manuel Daza, Andres Daza, Giovanni Izquierdo (Erick) y Marianela Oviedo.
-function canSeePrices(){var pp=projPerms();return pp.load||pp.validate||pp.approve;}
+// Ver/cargar PRECIOS (adjuntos con precios + columnas V.Unit y V.Total): SOLO perfil Desarrollo o Facturación.
+// Si se pasa clientKey, exige el perfil para ESE cliente; sin clientKey, basta tenerlo en cualquiera. Manuel (boss) siempre.
+function canSeePrices(clientKey){
+  if(currentUser&&currentUser.type==="boss")return true;
+  var id=currentUser&&currentUser.id;if(!id)return false;
+  var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
+  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  function has(ck){var v=t[ck]||{};return v.desarrollo===true||v.facturacion===true;}
+  if(clientKey)return has(clientKey);
+  return Object.keys(t).some(has);
+}
 function projView(id){_projViewId=id;renderProyectos();}
 function projFichaHTML(p){
   var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—",color:"#7f8c8d"};
@@ -1125,12 +1135,12 @@ function projFichaHTML(p){
       '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
       '🔢 <b>Solpec:</b> '+escH(p.solpec||"—")+'<br>'+
       '📄 <b>P.O sin precios:</b> '+_projLink(p.poFile)+'<br>'+
-      (canSeePrices()?('💵 <b>P.O con precios:</b> '+_projLink(p.poFilePriced)+'<br>'):"")+
+      (canSeePrices(p.client)?('💵 <b>P.O con precios:</b> '+_projLink(p.poFilePriced)+'<br>'):"")+
       '💲 <b>Cotización sin precios:</b> '+_projLink(p.cotFile)+'<br>'+
-      (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
+      (canSeePrices(p.client)?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:'+(/^(cantidad|valorUnitario|_vt)$/.test(c[0])?"right":"left")+';padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||""),num=/^(cantidad|valorUnitario|_vt)$/.test(c[0]);return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';'+(num?"text-align:right;font-variant-numeric:tabular-nums;":"")+'">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody>'+(canSeePrices()?_projTotalsTfoot(p.items,false,cols.length,p.totales):"")+'</table></div>';})()+
+    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices(p.client))cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:'+(/^(cantidad|valorUnitario|_vt)$/.test(c[0])?"right":"left")+';padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||""),num=/^(cantidad|valorUnitario|_vt)$/.test(c[0]);return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';'+(num?"text-align:right;font-variant-numeric:tabular-nums;":"")+'">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody>'+(canSeePrices(p.client)?_projTotalsTfoot(p.items,false,cols.length,p.totales):"")+'</table></div>';})()+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
@@ -1169,6 +1179,7 @@ function renderProyectos(){
 function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";projForm({});}
 function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};_projRejRows=(p.rejectComment?(p.rejectedRows||[]):[]).slice();_projRejComment=p.rejectComment||"";projForm(p);}
 function projForm(p){
+  _projEditClient=p.client||"";
   var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
   var body=''+
     (_projRejComment?'<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#c0392b;"><b>✖ Rechazado'+(p.rejectedBy?" por "+escH(p.rejectedBy):"")+':</b><br>'+escH(_projRejComment)+((_projRejRows&&_projRejRows.length)?'<br><span style="font-size:11px;">Ítems marcados como incorrectos: '+_projRejRows.length+' (resaltados abajo).</span>':"")+'</div>':"")+
@@ -1178,9 +1189,9 @@ function projForm(p){
     '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
     '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
     '<div class="field"><label>P.O SIN precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
-    '<div class="field"><label>P.O CON precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💵 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'pop\')"></label> <span id="proj-pop-name" style="font-size:12px;color:#666;">'+(_projPOp?escH(_projPOp.name):"sin archivo")+'</span></div>'+
+    (canSeePrices(p.client)?'<div class="field"><label>P.O CON precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💵 Subir<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'pop\')"></label> <span id="proj-pop-name" style="font-size:12px;color:#666;">'+(_projPOp?escH(_projPOp.name):"sin archivo")+'</span></div>':"")+
     '<div class="field"><label>Cotización SIN precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
-    '<div class="field"><label>Cotización CON precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💰 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cotp\')"></label> <span id="proj-cotp-name" style="font-size:12px;color:#666;">'+(_projCotp?escH(_projCotp.name):"sin archivo")+'</span></div>'+
+    (canSeePrices(p.client)?'<div class="field"><label>Cotización CON precios (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💰 Subir<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cotp\')"></label> <span id="proj-cotp-name" style="font-size:12px;color:#666;">'+(_projCotp?escH(_projCotp.name):"sin archivo")+'</span></div>':"")+
     '<div class="field"><label>Orden de Trabajo — OT (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📎 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'ot\')"></label> <span id="proj-ot-name" style="font-size:12px;color:#666;">'+(_projOT?escH(_projOT.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>🤖 Auto-llenar con IA (lee P.O y Cotización)</label>'+
       '<button id="proj-ai-btn" class="btn btn-sm" style="background:#8e44ad;color:#fff;" onclick="projExtractCompare()">🤖 Extraer y comparar (P.O ↔ Cotización)</button>'+
@@ -1219,8 +1230,12 @@ function projDelRow(i){_projItems.splice(i,1);var pv=document.getElementById("pr
 function projAddRow(){_projItems.push({codigo:"",cantidad:"",descripcion:"",unidad:"",valorUnitario:"",tipo:""});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function projItemsPreviewHTML(){
   var GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;";
+  var showP=canSeePrices(_projEditClient); // columnas de precio solo con perfil Desarrollo/Facturación del cliente
   if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div><button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projAddRow()">+ Fila</button>';
-  var heads=[["Código","left"],["Cantidad","right"],["Descripción","left"],["Unidad","left"],["V.Unit","right"],["V.Total","right"],["","left"]];
+  var heads=[["Código","left"],["Cantidad","right"],["Descripción","left"],["Unidad","left"]];
+  if(showP)heads=heads.concat([["V.Unit","right"],["V.Total","right"]]);
+  heads.push(["","left"]);
+  var ncols=heads.length;
   function inp(i,f,w,num){return'<input value="'+escH(_projItems[i][f]||"")+'" oninput="projEditCell('+i+',\''+f+'\',this.value)" style="width:'+w+';border:none;background:transparent;font-size:11px;padding:2px;outline:none;font-family:inherit;'+(num?NUM:"")+'">';}
   var body=_projItems.map(function(it,i){
     var rej=(_projRejRows&&_projRejRows.indexOf(i)>=0);
@@ -1229,12 +1244,12 @@ function projItemsPreviewHTML(){
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"cantidad","60px",true)+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"descripcion","230px",false)+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"unidad","50px",false)+'</td>'+
-      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"valorUnitario","72px",true)+'</td>'+
-      '<td id="vt-'+i+'" style="border-right:'+GB+';border-bottom:'+GB+';padding:2px 6px;white-space:nowrap;'+NUM+'">'+escH(_projVT(it))+'</td>'+
+      (showP?('<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"valorUnitario","72px",true)+'</td>'+
+      '<td id="vt-'+i+'" style="border-right:'+GB+';border-bottom:'+GB+';padding:2px 6px;white-space:nowrap;'+NUM+'">'+escH(_projVT(it))+'</td>'):"")+
       '<td style="border-bottom:'+GB+';padding:0 4px;"><button onclick="projDelRow('+i+')" style="border:none;background:none;color:#e74c3c;cursor:pointer;font-size:13px;">✕</button></td>'+
     '</tr>';
   }).join("");
-  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems (editable):</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+heads.map(function(h){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:'+h[1]+';white-space:nowrap;background:#f7f8fc;">'+h[0]+'</th>';}).join("")+'</tr></thead><tbody>'+body+'</tbody>'+_projTotalsTfoot(_projItems,true,7)+'</table></div><button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projAddRow()">+ Fila</button>';
+  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems (editable):</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+heads.map(function(h){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:'+h[1]+';white-space:nowrap;background:#f7f8fc;">'+h[0]+'</th>';}).join("")+'</tr></thead><tbody>'+body+'</tbody>'+(showP?_projTotalsTfoot(_projItems,true,ncols):"")+'</table></div><button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projAddRow()">+ Fila</button>';
 }
 function projParsePaste(){
   var ta=document.getElementById("proj-paste");if(!ta)return;

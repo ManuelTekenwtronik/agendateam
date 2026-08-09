@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809019; // subir en CADA despliegue
+var APP_BUILD=20260809021; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1105,25 +1105,39 @@ function renderFaceTest(){
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"},rechazado:{l:"Rechazado",c:"#e74c3c"}};
 var PROJ_AI_MODEL="claude-haiku-4-5-20251001"; // modelo rápido: evita el "Inactivity Timeout" de conexiones lentas
 var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={},_projRejRows=[],_projRejComment="",_projEditClient="",_projLeak={po:false,cot:false};
-// Detecta si un texto contiene PRECIOS (para verificar que un archivo "sin precios" no traiga precios por error).
-function _textHasPrices(t){
+// Detecta si un texto contiene PRECIOS y explica POR QUÉ. Las cantidades (aunque tengan decimales) NO deben marcar.
+function _detectPrices(t){
   t=String(t||"");
-  if(/(precio|p\.?\s*unit|u\.?\s*price|unitario|\biva\b|total.?bruto|sub.?total|\bmonto\b|valor\s+(total|unitario)|importe)/i.test(t))return true;
-  var dec=(t.match(/\d+\.\d{2}(?!\d)/g)||[]).length; // varios montos con 2 decimales = precios
-  return dec>=3;
+  var kw=t.match(/(precio|p\.?\s*unit|u\.?\s*price|unitario|\biva\b|total.?bruto|sub.?total|\bmonto\b|valor\s+(total|unitario)|importe)/i);
+  if(kw)return{leak:true,reason:"palabra de precio: \""+kw[0]+"\""};
+  // Montos de dinero = número con separador de miles y 2 decimales (1,234.56) o con símbolo de moneda (Q/$).
+  var money=(t.match(/(\d{1,3}(,\d{3})+\.\d{2})|([Q$]\s?\d+[\d,]*\.\d{2})/g)||[]);
+  if(money.length>=3)return{leak:true,reason:money.length+" montos tipo dinero (ej. "+money.slice(0,3).join(", ")+")"};
+  return{leak:false,reason:""};
 }
-// Escanea un archivo recién subido a un slot "sin precios" y marca fuga si trae precios.
+// Escanea un archivo recién subido a un slot "sin precios" y marca fuga si trae precios (con razón + opción de override).
 function _projScanNoPrice(o,slot){
   var warnEl=document.getElementById("proj-"+slot+"-warn");
   var isExcel=/\.(xlsx|xls|csv)$/.test((o.name||"").toLowerCase());
   var p=isExcel?loadXLSX().then(function(){return _projArrayBuffer(o);}).then(function(buf){var wb=XLSX.read(buf,{type:"array"});var txt="";wb.SheetNames.forEach(function(n){txt+="\n"+XLSX.utils.sheet_to_csv(wb.Sheets[n]);});return txt;})
     :pdfExtractText(o).catch(function(){return "";});
   p.then(function(txt){
-    var leak=_textHasPrices(txt);
-    _projLeak[slot]=leak;
-    if(warnEl)warnEl.innerHTML=leak?'<span style="color:#c0392b;font-weight:700;">⚠️ ¡Este archivo SIN precios parece CONTENER precios! Corrígelo antes de publicar.</span>':'';
-    if(leak)toast("⚠️ El archivo '"+slot.toUpperCase()+" sin precios' contiene precios","error");
+    var d=_detectPrices(txt);
+    _projLeak[slot]=d.leak;
+    if(warnEl){
+      warnEl.innerHTML=d.leak?
+        '<span style="color:#c0392b;font-weight:700;">⚠️ Parece CONTENER precios ('+escH(d.reason)+'). Corrige el archivo o, si es un dato numérico que NO es precio, pulsa:</span> <button class="btn btn-sm" style="background:#e67e22;color:#fff;margin-top:4px;" onclick="projLeakOverride(\''+slot+'\')">Cargar de todos modos</button>'
+        :'<span style="color:#27ae60;">✅ Sin precios detectados.</span>';
+    }
+    if(d.leak)toast("⚠️ '"+slot.toUpperCase()+" sin precios' — "+d.reason,"error");
   }).catch(function(){});
+}
+// Override: el usuario confirma que el archivo "sin precios" es válido (dato numérico que no es precio).
+function projLeakOverride(slot){
+  _projLeak[slot]=false;
+  var warnEl=document.getElementById("proj-"+slot+"-warn");
+  if(warnEl)warnEl.innerHTML='<span style="color:#27ae60;font-weight:700;">✅ Marcado como válido por el usuario (se permitirá publicar).</span>';
+  toast("✅ Archivo aceptado — no bloqueará la publicación");
 }
 function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
@@ -1500,8 +1514,13 @@ function projUpload(file,slot){
   var fd=new FormData();fd.append("file",file);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam/proyectos");
   var xhr=new XMLHttpRequest();xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
   var slotEl={po:"proj-po-name",pop:"proj-pop-name",ot:"proj-ot-name",cot:"proj-cot-name",cotp:"proj-cotp-name"};
-  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name,b64:_b64};if(slot==="po")_projPO=o;else if(slot==="pop")_projPOp=o;else if(slot==="ot")_projOT=o;else if(slot==="cot")_projCot=o;else if(slot==="cotp")_projCotp=o;var el=document.getElementById(slotEl[slot]);if(el)el.textContent=file.name;toast("✅ "+file.name);if(slot==="po"||slot==="cot")_projScanNoPrice(o,slot);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
-  xhr.onerror=function(){toast("Error de red al subir","error");};
+  var mb=(file.size/1048576).toFixed(1);
+  xhr.onload=function(){
+    var r={};try{r=JSON.parse(xhr.responseText);}catch(e){}
+    if(xhr.status>=200&&xhr.status<300&&r.secure_url){var o={url:r.secure_url,name:file.name,b64:_b64};if(slot==="po")_projPO=o;else if(slot==="pop")_projPOp=o;else if(slot==="ot")_projOT=o;else if(slot==="cot")_projCot=o;else if(slot==="cotp")_projCotp=o;var el=document.getElementById(slotEl[slot]);if(el)el.textContent=file.name;toast("✅ "+file.name);if(slot==="po"||slot==="cot")_projScanNoPrice(o,slot);}
+    else{var msg=(r.error&&r.error.message)||("HTTP "+xhr.status);toast("❌ No se subió ("+mb+"MB): "+msg,"error");console.warn("projUpload",xhr.status,xhr.responseText);}
+  };
+  xhr.onerror=function(){toast("❌ Error de red/CORS al subir ("+mb+"MB · tipo "+(file.type||"?")+"). Reintenta o usa un archivo más liviano.","error");};
   xhr.send(fd);
 }
 function projSave(){

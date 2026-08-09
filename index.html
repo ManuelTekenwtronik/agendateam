@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809024; // subir en CADA despliegue
+var APP_BUILD=20260809025; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1184,7 +1184,7 @@ function projSetTab(t){_projTab=t;renderProyectos();}
 function renderProyectos(){
   var host=document.getElementById("content"),pp=projPerms();
   var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
-  var canBitacoras=userHasTeamProfile("supervision"); // solo perfil Supervisión (cualquier cliente) + boss
+  var canBitacoras=userHasTeamProfile("supervision")||userHasTeamProfile("liquidacion")||userHasTeamProfile("facturacion"); // Supervisión, Liquidación o Facturación (+ boss)
   var tabs=[];
   if(canBitacoras)tabs.push(["bitacoras","📒 Bitácoras"]);
   tabs.push(["documentacion","📄 Documentación"]);

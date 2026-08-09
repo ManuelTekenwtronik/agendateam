@@ -389,7 +389,7 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[],projects:state.projects||[]
   };
   window._pendingSave=true;
   var ref=db.collection("at").doc("data");
@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808007; // subir en CADA despliegue
+var APP_BUILD=20260808008; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -446,7 +446,7 @@ function startSync(){
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
     var localAttendance=state.attendance||[],localActivities=state.activities||[];
-    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
+    state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[],projects:[]},d);
     // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
     state.attendance=_mergeById(state.attendance,localAttendance);
     state.activities=_mergeById(state.activities,localActivities);
@@ -533,7 +533,7 @@ var FC={diaria:{l:"Diaria",i:"🔄"},semanal:{l:"Semanal",i:"📅"},mensual:{l:"
 var PC={alta:{l:"Alta",c:"#e74c3c"},media:{l:"Media",c:"#f39c12"},baja:{l:"Baja",c:"#27ae60"}};
 var CL=["#e07b5a","#5a8fe0","#5ac48a","#f5a623","#9b59b6","#e74c3c","#1abc9c","#e67e22"];
 
-var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]};
+var state={collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[],projects:[]};
 var currentUser=null,currentTab="tareas",currentChatCollab=null,currentChatKey=null;
 var _cloudSynced=false; // protección: no guardar en Firestore antes de recibir datos de la nube
 var filterFreq="todas",filterStat="todas",filterCollab="todas";
@@ -572,7 +572,7 @@ function init(){
         var d=snap.data();
         var pm={};
         state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-        state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],attendance:[],activities:[]},d);
+        state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],attendance:[],activities:[],projects:[]},d);
         state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
         saveLocal();
       }
@@ -781,6 +781,7 @@ function renderMenu(){
     ];
     if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);items.push(["facetest","🧪","Prueba Rostro","#16a085"]);}
   }
+  var _pp=projPerms();if(_pp.load||_pp.validate||_pp.approve)items.push(["proyectos","🏗️","Proyectos","#2c82c9"]);
   document.getElementById("menu-screen").innerHTML=
     '<div class="menu-wrap">'+
       '<div class="menu-header">'+
@@ -1049,6 +1050,123 @@ function renderFaceTest(){
   host.innerHTML=h;
 }
 
+// ── MÓDULO PROYECTOS A PRODUCCIÓN ──
+// Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
+var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
+var _projItems=[],_projPO=null,_projOT=null,_projEditId=null,_projViewId="";
+function projPerms(){
+  var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
+  var isManuel=t==="boss",isAndres=/andres\s*daza/.test(n),isMarianela=/marianela/.test(n),isGiovanni=/giovann|geovann|izquierdo/.test(n);
+  return{load:isManuel||isAndres||isMarianela,validate:isGiovanni,approve:isManuel||isAndres};
+}
+function projView(id){_projViewId=id;renderProyectos();}
+function projFichaHTML(p){
+  var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—",color:"#7f8c8d"};
+  return'<div class="card">'+
+    '<div style="font-weight:800;font-size:16px;margin-bottom:6px;">'+escH(p.name||"(sin nombre)")+'</div>'+
+    '<div style="margin-bottom:10px;"><span style="font-size:11px;font-weight:800;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+escH(cl.name)+'</span></div>'+
+    '<div style="font-size:13px;color:#444;line-height:1.9;">'+
+      '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
+      '🔢 <b>Solpec:</b> '+escH(p.solpec||"—")+'<br>'+
+      '📄 <b>P.O sin precios:</b> '+(p.poFile&&p.poFile.url?'<a href="'+escH(p.poFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.poFile.name||"ver PDF")+'</a>':"—")+'<br>'+
+      '📎 <b>OT:</b> '+(p.otFile&&p.otFile.url?'<a href="'+escH(p.otFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.otFile.name||"ver PDF")+'</a>':"—")+
+    '</div>'+
+    '<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;">'+
+      '<thead><tr>'+["Ítem","Descripción","Unidad","Cantidad"].map(function(c){return'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;background:#f7f8fc;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+
+      ((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+["item","descripcion","unidad","cantidad"].map(function(k){return'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="4" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+
+      '</tbody></table></div>'+
+    (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
+  '</div>';
+}
+function renderProyectos(){
+  var host=document.getElementById("content"),pp=projPerms();
+  if(!pp.load&&!pp.validate&&!pp.approve){host.innerHTML=sectionHead("🏗️ Proyectos","")+'<div class="card">No tienes acceso a Proyectos.</div>';return;}
+  var projs=(state.projects||[]).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
+  var pubs=projs.filter(function(p){return p.status==="publicado";});
+  var h=sectionHead("🏗️ Proyectos a Producción","Cargar · validar · aprobar");
+  h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:8px;">📂 Proyectos publicados</div>'+
+     (pubs.length?('<select onchange="projView(this.value)"><option value="">— elige un proyecto —</option>'+pubs.map(function(p){return'<option value="'+p.id+'"'+(String(_projViewId)===String(p.id)?" selected":"")+'>'+escH(p.name)+'</option>';}).join("")+'</select>'):'<div style="font-size:13px;color:#999;">Aún no hay proyectos publicados.</div>')+
+     '</div>';
+  if(_projViewId){var pv=(state.projects||[]).find(function(p){return String(p.id)===String(_projViewId);});if(pv)h+=projFichaHTML(pv);}
+  if(pp.load)h+='<div class="card"><button class="btn btn-block" style="background:#2c82c9;color:#fff;" onclick="projNew()">+ Nuevo proyecto</button></div>';
+  h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:10px;">🗂️ Todos los proyectos ('+projs.length+')</div>';
+  if(!projs.length)h+='<div style="font-size:13px;color:#999;">Nada cargado aún.</div>';
+  projs.forEach(function(p){
+    var st=PROJ_STATUS[p.status]||PROJ_STATUS.borrador;
+    var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—",color:"#7f8c8d"};
+    h+='<div style="border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
+       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><div style="font-weight:700;">'+escH(p.name||"(sin nombre)")+'</div>'+
+       '<span style="font-size:10px;font-weight:800;color:#fff;background:'+st.c+';padding:3px 8px;border-radius:8px;white-space:nowrap;">'+st.l+'</span></div>'+
+       '<div style="font-size:11px;color:#888;margin-top:3px;"><span style="color:'+cl.color+';font-weight:700;">'+escH(cl.name)+'</span> · P.O '+escH(p.poDate||"—")+' · Solpec '+escH(p.solpec||"—")+' · '+((p.items||[]).length)+' ítems</div>'+
+       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'+
+         ((pp.load&&p.status==="borrador")?'<button class="btn btn-sm btn-dark" onclick="projEdit(\''+p.id+'\')">✏️ Editar</button>':"")+
+         ((pp.validate&&p.status==="borrador")?'<button class="btn btn-sm" style="background:#9b59b6;color:#fff;" onclick="projValidate(\''+p.id+'\')">✔ Validar</button>':"")+
+         ((pp.approve&&p.status==="validado")?'<button class="btn btn-sm" style="background:#27ae60;color:#fff;" onclick="projApprove(\''+p.id+'\')">✅ Aprobar/Publicar</button>':"")+
+         '<button class="btn btn-sm btn-gray" onclick="projView(\''+p.id+'\')">👁 Ver</button>'+
+       '</div></div>';
+  });
+  h+='</div>';
+  host.innerHTML=h;
+}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projOT=null;projForm({});}
+function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projOT=p.otFile||null;projForm(p);}
+function projForm(p){
+  var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
+  var body=''+
+    '<div class="field"><label>Cliente *</label><select id="proj-client"><option value="">— elige —</option>'+clientOpts+'</select></div>'+
+    '<div class="field"><label>Nombre del proyecto *</label><input id="proj-name" value="'+escH(p.name||"")+'" placeholder="Ej: Split N — Zona 6"></div>'+
+    '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
+    '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
+    '<div class="field"><label>P.O sin precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Orden de Trabajo — OT (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📎 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'ot\')"></label> <span id="proj-ot-name" style="font-size:12px;color:#666;">'+(_projOT?escH(_projOT.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Ítems — pega desde Excel (Ítem ⇥ Descripción ⇥ Unidad ⇥ Cantidad)</label>'+
+      '<textarea id="proj-paste" placeholder="Pega aquí las filas copiadas de Excel…" style="width:100%;height:90px;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;font-family:monospace;box-sizing:border-box;"></textarea>'+
+      '<button class="btn btn-sm btn-dark" style="margin-top:6px;" onclick="projParsePaste()">⬇ Cargar filas pegadas</button></div>'+
+    '<div id="proj-items-preview">'+projItemsPreviewHTML()+'</div>'+
+    '<button class="btn btn-block" style="background:#2c82c9;color:#fff;margin-top:12px;" onclick="projSave()">💾 Guardar borrador</button>';
+  showSheet(_projEditId?"Editar proyecto":"Nuevo proyecto",body);
+}
+function projItemsPreviewHTML(){
+  if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div>';
+  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems cargados:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;"><thead><tr>'+["Ítem","Descripción","Unidad","Cant."].map(function(c){return'<th style="padding:4px 6px;border-bottom:1px solid #ddd;text-align:left;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+["item","descripcion","unidad","cantidad"].map(function(k){return'<td style="padding:4px 6px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
+}
+function projParsePaste(){
+  var ta=document.getElementById("proj-paste");if(!ta)return;
+  var rows=ta.value.split(/\r?\n/).filter(function(l){return l.trim();}).map(function(l){
+    var c=l.split("\t");return{item:(c[0]||"").trim(),descripcion:(c[1]||"").trim(),unidad:(c[2]||"").trim(),cantidad:(c[3]||"").trim()};
+  });
+  if(!rows.length){toast("No se detectaron filas","error");return;}
+  _projItems=rows;var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();toast("✅ "+rows.length+" filas cargadas");
+}
+function projUpload(file,slot){
+  if(!file)return;
+  var resource=((file.type||"").indexOf("image")>=0)?"image":"raw";
+  toast("⏳ Subiendo "+file.name+"…");
+  var fd=new FormData();fd.append("file",file);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam/proyectos");
+  var xhr=new XMLHttpRequest();xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
+  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name};if(slot==="po"){_projPO=o;var e=document.getElementById("proj-po-name");if(e)e.textContent=file.name;}else{_projOT=o;var e2=document.getElementById("proj-ot-name");if(e2)e2.textContent=file.name;}toast("✅ "+file.name);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
+  xhr.onerror=function(){toast("Error de red al subir","error");};
+  xhr.send(fd);
+}
+function projSave(){
+  var name=((document.getElementById("proj-name")||{}).value||"").trim();
+  var client=(document.getElementById("proj-client")||{}).value||"";
+  if(!name){toast("Ponle nombre al proyecto","error");return;}
+  if(!client){toast("Elige el cliente","error");return;}
+  var poDate=(document.getElementById("proj-podate")||{}).value||"";
+  var solpec=(document.getElementById("proj-solpec")||{}).value||"";
+  if(!state.projects)state.projects=[];
+  if(_projEditId){
+    var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
+    if(p){p.name=name;p.client=client;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.otFile=_projOT;p.items=_projItems.slice();p.status="borrador";}
+  }else{
+    state.projects.push({id:Date.now(),name:name,client:client,poDate:poDate,solpec:solpec,poFile:_projPO,otFile:_projOT,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
+  }
+  saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
+}
+function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();saveLocal();if(db)saveCloud();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
+function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();saveLocal();if(db)saveCloud();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
+
 // ── ALERTS ──
 function aiNotify(ck,sys,userText){
   if(!state.messages[ck])state.messages[ck]=[];
@@ -1292,6 +1410,7 @@ function renderContent(){
   else if(t==="validacion")renderValidacion();
   else if(t==="asignteam")renderAsignTeam();
   else if(t==="facetest")renderFaceTest();
+  else if(t==="proyectos")renderProyectos();
   else renderChat();
 }
 

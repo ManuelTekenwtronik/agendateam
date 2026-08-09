@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808010; // subir en CADA despliegue
+var APP_BUILD=20260808011; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1121,7 +1121,7 @@ function projForm(p){
     '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
     '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
     '<div class="field"><label>P.O sin precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
-    '<div class="field"><label>Cotización (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Cotización (PDF o Excel)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir PDF/Excel<input type="file" accept=".xlsx,.xls,.csv,application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>Orden de Trabajo — OT (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📎 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'ot\')"></label> <span id="proj-ot-name" style="font-size:12px;color:#666;">'+(_projOT?escH(_projOT.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>🤖 Auto-llenar con IA (lee P.O y Cotización)</label>'+
       '<button id="proj-ai-btn" class="btn btn-sm" style="background:#8e44ad;color:#fff;" onclick="projExtractCompare()">🤖 Extraer y comparar (P.O ↔ Cotización)</button>'+
@@ -1151,38 +1151,55 @@ function _pdfToBase64(url){
     return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(String(fr.result).split(",")[1]);};fr.onerror=rej;fr.readAsDataURL(b);});
   });
 }
-// 🚩 LOCAL FIRST: extracción/comparación de PDFs con IA. Hoy Claude (nube); migrar a JARVIS local en el PC Final.
+// 🚩 LOCAL FIRST: extracción/comparación con IA (PDF). Hoy Claude (nube); migrar a JARVIS local en el PC Final.
+// Excel se lee LOCAL (SheetJS), sin IA — solo la comparación con el P.O usa IA.
+function loadXLSX(){return new Promise(function(res,rej){if(window.XLSX)return res();var s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";s.onload=function(){res();};s.onerror=function(){rej(new Error("no se pudo cargar el lector de Excel"));};document.head.appendChild(s);});}
+function parseExcelItems(url){
+  return loadXLSX().then(function(){return fetch(url);}).then(function(r){return r.arrayBuffer();}).then(function(buf){
+    var wb=XLSX.read(buf,{type:"array"}),ws=wb.Sheets[wb.SheetNames[0]];
+    var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""}),items=[];
+    rows.forEach(function(r,i){
+      var c0=String(r[0]||"").trim();
+      if(!c0&&!String(r[1]||"").trim())return;
+      if(i===0&&/item|[ií]tem|descrip/i.test(String(r[0]||"")+" "+String(r[1]||"")))return; // salta encabezado
+      items.push({item:c0,descripcion:String(r[1]||"").trim(),unidad:String(r[2]||"").trim(),cantidad:String(r[3]||"").trim()});
+    });
+    return items;
+  });
+}
+function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}var raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";try{var m=raw.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):null;}catch(e){return null;}}
+function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
+function _projSetItems(items){_projItems=(items||[]).map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
+function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
 function projExtractCompare(){
   if(!_projPO||!_projPO.url){toast("Sube el P.O primero","error");return;}
   if(!_projCot||!_projCot.url){toast("Sube la Cotización primero","error");return;}
-  var btn=document.getElementById("proj-ai-btn");if(btn){btn.disabled=true;btn.textContent="🤖 Analizando… (puede tardar)";}
-  toast("🤖 Leyendo P.O y Cotización…");
+  _projBtn(true);
+  var isExcel=/\.(xlsx|xls|csv)$/.test((_projCot.name||"").toLowerCase());
+  if(isExcel){
+    toast("📊 Leyendo Excel de la cotización…");
+    parseExcelItems(_projCot.url).then(function(items){
+      _projSetItems(items);toast("✅ "+items.length+" ítems (Excel)");
+      var cotText=_projItems.map(function(it){return[it.item,it.descripcion,it.unidad,it.cantidad].join(" | ");}).join("\n");
+      return _pdfToBase64(_projPO.url).then(function(pob){
+        var sys="Comparas líneas de tabla. Te doy la COTIZACIÓN ya extraída (texto) y el PDF de la ORDEN DE COMPRA (P.O). Extrae las líneas de la tabla del P.O y compáralas con la cotización por descripción/ítem. Responde SOLO JSON: {\"comparacion\":{\"coinciden\":true,\"diferencias\":[\"describe cada diferencia\"]}}";
+        var content=[{type:"text",text:"COTIZACIÓN (item | descripcion | unidad | cantidad):\n"+cotText},{type:"text",text:"ORDEN DE COMPRA (P.O) PDF:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:pob}},{type:"text",text:"Compara. Solo JSON."}];
+        return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2500,system:sys,messages:[{role:"user",content:content}]})});
+      }).then(function(r){return r.json();}).then(function(d){var res=_projParseAI(d);_projShowCmp(res&&res.comparacion);_projBtn(false);});
+    }).catch(function(e){_projBtn(false);toast("Error Excel: "+((e&&e.message)||"fallo"),"error");});
+    return;
+  }
+  toast("🤖 Leyendo P.O y Cotización (PDF)…");
   Promise.all([_pdfToBase64(_projPO.url),_pdfToBase64(_projCot.url)]).then(function(b){
-    var sys="Extraes y comparas líneas de tablas de documentos comerciales. Recibes 2 PDFs: (1) ORDEN DE COMPRA (P.O) y (2) COTIZACIÓN. Extrae de CADA uno las líneas de su tabla con columnas: item (número/código), descripcion, unidad, cantidad. Luego compara las líneas entre ambos por descripción/ítem. Responde SOLO JSON, sin texto extra: {\"cotizacion\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}],\"po\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}],\"comparacion\":{\"coinciden\":true,\"diferencias\":[\"describe cada diferencia: ítem que está en uno y no en el otro, o cantidad/unidad distinta\"]}}. La tabla final se llenará con las líneas de la COTIZACIÓN.";
-    var content=[
-      {type:"text",text:"DOCUMENTO 1 — ORDEN DE COMPRA (P.O):"},
-      {type:"document",source:{type:"base64",media_type:"application/pdf",data:b[0]}},
-      {type:"text",text:"DOCUMENTO 2 — COTIZACIÓN:"},
-      {type:"document",source:{type:"base64",media_type:"application/pdf",data:b[1]}},
-      {type:"text",text:"Extrae y compara. Solo JSON."}
-    ];
+    var sys="Extraes y comparas líneas de tablas. Recibes 2 PDFs: (1) ORDEN DE COMPRA (P.O) y (2) COTIZACIÓN. Extrae de CADA uno las líneas de su tabla: item, descripcion, unidad, cantidad. Compara por descripción/ítem. Responde SOLO JSON: {\"cotizacion\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}],\"comparacion\":{\"coinciden\":true,\"diferencias\":[\"...\"]}}. La tabla se llena con la COTIZACIÓN.";
+    var content=[{type:"text",text:"DOCUMENTO 1 — ORDEN DE COMPRA (P.O):"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b[0]}},{type:"text",text:"DOCUMENTO 2 — COTIZACIÓN:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b[1]}},{type:"text",text:"Extrae y compara. Solo JSON."}];
     return fetch("/.netlify/functions/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,system:sys,messages:[{role:"user",content:content}]})});
   }).then(function(r){return r.json();}).then(function(d){
-    if(btn){btn.disabled=false;btn.textContent="🤖 Extraer y comparar (P.O ↔ Cotización)";}
-    if(d.error){toast("IA: "+(d.error.message||"error"),"error");return;}
-    var raw=(d.content&&d.content[0]&&d.content[0].text)||"";
-    var res={};try{var m=raw.match(/\{[\s\S]*\}/);res=m?JSON.parse(m[0]):{};}catch(e){toast("No se pudo interpretar la respuesta de la IA","error");return;}
-    var cot=res.cotizacion||[];
-    if(!cot.length){toast("La IA no encontró ítems en la cotización","error");}
-    _projItems=cot.map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});
-    var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();
-    var cmp=res.comparacion||{},cmpEl=document.getElementById("proj-cmp");
-    if(cmpEl){
-      if(cmp.coinciden)cmpEl.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';
-      else cmpEl.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';
-    }
-    toast("✅ "+_projItems.length+" ítems extraídos");
-  }).catch(function(e){if(btn){btn.disabled=false;btn.textContent="🤖 Extraer y comparar (P.O ↔ Cotización)";}toast("Error: "+((e&&e.message)||"fallo"),"error");});
+    var res=_projParseAI(d);_projBtn(false);
+    if(!res){toast("No se pudo interpretar la respuesta de la IA","error");return;}
+    if(!(res.cotizacion||[]).length)toast("La IA no encontró ítems en la cotización","error");
+    _projSetItems(res.cotizacion||[]);_projShowCmp(res.comparacion);toast("✅ "+_projItems.length+" ítems extraídos");
+  }).catch(function(e){_projBtn(false);toast("Error: "+((e&&e.message)||"fallo"),"error");});
 }
 function projUpload(file,slot){
   if(!file)return;

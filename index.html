@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809026; // subir en CADA despliegue
+var APP_BUILD=20260809027; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -2485,7 +2485,7 @@ function bitacoraClients(){
 // Proyectos PUBLICADOS con ubicación → sitios seleccionables con geocerca.
 function publishedProjectSites(){
   return (state.projects||[]).filter(function(p){return p.status==="publicado"&&p.lat!=null&&p.name;})
-    .map(function(p){return{name:p.name,lat:p.lat,lng:p.lng,radius:p.radius||200};});
+    .map(function(p){return{name:p.name,lat:p.lat,lng:p.lng,radius:p.radius||200,client:p.client};});
 }
 // Sitios del dropdown de actividades: ubicaciones de referencia + proyectos publicados. "CASA" solo Manuel y Andres.
 function projectOptions(){
@@ -2496,7 +2496,7 @@ function projectOptions(){
     if(normActName(l.name)==="casa"&&!isManuelOrAndres())return; // CASA solo Manuel y Andres
     add(l.name);
   });
-  publishedProjectSites().forEach(function(s){add(s.name);});
+  publishedProjectSites().forEach(function(s){if(userHasAnyProfile(s.client))add(s.name);}); // solo proyectos de clientes con permiso
   return out;
 }
 function isProject(name){var k=normActName(name);return projectOptions().some(function(p){return normActName(p)===k;});}

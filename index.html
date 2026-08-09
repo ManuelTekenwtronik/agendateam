@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808006; // subir en CADA despliegue
+var APP_BUILD=20260808007; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -2868,7 +2868,8 @@ async function runFaceAndDuplicateChecks(taskId,attachments){
       // Umbral configurable por tarea (default 70%) — aplica a Face++. On-device decide por distancia.
       var faceThr=t.faceThreshold||70;
       var result=LOCAL_FACE?await localFaceMatchUrls(col.photo,imgs[i].url):await checkFaceIdentity(col.photo,imgs[i].url);
-      if(!LOCAL_FACE&&!result.skipped)result.matched=(result.confidence||0)>=faceThr;
+      // Aplica el umbral por tarea (ej. EPP=65%) — ahora que la escala local está calibrada, vale para ambos motores.
+      if(!result.skipped)result.matched=(result.confidence||0)>=faceThr;
       // confidence===0 con matched===false indica error de API (no un 0% real) → tratar como skip
       if(!result.skipped&&result.matched===false&&(result.confidence||0)>0){
         return{passed:false,reason:"face_mismatch",

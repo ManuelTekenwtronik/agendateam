@@ -390,16 +390,21 @@ function _mergeProjectsByTs(cloudArr,localArr){
   return order.map(function(id){return map[id];});
 }
 // Proyectos viven en su PROPIO documento at/projects — ningún otro dispositivo lo toca (imposible que lo borren).
+function _stripBig(p){ // defensa: quitar base64 de los archivos antes de guardar (límite 1MB de Firestore)
+  var o=Object.assign({},p);
+  ["poFile","poFilePriced","otFile","cotFile","cotFilePriced"].forEach(function(k){if(o[k]&&o[k].url)o[k]={url:o[k].url,name:o[k].name||""};});
+  return o;
+}
 function saveProjects(){
   if(!db||!_cloudSynced)return;
   var ref=db.collection("at").doc("projects");
   db.runTransaction(function(tx){
     return tx.get(ref).then(function(doc){
       var cloud=(doc.exists&&doc.data().records)||[];
-      var merged=_mergeProjectsByTs(cloud,state.projects);
+      var merged=_mergeProjectsByTs(cloud,state.projects).map(_stripBig);
       tx.set(ref,{records:merged});
     });
-  }).catch(function(e){console.warn("saveProjects:",e);});
+  }).then(function(){console.log("saveProjects OK");}).catch(function(e){console.warn("saveProjects:",e);toast("⚠️ No se guardó el proyecto: "+(e&&e.message||e),"error");});
 }
 function startProjectsSync(){
   if(!db)return;
@@ -445,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809008; // subir en CADA despliegue
+var APP_BUILD=20260809009; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1448,12 +1453,15 @@ function projSave(){
   var poDate=(document.getElementById("proj-podate")||{}).value||"";
   var solpec=(document.getElementById("proj-solpec")||{}).value||"";
   var _b=_sumRows(_projItems),_iv=_projIvaVal(_b),_tt=_projTotVal(_b,_iv),_tot={bruto:_b.toFixed(2),iva:_iv.toFixed(2),total:_tt.toFixed(2)};
+  // Guardar SOLO url+name de los archivos (nunca el base64: excede el límite de 1MB de Firestore).
+  function _slim(f){return f&&f.url?{url:f.url,name:f.name||""}:null;}
+  var _fPO=_slim(_projPO),_fPOp=_slim(_projPOp),_fOT=_slim(_projOT),_fCot=_slim(_projCot),_fCotp=_slim(_projCotp);
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.updatedTs=Date.now();}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_fPO;p.poFilePriced=_fPOp;p.otFile=_fOT;p.cotFile=_fCot;p.cotFilePriced=_fCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.updatedTs=Date.now();}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_fPO,poFilePriced:_fPOp,otFile:_fOT,cotFile:_fCot,cotFilePriced:_fCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
   }
   saveLocal();if(db)saveProjects();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }

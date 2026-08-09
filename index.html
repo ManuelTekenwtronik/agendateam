@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809027; // subir en CADA despliegue
+var APP_BUILD=20260809028; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -795,6 +795,7 @@ function goMenu(){
 }
 function openSection(tab){
   if(typeof stopFaceCam==="function")stopFaceCam(); // apagar cámara de prueba al navegar
+  if(tab==="proyectos"){_projClient="";_projTab="";_projViewId="";} // entrar a Proyectos siempre en la rejilla de clientes
   currentTab=tab;
   document.getElementById("menu-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -1179,33 +1180,50 @@ function projFichaHTML(p){
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
-var _projTab="bitacoras";
+var _projTab="",_projClient="";
 function projSetTab(t){_projTab=t;renderProyectos();}
+function projOpenClient(k){_projClient=k;_projTab="";_projViewId="";renderProyectos();}
+function projBackClients(){_projClient="";_projTab="";_projViewId="";renderProyectos();}
+// Clientes que el usuario puede ver (tiene algún perfil ahí). Boss = todos.
+function projVisibleClients(){return TEAM_CLIENTS.filter(function(c){return userHasAnyProfile(c.key);});}
 function renderProyectos(){
-  var host=document.getElementById("content"),pp=projPerms();
+  var host=document.getElementById("content");
+  // NIVEL 1 — recuadros de clientes (grandes, para móvil)
+  if(!_projClient){
+    var cls=projVisibleClients();
+    var h=sectionHead("🏗️ Proyectos","Elige un cliente");
+    if(!cls.length){host.innerHTML=h+'<div class="card" style="text-align:center;color:#999;padding:24px;">No tienes clientes asignados.</div>';return;}
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px;">'+
+      cls.map(function(c){return'<button onclick="projOpenClient(\''+c.key+'\')" style="border:none;border-radius:16px;padding:26px 12px;background:'+c.color+';color:#fff;font-weight:800;font-size:18px;box-shadow:0 4px 14px rgba(0,0,0,.15);cursor:pointer;min-height:92px;display:flex;align-items:center;justify-content:center;text-align:center;">'+escH(c.name)+'</button>';}).join("")+
+    '</div>';
+    host.innerHTML=h;return;
+  }
+  // NIVEL 2 — sub-menú del cliente elegido
+  var pp=projPerms();
+  var clObj=TEAM_CLIENTS.filter(function(c){return c.key===_projClient;})[0]||{name:_projClient,color:"#7f8c8d"};
   var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
-  var bcls=bitacoraClients();var canBitacoras=bcls.length>0; // Bitácoras por cliente: Supervisión/Liquidación/Facturación (+ boss)
+  var canBitacoras=(currentUser&&currentUser.type==="boss")||userHasTeamProfile("supervision",_projClient)||userHasTeamProfile("liquidacion",_projClient)||userHasTeamProfile("facturacion",_projClient);
   var tabs=[];
   if(canBitacoras)tabs.push(["bitacoras","📒 Bitácoras"]);
   tabs.push(["documentacion","📄 Documentación"]);
   if(canCrear)tabs.push(["creacion","🛠️ Creación"]);
-  // Si la pestaña activa no está permitida, caer a la primera disponible.
   if(!tabs.some(function(t){return t[0]===_projTab;}))_projTab=(tabs[0]||["documentacion"])[0];
   var h=sectionHead("🏗️ Proyectos","");
+  h+='<div style="display:flex;align-items:center;gap:8px;margin:0 4px 10px;">'+
+    '<button class="btn btn-sm btn-gray" onclick="projBackClients()">← Clientes</button>'+
+    '<span style="font-size:13px;font-weight:800;color:#fff;background:'+clObj.color+';padding:5px 12px;border-radius:10px;">'+escH(clObj.name)+'</span>'+
+  '</div>';
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:0 4px 12px;">'+
     tabs.map(function(t){var on=_projTab===t[0];return'<button class="btn btn-sm" style="background:'+(on?"#2c82c9":"#eef2f9")+';color:'+(on?"#fff":"#2d3561")+';font-weight:700;" onclick="projSetTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join("")+
   '</div>';
-  if(_projTab==="creacion")h+=projCreacionBody();
-  else if(_projTab==="bitacoras"){
-    var clNames=bcls.map(function(k){var c=TEAM_CLIENTS.filter(function(x){return x.key===k;})[0];return c?('<span style="font-size:10px;font-weight:700;color:#fff;background:'+c.color+';padding:3px 8px;border-radius:8px;">'+c.name+'</span>'):"";}).join(" ");
-    h+='<div class="card" style="text-align:center;color:#999;padding:24px;">📒 <b>Bitácoras</b><br><span style="font-size:13px;">Sección en construcción.</span><br><div style="margin-top:10px;font-size:11px;color:#777;">Tu acceso (por cliente):</div><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">'+(clNames||'<span style="color:#c0392b;">sin clientes</span>')+'</div></div>';
-  }
-  else h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📄 <b>Documentación</b><br><span style="font-size:13px;">Sección en construcción — se definirá el contenido próximamente.</span></div>';
+  if(_projTab==="creacion")h+=projCreacionBody(_projClient);
+  else if(_projTab==="bitacoras")h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📒 <b>Bitácoras — '+escH(clObj.name)+'</b><br><span style="font-size:13px;">Sección en construcción — definiremos el contenido próximamente.</span></div>';
+  else h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📄 <b>Documentación — '+escH(clObj.name)+'</b><br><span style="font-size:13px;">Sección en construcción — definiremos el contenido próximamente.</span></div>';
   host.innerHTML=h;
 }
-function projCreacionBody(){
+function projCreacionBody(clientKey){
   var pp=projPerms();
-  var projs=(state.projects||[]).filter(canSeeProject).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
+  var projs=(state.projects||[]).filter(function(p){return canSeeProject(p)&&(!clientKey||p.client===clientKey);}).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
   var pubs=projs.filter(function(p){return p.status==="publicado";});
   var h="";
   h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:8px;">📂 Proyectos publicados</div>'+
@@ -1235,7 +1253,7 @@ function projCreacionBody(){
   h+='</div>';
   return h;
 }
-function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";_projLeak={po:false,cot:false};projForm({});}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";_projLeak={po:false,cot:false};projForm({client:_projClient||""});}
 function projUseMyGPS(){toast("📍 Obteniendo ubicación…");getGeo(function(loc){if(loc&&loc.lat!=null){var la=document.getElementById("proj-lat"),lo=document.getElementById("proj-lng");if(la)la.value=loc.lat;if(lo)lo.value=loc.lng;toast("✅ Ubicación cargada");}else toast("No se pudo obtener el GPS","error");});}
 function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};_projRejRows=(p.rejectComment?(p.rejectedRows||[]):[]).slice();_projRejComment=p.rejectComment||"";_projLeak={po:!!p.priceLeakPo,cot:!!p.priceLeakCot};projForm(p);}
 function projForm(p){

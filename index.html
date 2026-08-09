@@ -382,6 +382,13 @@ function _mergeById(cloudArr,localArr){
   });
   return order.map(function(id){return map[id];});
 }
+// Fusiona proyectos por id: gana el de updatedTs más reciente. Evita que un cliente con lista vacía pise los proyectos.
+function _mergeProjectsByTs(cloudArr,localArr){
+  var map={},order=[];
+  (cloudArr||[]).forEach(function(r){if(r&&r.id!=null){map[r.id]=r;order.push(r.id);}});
+  (localArr||[]).forEach(function(r){if(!r||r.id==null)return;if(!(r.id in map)){map[r.id]=r;order.push(r.id);}else if((r.updatedTs||0)>=(map[r.id].updatedTs||0))map[r.id]=r;});
+  return order.map(function(id){return map[id];});
+}
 function saveCloud(){
   if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
@@ -399,6 +406,7 @@ function saveCloud(){
       var cloud=doc.exists?doc.data():{};
       fc.attendance=_mergeById(cloud.attendance,state.attendance);
       fc.activities=_mergeById(cloud.activities,state.activities);
+      fc.projects=_mergeProjectsByTs(cloud.projects,state.projects); // blindaje: no pisar proyectos con lista vacía
       // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
       // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
       var cloudTeams={},cloudFD={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null){cloudTeams[cc.id]=cc.teams;cloudFD[cc.id]=cc.faceDescriptor;}});
@@ -417,7 +425,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809006; // subir en CADA despliegue
+var APP_BUILD=20260809007; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -445,8 +453,9 @@ function startSync(){
     });
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
-    var localAttendance=state.attendance||[],localActivities=state.activities||[];
+    var localAttendance=state.attendance||[],localActivities=state.activities||[],localProjects=state.projects||[];
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[],projects:[]},d);
+    state.projects=_mergeProjectsByTs(state.projects,localProjects); // conservar proyectos locales recién guardados
     // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
     state.attendance=_mergeById(state.attendance,localAttendance);
     state.activities=_mergeById(state.activities,localActivities);
@@ -1421,14 +1430,14 @@ function projSave(){
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.updatedTs=Date.now();}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
   }
   saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }
-function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();saveLocal();if(db)saveCloud();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
-function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();saveLocal();if(db)saveCloud();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
+function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveCloud();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
+function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveCloud();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
 
 // ── ALERTS ──
 function aiNotify(ck,sys,userText){

@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808019; // subir en CADA despliegue
+var APP_BUILD=20260808020; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1079,9 +1079,9 @@ function projFichaHTML(p){
       (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    '<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;">'+
-      '<thead><tr>'+["Ítem","Descripción","Unidad","Cantidad"].map(function(c){return'<th style="text-align:left;padding:6px 8px;border-bottom:2px solid #eee;background:#f7f8fc;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+
-      ((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+["item","descripcion","unidad","cantidad"].map(function(k){return'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="4" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+
+    '<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:1px solid #cfd3dc;border-left:1px solid #cfd3dc;">'+
+      '<thead><tr>'+["Código","Cantidad","Descripción","Unidad"].map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:1px solid #cfd3dc;border-bottom:1px solid #cfd3dc;background:#f7f8fc;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+
+      ((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+["codigo","cantidad","descripcion","unidad"].map(function(k){return'<td style="padding:6px 8px;border-right:1px solid #cfd3dc;border-bottom:1px solid #cfd3dc;white-space:'+(k==="descripcion"?"normal":"nowrap")+';">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="4" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+
       '</tbody></table></div>'+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
@@ -1135,7 +1135,7 @@ function projForm(p){
       '<button id="proj-ai-btn" class="btn btn-sm" style="background:#8e44ad;color:#fff;" onclick="projExtractCompare()">🤖 Extraer y comparar (P.O ↔ Cotización)</button>'+
       '<div style="font-size:10px;color:#c0392b;margin-top:4px;">🚩 LOCAL FIRST: hoy usa Claude (nube). Al migrar al PC Final, esto lo hará JARVIS local.</div>'+
       '<div id="proj-cmp" style="margin-top:8px;"></div></div>'+
-    '<div class="field"><label>Ítems — o pega desde Excel (Ítem ⇥ Descripción ⇥ Unidad ⇥ Cantidad)</label>'+
+    '<div class="field"><label>Ítems — o pega desde Excel (Código ⇥ Cantidad ⇥ Descripción ⇥ Unidad)</label>'+
       '<textarea id="proj-paste" placeholder="Pega aquí las filas copiadas de Excel…" style="width:100%;height:90px;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;font-family:monospace;box-sizing:border-box;"></textarea>'+
       '<button class="btn btn-sm btn-dark" style="margin-top:6px;" onclick="projParsePaste()">⬇ Cargar filas pegadas</button></div>'+
     '<div id="proj-items-preview">'+projItemsPreviewHTML()+'</div>'+
@@ -1144,12 +1144,13 @@ function projForm(p){
 }
 function projItemsPreviewHTML(){
   if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div>';
-  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems cargados:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;"><thead><tr>'+["Ítem","Descripción","Unidad","Cant."].map(function(c){return'<th style="padding:4px 6px;border-bottom:1px solid #ddd;text-align:left;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+["item","descripcion","unidad","cantidad"].map(function(k){return'<td style="padding:4px 6px;border-bottom:1px solid #f0f0f0;white-space:nowrap;">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
+  var GB="1px solid #cfd3dc";
+  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+["Código","Cantidad","Descripción","Unidad"].map(function(c){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+["codigo","cantidad","descripcion","unidad"].map(function(k){return'<td style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(k==="descripcion"?"normal":"nowrap")+';">'+escH(it[k]||"")+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>';
 }
 function projParsePaste(){
   var ta=document.getElementById("proj-paste");if(!ta)return;
   var rows=ta.value.split(/\r?\n/).filter(function(l){return l.trim();}).map(function(l){
-    var c=l.split("\t");return{item:(c[0]||"").trim(),descripcion:(c[1]||"").trim(),unidad:(c[2]||"").trim(),cantidad:(c[3]||"").trim()};
+    var c=l.split("\t");return{codigo:(c[0]||"").trim(),cantidad:(c[1]||"").trim(),descripcion:(c[2]||"").trim(),unidad:(c[3]||"").trim()};
   });
   if(!rows.length){toast("No se detectaron filas","error");return;}
   _projItems=rows;var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();toast("✅ "+rows.length+" filas cargadas");
@@ -1173,15 +1174,15 @@ function parseExcelItems(f){
     rows.forEach(function(r,i){
       var c0=String(r[0]||"").trim();
       if(!c0&&!String(r[1]||"").trim())return;
-      if(i===0&&/item|[ií]tem|descrip/i.test(String(r[0]||"")+" "+String(r[1]||"")))return; // salta encabezado
-      items.push({item:c0,descripcion:String(r[1]||"").trim(),unidad:String(r[2]||"").trim(),cantidad:String(r[3]||"").trim()});
+      if(i===0&&/item|[ií]tem|c[oó]digo|descrip|cantidad/i.test(String(r[0]||"")+" "+String(r[1]||"")+" "+String(r[2]||"")))return; // salta encabezado
+      items.push({codigo:c0,cantidad:String(r[1]||"").trim(),descripcion:String(r[2]||"").trim(),unidad:String(r[3]||"").trim()});
     });
     return items;
   });
 }
 function _projParseAI(d){if(d&&d.error){toast("IA: "+(d.error.message||"error"),"error");return null;}var raw=(d&&d.content&&d.content[0]&&d.content[0].text)||"";try{var m=raw.match(/\{[\s\S]*\}/);return m?JSON.parse(m[0]):null;}catch(e){return null;}}
 function _projShowCmp(cmp){var el=document.getElementById("proj-cmp");if(!el)return;cmp=cmp||{};if(cmp.coinciden)el.innerHTML='<div style="background:#eafaf1;border:1px solid #b8f0d8;border-radius:10px;padding:10px;font-size:12px;color:#1a7a4a;font-weight:600;">✅ P.O y Cotización coinciden.</div>';else el.innerHTML='<div style="background:#fff8ec;border:1px solid #ffe0a3;border-radius:10px;padding:10px;font-size:12px;color:#a06000;"><b>⚠️ Diferencias P.O ↔ Cotización:</b><br>'+((cmp.diferencias||[]).map(function(x){return"• "+escH(x);}).join("<br>")||"(sin detalle)")+'</div>';}
-function _projSetItems(items){_projItems=(items||[]).map(function(it){return{item:String(it.item||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||""),cantidad:String(it.cantidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
+function _projSetItems(items){_projItems=(items||[]).map(function(it){return{codigo:String(it.codigo||it.item||""),cantidad:String(it.cantidad||""),descripcion:String(it.descripcion||""),unidad:String(it.unidad||"")};});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function _projBtn(on){var b=document.getElementById("proj-ai-btn");if(b){b.disabled=on;b.textContent=on?"🤖 Analizando… (puede tardar)":"🤖 Extraer y comparar (P.O ↔ Cotización)";}}
 function _projErr(msg){toast("error IA","error");var el=document.getElementById("proj-cmp");if(el)el.innerHTML='<div style="background:#fff0f0;border:1px solid #ffcccc;border-radius:10px;padding:10px;font-size:12px;color:#c0392b;word-break:break-word;">🔎 '+escH(String(msg))+'</div>';}
 // Banderas de diagnóstico: rastro paso a paso visible en pantalla.
@@ -1215,12 +1216,12 @@ function _extractItemsFromPdf(f,label){
     _projDiag(label+": texto="+txt.length+" chars ("+(Date.now()-t0)+"ms)");
     if(txt.length>40){
       _projDiag(label+": enviando TEXTO a la IA…");var t1=Date.now();
-      var sys="Del texto de un documento comercial extrae las líneas de su tabla. Columnas: item (número/código), descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
+      var sys="Del texto de un documento comercial extrae las líneas de su tabla. Para cada línea: codigo (código de material/artículo si existe; si no, vacío), cantidad, descripcion, unidad. Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\"}]}";
       return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:"TEXTO DEL DOCUMENTO:\n"+txt.slice(0,22000)+"\n\nSolo JSON."}]}).then(function(res){_projDiag(label+": ✅ IA(texto) "+(Date.now()-t1)+"ms, ítems="+((res&&res.items)||[]).length);return res;});
     }
     _projDiag(label+": sin texto (escaneo) → enviando PDF a la IA…");var t2=Date.now();
     return _projB64(f).then(function(b64){
-      var sys="Extrae las líneas de la tabla del PDF: item, descripcion, unidad, cantidad. Responde SOLO JSON: {\"items\":[{\"item\":\"\",\"descripcion\":\"\",\"unidad\":\"\",\"cantidad\":\"\"}]}";
+      var sys="Extrae las líneas de la tabla del PDF. Para cada línea: codigo (código de material/artículo si existe), cantidad, descripcion, unidad. Responde SOLO JSON: {\"items\":[{\"codigo\":\"\",\"cantidad\":\"\",\"descripcion\":\"\",\"unidad\":\"\"}]}";
       return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:4000,system:sys,messages:[{role:"user",content:[{type:"text",text:"Extrae la tabla:"},{type:"document",source:{type:"base64",media_type:"application/pdf",data:b64}},{type:"text",text:"Solo JSON."}]}]}).then(function(res){_projDiag(label+": ✅ IA(PDF) "+(Date.now()-t2)+"ms");return res;});
     });
   }).then(function(res){return(res&&res.items)||[];});
@@ -1232,8 +1233,38 @@ function _cmpItems(po,cot){
   po.forEach(function(it){poMap[norm(it.descripcion)]=it;});
   cot.forEach(function(it){cotMap[norm(it.descripcion)]=it;});
   cot.forEach(function(it){var k=norm(it.descripcion);if(!k)return;if(!poMap[k])diffs.push("En Cotización pero NO en P.O: "+(it.descripcion||it.item));else if(norm(poMap[k].cantidad)!==norm(it.cantidad))diffs.push("Cantidad distinta en \""+String(it.descripcion||"").slice(0,40)+"\": P.O="+poMap[k].cantidad+" vs Cot="+it.cantidad);});
-  po.forEach(function(it){var k=norm(it.descripcion);if(k&&!cotMap[k])diffs.push("En P.O pero NO en Cotización: "+(it.descripcion||it.item));});
+  po.forEach(function(it){var k=norm(it.descripcion);if(k&&!cotMap[k])diffs.push("En P.O pero NO en Cotización: "+(it.descripcion||it.codigo));});
   return{coinciden:diffs.length===0,diferencias:diffs};
+}
+// Comparación semántica por descripción (IA) — para ítems que NO se emparejaron por código.
+function _aiCompare(po,cot){
+  function line(it,i){return(i+1)+". ["+(it.codigo||"s/cod")+"] "+it.descripcion+" · cant:"+it.cantidad;}
+  var poT=po.map(line).join("\n"),cotT=cot.map(line).join("\n");
+  var sys="Comparas dos listas de ítems del MISMO proyecto eléctrico, redactados distinto (abreviaturas, mayúsculas, orden). Considera IGUALES los que son el mismo material/concepto aunque el texto difiera. Reporta SOLO: (a) ítems de COTIZACIÓN sin equivalente en P.O, (b) ítems de P.O sin equivalente en COTIZACIÓN, (c) equivalentes con CANTIDAD distinta. Responde SOLO JSON: {\"coinciden\":true,\"diferencias\":[\"texto claro de cada diferencia\"]}";
+  var msg="COTIZACIÓN ("+cot.length+"):\n"+cotT+"\n\nP.O ("+po.length+"):\n"+poT+"\n\nCompara semánticamente. Solo JSON.";
+  return _claudeJSON({model:PROJ_AI_MODEL,max_tokens:3000,system:sys,messages:[{role:"user",content:msg}]});
+}
+// Compara P.O vs Cotización: 1) por CÓDIGO exacto; 2) lo que no empareja, por DESCRIPCIÓN (IA).
+function _projCompare(po,cot){
+  function nc(s){return String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");}
+  function ncant(s){return String(s||"").replace(/\s/g,"");}
+  var diffs=[],poRemaining=po.slice(),cotRemaining=[],poByCode={};
+  po.forEach(function(it){var c=nc(it.codigo);if(c){poByCode[c]=poByCode[c]||[];poByCode[c].push(it);}});
+  cot.forEach(function(it){
+    var c=nc(it.codigo);
+    if(c&&poByCode[c]&&poByCode[c].length){
+      var match=poByCode[c].shift();var idx=poRemaining.indexOf(match);if(idx>=0)poRemaining.splice(idx,1);
+      if(ncant(it.cantidad)!==ncant(match.cantidad))diffs.push("Cantidad distinta (código "+it.codigo+" · "+String(it.descripcion||"").slice(0,30)+"): Cot="+it.cantidad+" vs P.O="+match.cantidad);
+    }else cotRemaining.push(it);
+  });
+  _projDiag("Por código: "+(cot.length-cotRemaining.length)+" emparejados · quedan "+cotRemaining.length+" cot y "+poRemaining.length+" P.O → análisis por descripción");
+  if(!cotRemaining.length&&!poRemaining.length)return Promise.resolve({coinciden:diffs.length===0,diferencias:diffs});
+  return _aiCompare(poRemaining,cotRemaining).then(function(cmp){
+    var ai=(cmp&&cmp.diferencias)||[];return{coinciden:(diffs.length+ai.length)===0,diferencias:diffs.concat(ai)};
+  }).catch(function(e){
+    _projDiag("(IA comparación falló: "+((e&&e.message)||"")+") → comparación exacta local");
+    var loc=_cmpItems(poRemaining,cotRemaining);return{coinciden:(diffs.length+loc.diferencias.length)===0,diferencias:diffs.concat(loc.diferencias)};
+  });
 }
 function projExtractCompare(){
   if(!_projPO||!_projPO.url){toast("Sube el P.O primero","error");return;}
@@ -1246,11 +1277,13 @@ function projExtractCompare(){
     _projDiag("Cotización lista: "+cotItems.length+" ítems");
     _projSetItems(cotItems);
     return _extractItemsFromPdf(_projPO,"P.O").then(function(poItems){
-      _projDiag("P.O listo: "+poItems.length+" ítems. Comparando localmente…");
-      var cmp=_cmpItems(poItems,cotItems);
-      _projDiag(cmp.coinciden?"✅ RESULTADO: P.O y Cotización COINCIDEN":"⚠️ RESULTADO: "+cmp.diferencias.length+" diferencia(s):");
-      cmp.diferencias.forEach(function(x){_projDiag("   • "+x);});
-      _projBtn(false);toast("✅ Comparación lista");
+      _projDiag("P.O listo: "+poItems.length+" ítems. Comparando (código → descripción)…");var tc=Date.now();
+      return _projCompare(poItems,cotItems).then(function(cmp){
+        _projDiag("Comparación lista ("+(Date.now()-tc)+"ms)");
+        _projDiag(cmp.coinciden?"✅ RESULTADO: P.O y Cotización COINCIDEN":"⚠️ RESULTADO: "+((cmp.diferencias||[]).length)+" diferencia(s):");
+        (cmp.diferencias||[]).forEach(function(x){_projDiag("   • "+x);});
+        _projBtn(false);toast("✅ Comparación lista");
+      });
     });
   }).catch(function(e){_projBtn(false);_projDiag("❌ ERROR: "+((e&&e.message)||"fallo"));});
 }

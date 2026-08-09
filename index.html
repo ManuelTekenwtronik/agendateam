@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808013; // subir en CADA despliegue
+var APP_BUILD=20260808014; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1163,8 +1163,10 @@ function _projB64(f){return(f&&f.b64)?Promise.resolve(f.b64):_pdfToBase64(f.url)
 // 🚩 LOCAL FIRST: extracción/comparación con IA (PDF). Hoy Claude (nube); migrar a JARVIS local en el PC Final.
 // Excel se lee LOCAL (SheetJS), sin IA — solo la comparación con el P.O usa IA.
 function loadXLSX(){return new Promise(function(res,rej){if(window.XLSX)return res();var s=document.createElement("script");s.src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";s.onload=function(){res();};s.onerror=function(){rej(new Error("no se pudo cargar el lector de Excel"));};document.head.appendChild(s);});}
-function parseExcelItems(url){
-  return loadXLSX().then(function(){return fetch(url);}).then(function(r){return r.arrayBuffer();}).then(function(buf){
+function _b64ToArrayBuffer(b64){var bin=atob(b64),len=bin.length,bytes=new Uint8Array(len);for(var i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);return bytes.buffer;}
+function _projArrayBuffer(f){return(f&&f.b64)?Promise.resolve(_b64ToArrayBuffer(f.b64)):fetch(f.url).then(function(r){return r.arrayBuffer();});}
+function parseExcelItems(f){
+  return loadXLSX().then(function(){return _projArrayBuffer(f);}).then(function(buf){
     var wb=XLSX.read(buf,{type:"array"}),ws=wb.Sheets[wb.SheetNames[0]];
     var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:""}),items=[];
     rows.forEach(function(r,i){
@@ -1187,7 +1189,7 @@ function projExtractCompare(){
   var isExcel=/\.(xlsx|xls|csv)$/.test((_projCot.name||"").toLowerCase());
   if(isExcel){
     toast("📊 Leyendo Excel de la cotización…");
-    parseExcelItems(_projCot.url).then(function(items){
+    parseExcelItems(_projCot).then(function(items){
       _projSetItems(items);toast("✅ "+items.length+" ítems (Excel)");
       var cotText=_projItems.map(function(it){return[it.item,it.descripcion,it.unidad,it.cantidad].join(" | ");}).join("\n");
       return _projB64(_projPO).then(function(pob){

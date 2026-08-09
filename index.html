@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809010; // subir en CADA despliegue
+var APP_BUILD=20260809011; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1087,9 +1087,9 @@ function renderFaceTest(){
 
 // ── MÓDULO PROYECTOS A PRODUCCIÓN ──
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
-var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
+var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"},rechazado:{l:"Rechazado",c:"#e74c3c"}};
 var PROJ_AI_MODEL="claude-haiku-4-5-20251001"; // modelo rápido: evita el "Inactivity Timeout" de conexiones lentas
-var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={};
+var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={},_projRejRows=[],_projRejComment="";
 function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
   var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
@@ -1104,6 +1104,7 @@ function projFichaHTML(p){
   return'<div class="card">'+
     '<div style="font-weight:800;font-size:16px;margin-bottom:6px;">'+escH(p.name||"(sin nombre)")+'</div>'+
     '<div style="margin-bottom:10px;"><span style="font-size:11px;font-weight:800;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+escH(cl.name)+'</span></div>'+
+    (p.status==="rechazado"&&p.rejectComment?'<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:10px;padding:10px 12px;margin-bottom:10px;font-size:12px;color:#c0392b;"><b>✖ Rechazado'+(p.rejectedBy?" por "+escH(p.rejectedBy):"")+':</b><br>'+escH(p.rejectComment)+((p.rejectedRows&&p.rejectedRows.length)?'<br><span style="font-size:11px;">'+p.rejectedRows.length+' ítem(s) marcados como incorrectos.</span>':"")+'</div>':"")+
     '<div style="font-size:13px;color:#444;line-height:1.9;">'+
       '🧾 <b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br>'+
       '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
@@ -1139,20 +1140,22 @@ function renderProyectos(){
        '<span style="font-size:10px;font-weight:800;color:#fff;background:'+st.c+';padding:3px 8px;border-radius:8px;white-space:nowrap;">'+st.l+'</span></div>'+
        '<div style="font-size:11px;color:#888;margin-top:3px;"><span style="color:'+cl.color+';font-weight:700;">'+escH(cl.name)+'</span> · P.O '+escH(p.poDate||"—")+' · Solpec '+escH(p.solpec||"—")+' · '+((p.items||[]).length)+' ítems</div>'+
        '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'+
-         ((pp.load&&p.status==="borrador")?'<button class="btn btn-sm btn-dark" onclick="projEdit(\''+p.id+'\')">✏️ Editar</button>':"")+
-         ((pp.validate&&p.status==="borrador")?'<button class="btn btn-sm" style="background:#9b59b6;color:#fff;" onclick="projValidate(\''+p.id+'\')">✔ Validar</button>':"")+
+         ((pp.load&&(p.status==="borrador"||p.status==="rechazado"))?'<button class="btn btn-sm btn-dark" onclick="projEdit(\''+p.id+'\')">✏️ Editar</button>':"")+
+         ((pp.validate&&(p.status==="borrador"||p.status==="rechazado"))?'<button class="btn btn-sm" style="background:#9b59b6;color:#fff;" onclick="projValidate(\''+p.id+'\')">✔ Validar</button>':"")+
          ((pp.approve&&p.status==="validado")?'<button class="btn btn-sm" style="background:#27ae60;color:#fff;" onclick="projApprove(\''+p.id+'\')">✅ Aprobar/Publicar</button>':"")+
+         (((pp.validate&&(p.status==="borrador"||p.status==="rechazado"))||(pp.approve&&p.status==="validado"))?'<button class="btn btn-sm" style="background:#e74c3c;color:#fff;" onclick="projRejectOpen(\''+p.id+'\')">✖ Rechazar</button>':"")+
          '<button class="btn btn-sm btn-gray" onclick="projView(\''+p.id+'\')">👁 Ver</button>'+
        '</div></div>';
   });
   h+='</div>';
   host.innerHTML=h;
 }
-function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};projForm({});}
-function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};projForm(p);}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};_projRejRows=[];_projRejComment="";projForm({});}
+function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};_projRejRows=(p.rejectComment?(p.rejectedRows||[]):[]).slice();_projRejComment=p.rejectComment||"";projForm(p);}
 function projForm(p){
   var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
   var body=''+
+    (_projRejComment?'<div style="background:#fff0f0;border:1.5px solid #ffcccc;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#c0392b;"><b>✖ Rechazado'+(p.rejectedBy?" por "+escH(p.rejectedBy):"")+':</b><br>'+escH(_projRejComment)+((_projRejRows&&_projRejRows.length)?'<br><span style="font-size:11px;">Ítems marcados como incorrectos: '+_projRejRows.length+' (resaltados abajo).</span>':"")+'</div>':"")+
     '<div class="field"><label>Cliente *</label><select id="proj-client"><option value="">— elige —</option>'+clientOpts+'</select></div>'+
     '<div class="field"><label>Nombre del proyecto *</label><input id="proj-name" value="'+escH(p.name||"")+'" placeholder="Ej: Split N — Zona 6"></div>'+
     '<div class="field"><label>Número de P.O</label><input id="proj-ponum" value="'+escH(p.poNumber||"")+'" placeholder="N° de orden de compra"></div>'+
@@ -1204,8 +1207,9 @@ function projItemsPreviewHTML(){
   var heads=[["Código","left"],["Cantidad","right"],["Descripción","left"],["Unidad","left"],["V.Unit","right"],["V.Total","right"],["","left"]];
   function inp(i,f,w,num){return'<input value="'+escH(_projItems[i][f]||"")+'" oninput="projEditCell('+i+',\''+f+'\',this.value)" style="width:'+w+';border:none;background:transparent;font-size:11px;padding:2px;outline:none;font-family:inherit;'+(num?NUM:"")+'">';}
   var body=_projItems.map(function(it,i){
-    return'<tr>'+
-      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"codigo","70px",false)+'</td>'+
+    var rej=(_projRejRows&&_projRejRows.indexOf(i)>=0);
+    return'<tr'+(rej?' style="background:#fff0f0;"':'')+'>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+(rej?'<span title="marcado incorrecto" style="color:#e74c3c;">✖</span> ':'')+inp(i,"codigo","64px",false)+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"cantidad","60px",true)+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"descripcion","230px",false)+'</td>'+
       '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"unidad","50px",false)+'</td>'+
@@ -1463,13 +1467,40 @@ function projSave(){
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_fPO;p.poFilePriced=_fPOp;p.otFile=_fOT;p.cotFile=_fCot;p.cotFilePriced=_fCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.updatedTs=Date.now();}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_fPO;p.poFilePriced=_fPOp;p.otFile=_fOT;p.cotFile=_fCot;p.cotFilePriced=_fCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";p.rejectComment="";p.rejectedRows=[];p.updatedTs=Date.now();}
   }else{
     state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_fPO,poFilePriced:_fPOp,otFile:_fOT,cotFile:_fCot,cotFilePriced:_fCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now(),updatedTs:Date.now()});
   }
   saveLocal();if(db)saveProjects();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }
-function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
+function projValidate(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Validar proyecto?","Confirma que la información de \""+p.name+"\" es correcta.",function(){p.status="validado";p.validatedBy=myName();p.rejectComment="";p.rejectedRows=[];p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✔ Validado");},"Validar","#9b59b6");}
+// Rechazo: comentario + casillas por fila para marcar los ítems incorrectos.
+function projRejectOpen(id){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
+  var GB="1px solid #cfd3dc",marked=p.rejectedRows||[];
+  var rows=(p.items||[]).map(function(it,i){
+    return'<tr>'+
+      '<td style="border:'+GB+';text-align:center;padding:3px;"><input type="checkbox" id="rej-row-'+i+'"'+(marked.indexOf(i)>=0?" checked":"")+' style="-webkit-appearance:checkbox;appearance:checkbox;width:16px;height:16px;accent-color:#e74c3c;"></td>'+
+      '<td style="border:'+GB+';padding:3px 6px;white-space:nowrap;">'+escH(it.codigo||"")+'</td>'+
+      '<td style="border:'+GB+';padding:3px 6px;">'+escH(it.descripcion||"")+'</td>'+
+      '<td style="border:'+GB+';padding:3px 6px;text-align:right;">'+escH(it.cantidad||"")+'</td>'+
+    '</tr>';
+  }).join("");
+  var body='<div class="field"><label>Motivo del rechazo *</label><textarea id="rej-comment" placeholder="Explica qué está incorrecto y qué debe corregirse…" style="width:100%;height:80px;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;box-sizing:border-box;">'+escH(p.rejectComment||"")+'</textarea></div>'+
+    '<div style="font-size:12px;font-weight:700;color:#666;margin:6px 0;">Marca los ítems incorrectos:</div>'+
+    '<div style="overflow:auto;max-height:45vh;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+["✖","Código","Descripción","Cant."].map(function(c){return'<th style="border-right:'+GB+';border-bottom:'+GB+';padding:4px 6px;background:#fff5f5;white-space:nowrap;">'+c+'</th>';}).join("")+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<button class="btn btn-block" style="background:#e74c3c;color:#fff;margin-top:12px;" onclick="projRejectConfirm(\''+id+'\')">✖ Confirmar rechazo</button>';
+  showSheet("Rechazar proyecto",body);
+}
+function projRejectConfirm(id){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
+  var comment=((document.getElementById("rej-comment")||{}).value||"").trim();
+  if(!comment){toast("Escribe el motivo del rechazo","error");return;}
+  var marked=[];(p.items||[]).forEach(function(it,i){var c=document.getElementById("rej-row-"+i);if(c&&c.checked)marked.push(i);});
+  p.status="rechazado";p.rejectComment=comment;p.rejectedRows=marked;p.rejectedBy=myName();p.updatedTs=Date.now();
+  saveLocal();if(db)saveProjects();closeSheet();renderProyectos();
+  toast("✖ Proyecto rechazado — devuelto para corrección");
+}
 function projApprove(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;showConfirm("¿Aprobar y publicar?","\""+p.name+"\" quedará visible en la lista de proyectos publicados.",function(){p.status="publicado";p.approvedBy=myName();p.updatedTs=Date.now();saveLocal();if(db)saveProjects();renderProyectos();toast("✅ Publicado");},"Publicar","#27ae60");}
 
 // ── ALERTS ──

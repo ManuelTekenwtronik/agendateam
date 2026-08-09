@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809015; // subir en CADA despliegue
+var APP_BUILD=20260809016; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -510,7 +510,8 @@ function startSync(){
     _applyTeamsMap(); // reaplicar teams de at/teams (que at/data no debe pisar)
     // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
     try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
-    if(currentUser)render();
+    // No repintar la tabla de Asignación de Team en sync de fondo (los checkboxes ya tienen su estado; evita parpadeo).
+    if(currentUser&&currentTab!=="asignteam")render();
   },function(e){console.warn("sync:",e);});
 }
 var OT={diaria:2.4*3600000,semanal:.7*86400000,mensual:3*86400000};
@@ -930,7 +931,7 @@ function startTeamsSync(){
     _teamsMap=(snap.exists&&snap.data().byId)||{};
     _applyTeamsMap();
     try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
-    if(currentUser&&currentTab==="asignteam")renderAsignTeam();
+    // No repintar mientras el admin edita (evita el parpadeo de casillas recién marcadas).
   },function(e){console.warn("teamsSync:",e);});
 }
 

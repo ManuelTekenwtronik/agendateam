@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808005; // subir en CADA despliegue
+var APP_BUILD=20260808006; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -990,7 +990,7 @@ function ftCompare(){
     var ms=Math.round(performance.now()-t0);_faceStats.inferMs=ms;var dev=ftDevice();
     if(!r){faceLog("❌ No se detectó rostro en cámara ("+ms+" ms)");saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"compare",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,loadMs:_faceStats.loadMs||null,ref:_faceRefName,faceFound:false,inferMs:ms});return;}
     var dist=faceapi.euclideanDistance(r.descriptor,_faceRefDesc);
-    var pct=Math.max(0,Math.min(100,Math.round((1-dist/0.6)*100)));
+    var pct=_faceMatchPct(dist);
     faceLog((dist<0.5?"✅ COINCIDE":"❌ NO coincide")+" con "+_faceRefName+" · dist="+dist.toFixed(3)+" · match≈"+pct+"% · "+ms+" ms");
     saveFaceTest({id:Date.now()+"_"+Math.random().toString(36).slice(2,7),ts:Date.now(),test:"compare",label:ftLabel(),ua:dev.ua,ram:dev.ram,cores:dev.cores,loadMs:_faceStats.loadMs||null,ref:_faceRefName,faceFound:true,dist:Number(dist.toFixed(3)),matchPct:pct,matched:dist<0.5,inferMs:ms});
   }).catch(function(e){faceLog("❌ Error: "+e.message);});
@@ -1559,6 +1559,8 @@ function faceDetect(url){
 function faceReady(){if(window.faceapi&&_faceModelsReady)return Promise.resolve();return loadFaceApi().then(function(){return _faceModelsReady?null:loadFaceModels();});}
 // Detector: usa SSD MobileNet (robusto, para fotos difíciles) si está cargado; si no, cae al Tiny (rápido).
 function _detOpts(){return(window.faceapi&&faceapi.nets&&faceapi.nets.ssdMobilenetv1&&faceapi.nets.ssdMobilenetv1.isLoaded)?new faceapi.SsdMobilenetv1Options({minConfidence:0.35}):new faceapi.TinyFaceDetectorOptions();}
+// Escala de % de coincidencia intuitiva a partir de la distancia facial (0.30≈95%, 0.50 umbral≈70%, 0.90≈20%).
+function _faceMatchPct(dist){return Math.round(Math.max(0,Math.min(100,132.5-125*dist)));}
 function _imgFromDataUrl(d){return new Promise(function(res,rej){var im=new Image();im.onload=function(){res(im);};im.onerror=function(){rej(new Error("img"));};im.src=d;});}
 function _mar(m){function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y);}return d(m[3],m[9])/d(m[0],m[6]);}
 function localFaceDetect(dataUrl){
@@ -1579,7 +1581,7 @@ function localIdentity(user,frameDesc){
   else refP=Promise.resolve(null);
   return refP.then(function(ref){
     if(!ref)return{skipped:true};
-    var dist=faceapi.euclideanDistance(frameDesc,ref),pct=Math.round(Math.max(0,Math.min(100,(1-dist)*100)));
+    var dist=faceapi.euclideanDistance(frameDesc,ref),pct=_faceMatchPct(dist);
     return{matched:dist<0.5,confidence:pct,skipped:false};
   }).catch(function(){return{skipped:true};});
 }
@@ -1589,7 +1591,7 @@ function localFaceMatchUrls(profileUrl,evidenceUrl){
   return faceReady().then(function(){return Promise.all([_descFromUrl(profileUrl),_descFromUrl(evidenceUrl)]);}).then(function(ds){
     if(!ds[0])return{skipped:true,reason:"perfil sin rostro",matched:null,confidence:0};
     if(!ds[1])return{skipped:true,reason:"sin rostro en evidencia",matched:null,confidence:0};
-    var dist=faceapi.euclideanDistance(ds[0],ds[1]),pct=Math.round(Math.max(0,Math.min(100,(1-dist)*100)));
+    var dist=faceapi.euclideanDistance(ds[0],ds[1]),pct=_faceMatchPct(dist);
     return{matched:dist<0.5,confidence:pct,skipped:false};
   }).catch(function(e){return{skipped:true,reason:(e&&e.message)||"error",matched:null,confidence:0};});
 }

@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809029; // subir en CADA despliegue
+var APP_BUILD=20260809030; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -796,6 +796,7 @@ function goMenu(){
 function openSection(tab){
   if(typeof stopFaceCam==="function")stopFaceCam(); // apagar cámara de prueba al navegar
   if(tab==="proyectos"){_projClient="";_projSection="";_projOpenId="";_projViewId="";} // entrar a Proyectos siempre en la rejilla de clientes
+  if(tab==="metricas")_metTab=""; // entrar a Métricas siempre en los botones grandes
   currentTab=tab;
   document.getElementById("menu-screen").classList.add("hidden");
   document.getElementById("app").classList.remove("hidden");
@@ -809,14 +810,13 @@ function renderMenu(){
   var pv=pendValidCount(),valLbl="Validación"+(pv?" ("+pv+")":"");
   var items;
   if(isVal){
-    items=[["validacion","🔍",valLbl,"#e74c3c"],["estadisticas","📊","Estadísticas","#5a8fe0"],["reportes","📈","Reportes","#9b59b6"],["ingreso","🕐","Asistencia","#27ae60"],["actividades","📝","Actividades","#f5a623"]];
+    items=[["validacion","🔍",valLbl,"#e74c3c"],["metricas","📊","Métricas","#5a8fe0"],["ingreso","🕐","Asistencia","#27ae60"],["actividades","📝","Actividades","#f5a623"]];
   }else{
     items=[
-      ["estadisticas","📊","Estadísticas","#5a8fe0"],
+      ["metricas","📊","Métricas","#5a8fe0"],
       ["tareas","📋","Tareas","#4a6cf7"],
       ["ingreso","🕐","Ingreso / Salida","#27ae60"],
-      ["actividades","📝","Actividades","#f5a623"],
-      ["reportes","📈","Reportes","#9b59b6"]
+      ["actividades","📝","Actividades","#f5a623"]
     ];
     if(isBoss){items.push(["validacion","🔍",valLbl,"#e74c3c"]);items.push(["chat","💬","Chat","#e07b5a"]);items.push(["base","📚","Base","#1abc9c"]);items.push(["asignteam","👥","Asignación de Team","#e67e22"]);items.push(["facetest","🧪","Prueba Rostro","#16a085"]);}
   }
@@ -1947,6 +1947,7 @@ function renderContent(){
   else if(t==="reportes")renderReportes();
   else if(t==="tareasrep")renderReporteTareas();
   else if(t==="estadisticas")renderEstadisticas();
+  else if(t==="metricas")renderMetricas();
   else if(t==="ingreso")renderIngreso();
   else if(t==="actividades")renderActividades();
   else if(t==="validacion")renderValidacion();
@@ -2760,6 +2761,23 @@ function renderActividades(){
 }
 
 // ── ESTADÍSTICAS (resumen de todo) ──
+// MÉTRICAS: hub que unifica Estadísticas y Reportes con botones grandes.
+var _metTab="";
+function metSetTab(t){_metTab=t;renderMetricas();}
+function renderMetricas(){
+  var host=document.getElementById("content");
+  if(!_metTab){
+    var h=sectionHead("📊 Métricas","Estadísticas y reportes");
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px;">'+
+      _bigCard("#5a8fe0","📊","Estadísticas","metSetTab('estadisticas')")+
+      _bigCard("#9b59b6","📈","Reportes","metSetTab('reportes')")+
+    '</div>';
+    host.innerHTML=h;return;
+  }
+  if(_metTab==="estadisticas")renderEstadisticas();else renderReportes();
+  var c=document.getElementById("content");
+  if(c)c.insertAdjacentHTML("afterbegin",'<div style="margin:0 4px 10px;"><button class="btn btn-sm btn-gray" onclick="metSetTab(\'\')">← Métricas</button></div>');
+}
 function renderEstadisticas(){
   var admin=isAdmin();
   var h=sectionHead("📊 Estadísticas","Rendimiento");
@@ -2777,8 +2795,9 @@ function renderEstadisticas(){
   document.getElementById("content").innerHTML=h;
 }
 function estadSubBtn(s,label){return'<button class="btn btn-sm" style="flex:1;border-radius:10px;'+(estadSub===s?"background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;":"background:#f0f2f7;color:#555;")+'" onclick="estadSetSub(\''+s+'\')">'+label+'</button>';}
-function estadSetSub(s){estadSub=s;renderEstadisticas();}
-function estadSetCollab(v){estadCollab=v;renderEstadisticas();}
+function _reEstad(){if(currentTab==="metricas")renderMetricas();else renderEstadisticas();}
+function estadSetSub(s){estadSub=s;_reEstad();}
+function estadSetCollab(v){estadCollab=v;_reEstad();}
 // % de cumplimiento por tarea (promedio de los últimos 30 días)
 function taskCompliancePct(t){
   var cutoff=Math.max(Date.now()-30*86400000,statsSinceTs()),pcts=[];
@@ -4283,10 +4302,11 @@ function repPeriodBar(){
   return'<div style="display:flex;gap:6px;margin-bottom:14px;">'+opts.map(function(o){return'<button class="btn btn-sm" style="flex:1;border-radius:9px;'+(repPeriod===o[0]?"background:#4a6cf7;color:#fff;":"background:#f0f2f7;color:#666;")+'" onclick="repSetPeriod(\''+o[0]+'\')">'+o[1]+'</button>';}).join("")+'</div>';
 }
 function repModeBtn(m,label){return'<button class="btn btn-sm" style="flex:1;border-radius:10px;'+(repMode===m?"background:linear-gradient(135deg,#1a1d2e,#2d3561);color:#fff;":"background:#f0f2f7;color:#555;")+'" onclick="repSetMode(\''+m+'\')">'+label+'</button>';}
-function repSetMode(m){repMode=m;renderReportes();}
-function repSelectCollab(v){repCollab=v;renderReportes();}
-function repSelectActivity(v){repActivity=v;renderReportes();}
-function repSetPeriod(p){repPeriod=p;renderReportes();}
+function _reRep(){if(currentTab==="metricas")renderMetricas();else renderReportes();}
+function repSetMode(m){repMode=m;_reRep();}
+function repSelectCollab(v){repCollab=v;_reRep();}
+function repSelectActivity(v){repActivity=v;_reRep();}
+function repSetPeriod(p){repPeriod=p;_reRep();}
 // Resumen de ingresos del personal: colaborador, hora de ingreso y si el lugar es autorizado
 function attendanceSummaryHTML(dateKey){
   var recs=(state.attendance||[]).filter(function(a){return a.date===dateKey&&a.collabId!=="boss"&&a.collabId!=="validador";});

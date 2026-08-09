@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809013; // subir en CADA despliegue
+var APP_BUILD=20260809014; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -507,6 +507,7 @@ function startSync(){
       }
     });
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
+    _applyTeamsMap(); // reaplicar teams de at/teams (que at/data no debe pisar)
     // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
     try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
     if(currentUser)render();
@@ -898,6 +899,7 @@ function toggleTeam(cid,clientKey,profileKey,checked){
   if(!c.teams)c.teams={};
   if(!c.teams[clientKey])c.teams[clientKey]={};
   c.teams[clientKey][profileKey]=checked; // optimista local
+  if(!_teamsMap)_teamsMap={};if(!_teamsMap[cid])_teamsMap[cid]={};if(!_teamsMap[cid][clientKey])_teamsMap[cid][clientKey]={};_teamsMap[cid][clientKey][profileKey]=checked; // caché optimista (evita parpadeo)
   saveLocal();
   // Los teams viven en su PROPIO documento at/teams (aislado, ningún otro flujo lo toca → no se pisa).
   if(db&&_cloudSynced){
@@ -919,11 +921,13 @@ function saveTeams(){
   var map={};(state.collaborators||[]).forEach(function(c){if(c.teams&&Object.keys(c.teams).length)map[c.id]=c.teams;});
   db.collection("at").doc("teams").set({byId:map}).catch(function(e){console.warn("saveTeams:",e);});
 }
+var _teamsMap=null; // caché de la fuente de verdad (at/teams); se reaplica en cada refresco de colaboradores
+function _applyTeamsMap(){if(!_teamsMap)return;(state.collaborators||[]).forEach(function(c){if(_teamsMap[c.id]!==undefined)c.teams=_teamsMap[c.id];});}
 function startTeamsSync(){
   if(!db)return;
   db.collection("at").doc("teams").onSnapshot(function(snap){
-    var map=(snap.exists&&snap.data().byId)||{};
-    (state.collaborators||[]).forEach(function(c){c.teams=map[c.id]||c.teams||{};});
+    _teamsMap=(snap.exists&&snap.data().byId)||{};
+    _applyTeamsMap();
     try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
     if(currentUser&&currentTab==="asignteam")renderAsignTeam();
   },function(e){console.warn("teamsSync:",e);});

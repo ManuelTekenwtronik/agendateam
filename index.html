@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260808008; // subir en CADA despliegue
+var APP_BUILD=20260808009; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1053,7 +1053,7 @@ function renderFaceTest(){
 // ── MÓDULO PROYECTOS A PRODUCCIÓN ──
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
-var _projItems=[],_projPO=null,_projOT=null,_projEditId=null,_projViewId="";
+var _projItems=[],_projPO=null,_projOT=null,_projCot=null,_projEditId=null,_projViewId="";
 function projPerms(){
   var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
   var isManuel=t==="boss",isAndres=/andres\s*daza/.test(n),isMarianela=/marianela/.test(n),isGiovanni=/giovann|geovann|izquierdo/.test(n);
@@ -1066,9 +1066,11 @@ function projFichaHTML(p){
     '<div style="font-weight:800;font-size:16px;margin-bottom:6px;">'+escH(p.name||"(sin nombre)")+'</div>'+
     '<div style="margin-bottom:10px;"><span style="font-size:11px;font-weight:800;color:#fff;background:'+cl.color+';padding:3px 8px;border-radius:8px;">'+escH(cl.name)+'</span></div>'+
     '<div style="font-size:13px;color:#444;line-height:1.9;">'+
+      '🧾 <b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br>'+
       '📅 <b>Fecha P.O:</b> '+escH(p.poDate||"—")+'<br>'+
       '🔢 <b>Solpec:</b> '+escH(p.solpec||"—")+'<br>'+
       '📄 <b>P.O sin precios:</b> '+(p.poFile&&p.poFile.url?'<a href="'+escH(p.poFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.poFile.name||"ver PDF")+'</a>':"—")+'<br>'+
+      '💲 <b>Cotización:</b> '+(p.cotFile&&p.cotFile.url?'<a href="'+escH(p.cotFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.cotFile.name||"ver PDF")+'</a>':"—")+'<br>'+
       '📎 <b>OT:</b> '+(p.otFile&&p.otFile.url?'<a href="'+escH(p.otFile.url)+'" target="_blank" style="color:#2c82c9;">'+escH(p.otFile.name||"ver PDF")+'</a>':"—")+
     '</div>'+
     '<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;">'+
@@ -1108,16 +1110,18 @@ function renderProyectos(){
   h+='</div>';
   host.innerHTML=h;
 }
-function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projOT=null;projForm({});}
-function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projOT=p.otFile||null;projForm(p);}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projOT=null;_projCot=null;projForm({});}
+function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;projForm(p);}
 function projForm(p){
   var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
   var body=''+
     '<div class="field"><label>Cliente *</label><select id="proj-client"><option value="">— elige —</option>'+clientOpts+'</select></div>'+
     '<div class="field"><label>Nombre del proyecto *</label><input id="proj-name" value="'+escH(p.name||"")+'" placeholder="Ej: Split N — Zona 6"></div>'+
+    '<div class="field"><label>Número de P.O</label><input id="proj-ponum" value="'+escH(p.poNumber||"")+'" placeholder="N° de orden de compra"></div>'+
     '<div class="field"><label>Fecha de P.O</label><input id="proj-podate" type="date" value="'+escH(p.poDate||"")+'"></div>'+
     '<div class="field"><label>Solpec</label><input id="proj-solpec" value="'+escH(p.solpec||"")+'" placeholder="N° de solpec"></div>'+
     '<div class="field"><label>P.O sin precios (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📄 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'po\')"></label> <span id="proj-po-name" style="font-size:12px;color:#666;">'+(_projPO?escH(_projPO.name):"sin archivo")+'</span></div>'+
+    '<div class="field"><label>Cotización (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">💲 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'cot\')"></label> <span id="proj-cot-name" style="font-size:12px;color:#666;">'+(_projCot?escH(_projCot.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>Orden de Trabajo — OT (PDF)</label><br><label class="btn btn-gray btn-sm" style="display:inline-block;position:relative;overflow:hidden;">📎 Subir PDF<input type="file" accept="application/pdf,image/*" style="position:absolute;inset:0;opacity:0;" onchange="projUpload(this.files[0],\'ot\')"></label> <span id="proj-ot-name" style="font-size:12px;color:#666;">'+(_projOT?escH(_projOT.name):"sin archivo")+'</span></div>'+
     '<div class="field"><label>Ítems — pega desde Excel (Ítem ⇥ Descripción ⇥ Unidad ⇥ Cantidad)</label>'+
       '<textarea id="proj-paste" placeholder="Pega aquí las filas copiadas de Excel…" style="width:100%;height:90px;padding:10px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:13px;font-family:monospace;box-sizing:border-box;"></textarea>'+
@@ -1144,7 +1148,8 @@ function projUpload(file,slot){
   toast("⏳ Subiendo "+file.name+"…");
   var fd=new FormData();fd.append("file",file);fd.append("upload_preset",CLOUDINARY_PRESET);fd.append("folder","agendateam/proyectos");
   var xhr=new XMLHttpRequest();xhr.open("POST","https://api.cloudinary.com/v1_1/"+CLOUDINARY_CLOUD+"/"+resource+"/upload");
-  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name};if(slot==="po"){_projPO=o;var e=document.getElementById("proj-po-name");if(e)e.textContent=file.name;}else{_projOT=o;var e2=document.getElementById("proj-ot-name");if(e2)e2.textContent=file.name;}toast("✅ "+file.name);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
+  var slotEl={po:"proj-po-name",ot:"proj-ot-name",cot:"proj-cot-name"};
+  xhr.onload=function(){try{var r=JSON.parse(xhr.responseText);if(r.secure_url){var o={url:r.secure_url,name:file.name};if(slot==="po")_projPO=o;else if(slot==="ot")_projOT=o;else if(slot==="cot")_projCot=o;var el=document.getElementById(slotEl[slot]);if(el)el.textContent=file.name;toast("✅ "+file.name);}else toast("Error al subir","error");}catch(e){toast("Error al subir","error");}};
   xhr.onerror=function(){toast("Error de red al subir","error");};
   xhr.send(fd);
 }
@@ -1153,14 +1158,15 @@ function projSave(){
   var client=(document.getElementById("proj-client")||{}).value||"";
   if(!name){toast("Ponle nombre al proyecto","error");return;}
   if(!client){toast("Elige el cliente","error");return;}
+  var poNumber=(document.getElementById("proj-ponum")||{}).value||"";
   var poDate=(document.getElementById("proj-podate")||{}).value||"";
   var solpec=(document.getElementById("proj-solpec")||{}).value||"";
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.otFile=_projOT;p.items=_projItems.slice();p.status="borrador";}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.otFile=_projOT;p.cotFile=_projCot;p.items=_projItems.slice();p.status="borrador";}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poDate:poDate,solpec:solpec,poFile:_projPO,otFile:_projOT,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,otFile:_projOT,cotFile:_projCot,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
   }
   saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }

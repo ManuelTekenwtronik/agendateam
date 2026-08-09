@@ -417,7 +417,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809004; // subir en CADA despliegue
+var APP_BUILD=20260809005; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1054,7 +1054,7 @@ function renderFaceTest(){
 // Flujo: cargan (Marianela/Manuel/Andres) → valida (Giovanni Izquierdo=Erick) → aprueban/publican (Manuel/Andres).
 var PROJ_STATUS={borrador:{l:"Borrador",c:"#f5a623"},validado:{l:"Validado",c:"#9b59b6"},publicado:{l:"Publicado",c:"#27ae60"}};
 var PROJ_AI_MODEL="claude-haiku-4-5-20251001"; // modelo rápido: evita el "Inactivity Timeout" de conexiones lentas
-var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="";
+var _projItems=[],_projPO=null,_projPOp=null,_projOT=null,_projCot=null,_projCotp=null,_projEditId=null,_projViewId="",_projTotales={};
 function _projLink(f){return(f&&f.url)?'<a href="'+escH(f.url)+'" target="_blank" style="color:#2c82c9;">'+escH(f.name||"ver")+'</a>':"—";}
 function projPerms(){
   var t=currentUser&&currentUser.type,n=(myName()||"").toLowerCase();
@@ -1079,7 +1079,7 @@ function projFichaHTML(p){
       (canSeePrices()?('💰 <b>Cotización con precios:</b> '+_projLink(p.cotFilePriced)+'<br>'):"")+
       '📎 <b>OT:</b> '+_projLink(p.otFile)+
     '</div>'+
-    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody></table></div>';})()+(canSeePrices()?_projTotalsHTML(p.items):"")+
+    (function(){var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"]];if(canSeePrices())cols=cols.concat([["valorUnitario","V.Unit"],["_vt","V.Total"]]);return'<div style="overflow-x:auto;margin-top:12px;"><table style="border-collapse:collapse;font-size:12px;width:100%;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="text-align:left;padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';background:#f7f8fc;white-space:nowrap;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+((p.items||[]).length?(p.items||[]).map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:6px 8px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join(""):'<tr><td colspan="'+cols.length+'" style="padding:8px;color:#999;">Sin ítems.</td></tr>')+'</tbody>'+(canSeePrices()?_projTotalsTfoot(p.items,false,cols.length):"")+'</table></div>';})()+
     (p.createdBy?'<div style="font-size:10px;color:#aaa;margin-top:8px;">Cargó: '+escH(p.createdBy)+(p.validatedBy?" · Validó: "+escH(p.validatedBy):"")+(p.approvedBy?" · Aprobó: "+escH(p.approvedBy):"")+'</div>':"")+
   '</div>';
 }
@@ -1113,8 +1113,8 @@ function renderProyectos(){
   h+='</div>';
   host.innerHTML=h;
 }
-function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;projForm({});}
-function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;projForm(p);}
+function projNew(){_projEditId=null;_projItems=[];_projPO=null;_projPOp=null;_projOT=null;_projCot=null;_projCotp=null;_projTotales={};projForm({});}
+function projEdit(id){var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;_projEditId=id;_projItems=(p.items||[]).slice();_projPO=p.poFile||null;_projPOp=p.poFilePriced||null;_projOT=p.otFile||null;_projCot=p.cotFile||null;_projCotp=p.cotFilePriced||null;_projTotales=p.totales?{iva:p.totales.iva,total:p.totales.total}:{};projForm(p);}
 function projForm(p){
   var clientOpts=TEAM_CLIENTS.map(function(c){return'<option value="'+c.key+'"'+(p.client===c.key?" selected":"")+'>'+escH(c.name)+'</option>';}).join("");
   var body=''+
@@ -1141,21 +1141,41 @@ function projForm(p){
 }
 function _projVT(it){var v=_num(it.cantidad)*_num(it.valorUnitario);return v?v.toFixed(2):"";}
 function _money(n){return Number(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,",");}
-// Totaliza V.Total (Σ cantidad×V.Unit) = valor bruto, IVA 12%, y total.
-function _projTotalsHTML(items){
-  var bruto=(items||[]).reduce(function(a,it){return a+(_num(it.cantidad)*_num(it.valorUnitario));},0);
-  if(!bruto)return"";
-  var iva=bruto*0.12,total=bruto+iva;
-  return'<div style="margin-top:8px;font-size:13px;text-align:right;line-height:1.8;">'+
-    '<div>Valor bruto: <b>'+_money(bruto)+'</b></div>'+
-    '<div>IVA (12%): <b>'+_money(iva)+'</b></div>'+
-    '<div style="font-weight:800;border-top:1.5px solid #cfd3dc;display:inline-block;padding-top:2px;margin-top:2px;">TOTAL: '+_money(total)+'</div>'+
-  '</div>';
+function _projBruto(){return _sumRows(_projItems);}
+function _projIvaVal(bruto){return(_projTotales.iva!=null&&_projTotales.iva!=="")?_num(_projTotales.iva):bruto*0.12;}
+function _projTotVal(bruto,iva){return(_projTotales.total!=null&&_projTotales.total!=="")?_num(_projTotales.total):(bruto+iva);}
+// Pie de tabla con totales alineado bajo la columna V.Total. editable=inputs; totalCols=# de columnas de la tabla.
+function _projTotalsTfoot(items,editable,totalCols){
+  var bruto=_sumRows(items);if(!bruto)return"";
+  var iva=_projIvaVal(bruto),total=_projTotVal(bruto,iva),GB="1px solid #cfd3dc",trail=totalCols>6?'<td style="border-top:'+GB+';"></td>':"";
+  function row(lbl,val){return'<tr><td colspan="5" style="text-align:right;padding:4px 8px;font-weight:700;border-top:'+GB+';">'+lbl+'</td><td style="padding:2px 6px;border-top:'+GB+';border-right:'+GB+';white-space:nowrap;">'+val+'</td>'+trail+'</tr>';}
+  var ivaCell=editable?'<input id="proj-iva-input" value="'+_money(iva)+'" onchange="projSetIva(this.value)" style="width:82px;text-align:right;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:2px 4px;">':('<b>'+escH(_money(iva))+'</b>');
+  var totCell=editable?'<input id="proj-total-input" value="'+_money(total)+'" onchange="projSetTotal(this.value)" style="width:92px;text-align:right;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:2px 4px;font-weight:700;">':('<b>'+escH(_money(total))+'</b>');
+  return'<tfoot>'+row("Valor bruto:",'<span id="proj-bruto-cell">'+_money(bruto)+'</span>')+row("IVA (12%):",ivaCell)+row("TOTAL:",totCell)+'</tfoot>';
 }
+function projSetIva(v){_projTotales.iva=v;var b=_projBruto(),t=b+_num(v);_projTotales.total=String(t.toFixed(2));var e=document.getElementById("proj-total-input");if(e)e.value=_money(t);}
+function projSetTotal(v){_projTotales.total=v;}
+function projEditCell(i,f,v){if(!_projItems[i])return;_projItems[i][f]=v;if(f==="cantidad"||f==="valorUnitario"){var vt=document.getElementById("vt-"+i);if(vt)vt.textContent=_projVT(_projItems[i]);projRefreshTotals();}}
+function projRefreshTotals(){var b=_projBruto(),bc=document.getElementById("proj-bruto-cell");if(bc)bc.textContent=_money(b);if(_projTotales.iva==null||_projTotales.iva===""){var ie=document.getElementById("proj-iva-input");if(ie)ie.value=_money(b*0.12);}if(_projTotales.total==null||_projTotales.total===""){var te=document.getElementById("proj-total-input");if(te)te.value=_money(b*1.12);}}
+function projDelRow(i){_projItems.splice(i,1);var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
+function projAddRow(){_projItems.push({codigo:"",cantidad:"",descripcion:"",unidad:"",valorUnitario:"",tipo:""});var pv=document.getElementById("proj-items-preview");if(pv)pv.innerHTML=projItemsPreviewHTML();}
 function projItemsPreviewHTML(){
-  if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div>';
-  var GB="1px solid #cfd3dc",cols=[["codigo","Código"],["cantidad","Cantidad"],["descripcion","Descripción"],["unidad","Unidad"],["valorUnitario","V.Unit"],["_vt","V.Total"]];
-  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems:</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+cols.map(function(c){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+c[1]+'</th>';}).join("")+'</tr></thead><tbody>'+_projItems.map(function(it){return'<tr>'+cols.map(function(c){var val=c[0]==="_vt"?_projVT(it):(it[c[0]]||"");return'<td style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';white-space:'+(c[0]==="descripcion"?"normal":"nowrap")+';">'+escH(val)+'</td>';}).join("")+'</tr>';}).join("")+'</tbody></table></div>'+_projTotalsHTML(_projItems);
+  var GB="1px solid #cfd3dc";
+  if(!_projItems.length)return'<div style="font-size:12px;color:#999;">Sin ítems aún.</div><button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projAddRow()">+ Fila</button>';
+  var heads=["Código","Cantidad","Descripción","Unidad","V.Unit","V.Total",""];
+  function inp(i,f,w){return'<input value="'+escH(_projItems[i][f]||"")+'" oninput="projEditCell('+i+',\''+f+'\',this.value)" style="width:'+w+';border:none;background:transparent;font-size:11px;padding:2px;outline:none;font-family:inherit;">';}
+  var body=_projItems.map(function(it,i){
+    return'<tr>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"codigo","70px")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"cantidad","55px")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"descripcion","230px")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"unidad","50px")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';">'+inp(i,"valorUnitario","70px")+'</td>'+
+      '<td id="vt-'+i+'" style="border-right:'+GB+';border-bottom:'+GB+';padding:2px 6px;white-space:nowrap;">'+escH(_projVT(it))+'</td>'+
+      '<td style="border-bottom:'+GB+';padding:0 4px;"><button onclick="projDelRow('+i+')" style="border:none;background:none;color:#e74c3c;cursor:pointer;font-size:13px;">✕</button></td>'+
+    '</tr>';
+  }).join("");
+  return'<div style="font-size:11px;font-weight:700;color:#666;margin:6px 0;">'+_projItems.length+' ítems (editable):</div><div style="overflow-x:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+heads.map(function(h){return'<th style="padding:4px 6px;border-right:'+GB+';border-bottom:'+GB+';text-align:left;white-space:nowrap;background:#f7f8fc;">'+h+'</th>';}).join("")+'</tr></thead><tbody>'+body+'</tbody>'+_projTotalsTfoot(_projItems,true,7)+'</table></div><button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projAddRow()">+ Fila</button>';
 }
 function projParsePaste(){
   var ta=document.getElementById("proj-paste");if(!ta)return;
@@ -1390,12 +1410,13 @@ function projSave(){
   var poNumber=(document.getElementById("proj-ponum")||{}).value||"";
   var poDate=(document.getElementById("proj-podate")||{}).value||"";
   var solpec=(document.getElementById("proj-solpec")||{}).value||"";
+  var _b=_sumRows(_projItems),_iv=_projIvaVal(_b),_tt=_projTotVal(_b,_iv),_tot={bruto:_b.toFixed(2),iva:_iv.toFixed(2),total:_tt.toFixed(2)};
   if(!state.projects)state.projects=[];
   if(_projEditId){
     var p=state.projects.find(function(x){return String(x.id)===String(_projEditId);});
-    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.status="borrador";}
+    if(p){p.name=name;p.client=client;p.poNumber=poNumber;p.poDate=poDate;p.solpec=solpec;p.poFile=_projPO;p.poFilePriced=_projPOp;p.otFile=_projOT;p.cotFile=_projCot;p.cotFilePriced=_projCotp;p.items=_projItems.slice();p.totales=_tot;p.status="borrador";}
   }else{
-    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),status:"borrador",createdBy:myName(),createdTs:Date.now()});
+    state.projects.push({id:Date.now(),name:name,client:client,poNumber:poNumber,poDate:poDate,solpec:solpec,poFile:_projPO,poFilePriced:_projPOp,otFile:_projOT,cotFile:_projCot,cotFilePriced:_projCotp,items:_projItems.slice(),totales:_tot,status:"borrador",createdBy:myName(),createdTs:Date.now()});
   }
   saveLocal();if(db)saveCloud();closeSheet();renderProyectos();toast("✅ Proyecto guardado (borrador)");
 }

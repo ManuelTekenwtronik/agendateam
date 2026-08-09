@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809025; // subir en CADA despliegue
+var APP_BUILD=20260809026; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1184,7 +1184,7 @@ function projSetTab(t){_projTab=t;renderProyectos();}
 function renderProyectos(){
   var host=document.getElementById("content"),pp=projPerms();
   var canCrear=pp.load||pp.validate||pp.approve; // Marianela, Erick, Manuel, Andres
-  var canBitacoras=userHasTeamProfile("supervision")||userHasTeamProfile("liquidacion")||userHasTeamProfile("facturacion"); // Supervisión, Liquidación o Facturación (+ boss)
+  var bcls=bitacoraClients();var canBitacoras=bcls.length>0; // Bitácoras por cliente: Supervisión/Liquidación/Facturación (+ boss)
   var tabs=[];
   if(canBitacoras)tabs.push(["bitacoras","📒 Bitácoras"]);
   tabs.push(["documentacion","📄 Documentación"]);
@@ -1196,13 +1196,16 @@ function renderProyectos(){
     tabs.map(function(t){var on=_projTab===t[0];return'<button class="btn btn-sm" style="background:'+(on?"#2c82c9":"#eef2f9")+';color:'+(on?"#fff":"#2d3561")+';font-weight:700;" onclick="projSetTab(\''+t[0]+'\')">'+t[1]+'</button>';}).join("")+
   '</div>';
   if(_projTab==="creacion")h+=projCreacionBody();
-  else if(_projTab==="bitacoras")h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📒 <b>Bitácoras</b><br><span style="font-size:13px;">Sección en construcción — se definirá el contenido próximamente.</span></div>';
+  else if(_projTab==="bitacoras"){
+    var clNames=bcls.map(function(k){var c=TEAM_CLIENTS.filter(function(x){return x.key===k;})[0];return c?('<span style="font-size:10px;font-weight:700;color:#fff;background:'+c.color+';padding:3px 8px;border-radius:8px;">'+c.name+'</span>'):"";}).join(" ");
+    h+='<div class="card" style="text-align:center;color:#999;padding:24px;">📒 <b>Bitácoras</b><br><span style="font-size:13px;">Sección en construcción.</span><br><div style="margin-top:10px;font-size:11px;color:#777;">Tu acceso (por cliente):</div><div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;">'+(clNames||'<span style="color:#c0392b;">sin clientes</span>')+'</div></div>';
+  }
   else h+='<div class="card" style="text-align:center;color:#999;padding:28px;">📄 <b>Documentación</b><br><span style="font-size:13px;">Sección en construcción — se definirá el contenido próximamente.</span></div>';
   host.innerHTML=h;
 }
 function projCreacionBody(){
   var pp=projPerms();
-  var projs=(state.projects||[]).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
+  var projs=(state.projects||[]).filter(canSeeProject).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});
   var pubs=projs.filter(function(p){return p.status==="publicado";});
   var h="";
   h+='<div class="card"><div style="font-weight:800;font-size:14px;margin-bottom:8px;">📂 Proyectos publicados</div>'+
@@ -2461,6 +2464,23 @@ function userHasTeamProfile(profileKey,clientKey){
   function has(ck){var v=t[ck]||{};return v[profileKey]===true;}
   if(clientKey)return has(clientKey);
   return Object.keys(t).some(has);
+}
+// ¿Tiene el usuario ALGÚN perfil en ese cliente? (para ver proyectos de ese cliente). Boss = sí a todos.
+function userHasAnyProfile(clientKey){
+  if(currentUser&&currentUser.type==="boss")return true;
+  var id=currentUser&&currentUser.id;if(!id)return false;
+  var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
+  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  var v=t[clientKey]||{};return Object.keys(v).some(function(k){return v[k]===true;});
+}
+// ¿Puede ver este proyecto? Solo si tiene permiso en su cliente.
+function canSeeProject(p){return p&&userHasAnyProfile(p.client);}
+// Clientes donde el usuario puede ver/crear BITÁCORAS (perfil Supervisión, Liquidación o Facturación). Boss = todos.
+function bitacoraClients(){
+  if(currentUser&&currentUser.type==="boss")return TEAM_CLIENTS.map(function(c){return c.key;});
+  return TEAM_CLIENTS.filter(function(c){
+    return userHasTeamProfile("supervision",c.key)||userHasTeamProfile("liquidacion",c.key)||userHasTeamProfile("facturacion",c.key);
+  }).map(function(c){return c.key;});
 }
 // Proyectos PUBLICADOS con ubicación → sitios seleccionables con geocerca.
 function publishedProjectSites(){

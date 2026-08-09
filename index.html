@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809030; // subir en CADA despliegue
+var APP_BUILD=20260809031; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1268,20 +1268,144 @@ function projBitacorasHTML(p){
   h+='<div style="font-weight:800;font-size:14px;margin-bottom:10px;">📒 Bitácoras ('+list.length+')</div>';
   if(!list.length)h+='<div style="font-size:13px;color:#999;margin-bottom:10px;">Aún no hay bitácoras para este proyecto.</div>';
   else h+=list.map(function(b){
+    var sup=(b.supervisor&&b.supervisor.name)||b.supervisor||"—";
     return'<div style="border:1px solid #eee;border-radius:12px;padding:10px 12px;margin-bottom:8px;">'+
       '<div style="font-weight:700;font-size:13px;">'+escH(b.title||("Bitácora "+(b.date||"")))+'</div>'+
       '<div style="font-size:11px;color:#777;margin-top:4px;line-height:1.7;">'+
         '👷 Creó: '+escH(b.createdBy||"—")+'<br>'+
-        '✍️ Supervisor firmó: '+escH(b.supervisor||"—")+'<br>'+
+        '✍️ Supervisor firmó: '+escH(sup)+'<br>'+
         '🗓️ '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br>'+
         '📍 '+escH(b.place||"—")+
-      '</div></div>';
+      '</div>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:6px;" onclick="projVerBitacora(\''+p.id+'\',\''+b.id+'\')">👁 Ver</button>'+
+    '</div>';
   }).join("");
   h+='<button class="btn btn-block" style="background:#9b59b6;color:#fff;margin-top:6px;" onclick="projNuevaBitacora(\''+p.id+'\')">+ Nueva bitácora</button>';
   h+='</div>';
   return h;
 }
-function projNuevaBitacora(id){toast("📒 El formulario de nueva bitácora se creará próximamente");}
+// Acumulado ejecutado por línea (suma de "ejecutado hoy" en bitácoras previas del proyecto).
+function bitAccumMap(p){var m={};(p.bitacoras||[]).forEach(function(b){(b.items||[]).forEach(function(it){var k=String(it.codigo||it.descripcion||"");m[k]=(m[k]||0)+_num(it.ejecutadoHoy);});});return m;}
+function _myEmail(){if(currentUser&&currentUser.email)return currentUser.email;var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(myUid());});return(c&&c.email)||"";}
+function projVerBitacora(pid,bid){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
+  var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(bid);});if(!b)return;
+  var GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;";
+  var heads=["Código","Cant.","Descripción","Unidad","Acum.","Ejec. hoy"];
+  var rows=(b.items||[]).map(function(it){return'<tr>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.codigo||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.cantidad||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;">'+escH(it.descripcion||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.unidad||"")+'</td>'+
+    '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.acumulado!=null?it.acumulado:"")+'</td>'+
+    '<td style="border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.ejecutadoHoy||"")+'</td>'+
+  '</tr>';}).join("");
+  function sig(o,rol){return'<div style="flex:1;text-align:center;"><div style="font-size:11px;font-weight:700;">'+rol+'</div>'+((o&&o.signUrl)?'<img src="'+escH(o.signUrl)+'" style="width:100%;max-height:90px;object-fit:contain;border-bottom:1px solid #333;">':'<div style="height:90px;border-bottom:1px solid #333;"></div>')+'<div style="font-size:11px;margin-top:3px;">'+escH((o&&o.name)||"—")+'</div><div style="font-size:10px;color:#777;">'+escH((o&&o.email)||"")+'</div></div>';}
+  var body='<div style="font-size:12px;color:#555;line-height:1.9;margin-bottom:10px;">'+
+      '🗓️ <b>Fecha:</b> '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br>📍 <b>Lugar:</b> '+escH(b.place||"—")+'<br>👷 <b>Elaboró:</b> '+escH(b.createdBy||"—")+'</div>'+
+    '<div style="overflow:auto;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';"><thead><tr>'+heads.map(function(hh){return'<th style="background:#f7f8fc;border-right:'+GB+';border-bottom:'+GB+';padding:4px 6px;white-space:nowrap;">'+hh+'</th>';}).join("")+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<div style="display:flex;gap:16px;margin-top:20px;">'+sig(b.supervisor,"Supervisor CLARO")+sig(b.colaborador,"Colaborador TKTK-SINTELSA")+'</div>';
+  showSheet("Bitácora "+(b.date||""),body);
+}
+function projNuevaBitacora(id){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(id);});if(!p)return;
+  _bitProjId=id;
+  var accum=bitAccumMap(p),GB="1px solid #cfd3dc",NUM="text-align:right;font-variant-numeric:tabular-nums;";
+  var heads=["Código","Cant.","Descripción","Unidad","Acumulado","Ejec. hoy"];
+  var rows=(p.items||[]).map(function(it,i){
+    var k=String(it.codigo||it.descripcion||""),acc=accum[k]||0;
+    return'<tr>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.codigo||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'">'+escH(it.cantidad||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;">'+escH(it.descripcion||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;white-space:nowrap;">'+escH(it.unidad||"")+'</td>'+
+      '<td style="border-right:'+GB+';border-bottom:'+GB+';padding:3px 5px;'+NUM+'" id="bit-acc-'+i+'">'+(acc||"")+'</td>'+
+      '<td style="border-bottom:'+GB+';padding:2px 4px;"><input id="bit-ej-'+i+'" inputmode="decimal" value="" style="width:64px;border:1px solid #e5e7ef;border-radius:6px;font-size:11px;padding:3px;'+NUM+'"></td>'+
+    '</tr>';
+  }).join("");
+  var today=todayKey();
+  var body=''+
+    '<div class="field"><label>Fecha de elaboración</label><input id="bit-date" type="date" value="'+today+'" style="width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;"></div>'+
+    '<div class="field"><label>Lugar (GPS)</label><input id="bit-place" value="Obteniendo ubicación…" style="width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid #e5e7ef;font-size:14px;box-sizing:border-box;"></div>'+
+    '<div style="font-weight:800;font-size:13px;margin:8px 0 6px;">Avance por ítem</div>'+
+    '<div style="overflow:auto;max-height:44vh;border-radius:8px;"><table style="border-collapse:collapse;font-size:11px;border-top:'+GB+';border-left:'+GB+';">'+
+      '<thead><tr>'+heads.map(function(hh){return'<th style="position:sticky;top:0;background:#f7f8fc;border-right:'+GB+';border-bottom:'+GB+';padding:4px 6px;white-space:nowrap;">'+hh+'</th>';}).join("")+'</tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    // Firmas
+    '<div style="font-weight:800;font-size:13px;margin:14px 0 6px;">Firmas</div>'+
+    '<div style="border:1px solid #eee;border-radius:12px;padding:10px;margin-bottom:10px;">'+
+      '<div style="font-weight:700;font-size:12px;margin-bottom:6px;">👷 Supervisor de CLARO</div>'+
+      '<input id="bit-sup-name" placeholder="Nombre del supervisor" style="width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid #e5e7ef;font-size:13px;box-sizing:border-box;margin-bottom:6px;">'+
+      '<input id="bit-sup-email" placeholder="Correo del supervisor" inputmode="email" style="width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid #e5e7ef;font-size:13px;box-sizing:border-box;margin-bottom:6px;">'+
+      '<canvas id="bit-sig-sup" width="600" height="180" style="width:100%;height:120px;border:1.5px dashed #cfd3dc;border-radius:10px;background:#fff;touch-action:none;"></canvas>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:4px;" onclick="clearSig(\'bit-sig-sup\')">Borrar firma</button>'+
+    '</div>'+
+    '<div style="border:1px solid #eee;border-radius:12px;padding:10px;">'+
+      '<div style="font-weight:700;font-size:12px;margin-bottom:6px;">🦺 Colaborador TKTK-SINTELSA</div>'+
+      '<input id="bit-col-name" value="'+escH(myName()||"")+'" readonly style="width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid #e5e7ef;font-size:13px;box-sizing:border-box;margin-bottom:6px;background:#f7f8fc;">'+
+      '<input id="bit-col-email" value="'+escH(_myEmail())+'" readonly style="width:100%;padding:9px 11px;border-radius:9px;border:1.5px solid #e5e7ef;font-size:13px;box-sizing:border-box;margin-bottom:6px;background:#f7f8fc;">'+
+      '<canvas id="bit-sig-col" width="600" height="180" style="width:100%;height:120px;border:1.5px dashed #cfd3dc;border-radius:10px;background:#fff;touch-action:none;"></canvas>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:4px;" onclick="clearSig(\'bit-sig-col\')">Borrar firma</button>'+
+    '</div>'+
+    '<button class="btn btn-block" style="background:#9b59b6;color:#fff;margin-top:14px;" onclick="guardarBitacora()">💾 Guardar bitácora</button>';
+  showSheet("Nueva bitácora — "+(p.name||""),body);
+  initSig("bit-sig-sup");initSig("bit-sig-col");
+  // Autollenar lugar por GPS
+  getGeo(function(loc){
+    if(!loc){var el0=document.getElementById("bit-place");if(el0)el0.value="";return;}
+    _bitCoords={lat:loc.lat,lng:loc.lng};
+    var el=document.getElementById("bit-place");if(el)el.value=loc.address||(loc.lat.toFixed(5)+", "+loc.lng.toFixed(5));
+    if(!loc.address)_geocode(loc,function(g){var e2=document.getElementById("bit-place");if(e2&&g.address)e2.value=g.address;});
+  });
+}
+var _bitProjId=null,_bitCoords=null;
+function initSig(cid){
+  var c=document.getElementById(cid);if(!c)return;
+  var ctx=c.getContext("2d");ctx.lineWidth=2.2;ctx.lineCap="round";ctx.strokeStyle="#1a1d2e";c._empty=true;
+  function pos(e){var r=c.getBoundingClientRect(),t=e.touches?e.touches[0]:e;return{x:(t.clientX-r.left)*(c.width/r.width),y:(t.clientY-r.top)*(c.height/r.height)};}
+  var drawing=false;
+  function start(e){drawing=true;c._empty=false;var pt=pos(e);ctx.beginPath();ctx.moveTo(pt.x,pt.y);if(e.cancelable)e.preventDefault();}
+  function move(e){if(!drawing)return;var pt=pos(e);ctx.lineTo(pt.x,pt.y);ctx.stroke();if(e.cancelable)e.preventDefault();}
+  function end(){drawing=false;}
+  c.addEventListener("mousedown",start);c.addEventListener("mousemove",move);window.addEventListener("mouseup",end);
+  c.addEventListener("touchstart",start,{passive:false});c.addEventListener("touchmove",move,{passive:false});c.addEventListener("touchend",end);
+}
+function clearSig(cid){var c=document.getElementById(cid);if(c){c.getContext("2d").clearRect(0,0,c.width,c.height);c._empty=true;}}
+function _sigData(cid){var c=document.getElementById(cid);if(!c||c._empty)return null;try{return c.toDataURL("image/png");}catch(e){return null;}}
+function guardarBitacora(){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(_bitProjId);});if(!p)return;
+  var supName=((document.getElementById("bit-sup-name")||{}).value||"").trim();
+  var supEmail=((document.getElementById("bit-sup-email")||{}).value||"").trim();
+  if(!supName){toast("Escribe el nombre del supervisor de Claro","error");return;}
+  var supSig=_sigData("bit-sig-sup"),colSig=_sigData("bit-sig-col");
+  if(!supSig){toast("Falta la firma del supervisor","error");return;}
+  if(!colSig){toast("Falta tu firma (colaborador)","error");return;}
+  var date=((document.getElementById("bit-date")||{}).value||todayKey());
+  var place=((document.getElementById("bit-place")||{}).value||"").trim();
+  var accum=bitAccumMap(p);
+  var items=(p.items||[]).map(function(it,i){
+    var k=String(it.codigo||it.descripcion||""),prev=accum[k]||0,ej=_num((document.getElementById("bit-ej-"+i)||{}).value);
+    return{codigo:it.codigo||"",cantidad:it.cantidad||"",descripcion:it.descripcion||"",unidad:it.unidad||"",ejecutadoHoy:ej?String(ej):"",acumulado:prev+ej};
+  });
+  toast("⏳ Guardando firmas…");
+  // Subir ambas firmas a Cloudinary (imágenes) y luego guardar la bitácora.
+  uploadDataUrl(supSig,"agendateam/bitacoras",function(supUrl){
+    uploadDataUrl(colSig,"agendateam/bitacoras",function(colUrl){
+      if(!p.bitacoras)p.bitacoras=[];
+      var now=new Date();
+      p.bitacoras.push({
+        id:Date.now(),date:date,time:now.toTimeString().slice(0,5),ts:Date.now(),
+        place:place,coords:_bitCoords||null,items:items,
+        title:"Bitácora "+date,
+        supervisor:{name:supName,email:supEmail,signUrl:supUrl||""},
+        colaborador:{name:myName(),email:_myEmail(),signUrl:colUrl||""},
+        createdBy:myName()
+      });
+      p.updatedTs=Date.now();
+      saveLocal();if(db)saveProjects();
+      closeSheet();renderProyectos();toast("✅ Bitácora guardada");
+    });
+  });
+}
 function projCreacionBody(clientKey){
   var pp=projPerms();
   var projs=(state.projects||[]).filter(function(p){return canSeeProject(p)&&(!clientKey||p.client===clientKey);}).slice().sort(function(a,b){return(b.createdTs||0)-(a.createdTs||0);});

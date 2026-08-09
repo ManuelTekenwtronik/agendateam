@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809016; // subir en CADA despliegue
+var APP_BUILD=20260809017; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -861,7 +861,11 @@ function renderAsignTeam(){
     host.innerHTML=sectionHead("👥 Asignación de Team","")+'<div class="card">Solo el administrador puede asignar teams.</div>';
     return;
   }
-  var h=sectionHead("👥 Asignación de Team","Marca el perfil de cada colaborador por cliente");
+  var h=sectionHead("👥 Asignación de Team","Marca y pulsa Guardar para subir los cambios");
+  h+='<div class="card" style="padding:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
+    '<div style="font-size:11px;color:#777;">Marca las casillas libremente; nada se sube hasta que pulses <b>Guardar</b>.</div>'+
+    '<button id="teams-save-btn" class="btn btn-sm" style="background:'+(_teamsDirty?"#e67e22":"#27ae60")+';color:#fff;white-space:nowrap;" onclick="saveTeams()">'+(_teamsDirty?"💾 Guardar cambios *":"💾 Guardar")+'</button>'+
+  '</div>';
   // Leyenda de perfiles y clientes
   h+='<div class="card" style="padding:12px;">'+
     '<div style="font-size:11px;color:#777;margin-bottom:8px;font-weight:700;">Perfiles: <b>D</b> Desarrollo · <b>S</b> Supervisión · <b>E</b> Ejecución · <b>L</b> Liquidación · <b>F</b> Facturación</div>'+
@@ -895,36 +899,30 @@ function renderAsignTeam(){
   t+='</tbody></table></div>';
   host.innerHTML=h+t;
 }
+var _teamsDirty=false;
+// Solo local mientras se edita (formulario "incorrompible"): no escribe en la nube hasta pulsar Guardar.
 function toggleTeam(cid,clientKey,profileKey,checked){
   var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(cid);});
   if(!c)return;
   if(!c.teams)c.teams={};
   if(!c.teams[clientKey])c.teams[clientKey]={};
-  c.teams[clientKey][profileKey]=checked; // optimista local
-  if(!_teamsMap)_teamsMap={};if(!_teamsMap[cid])_teamsMap[cid]={};if(!_teamsMap[cid][clientKey])_teamsMap[cid][clientKey]={};_teamsMap[cid][clientKey][profileKey]=checked; // caché optimista (evita parpadeo)
+  c.teams[clientKey][profileKey]=checked;
+  if(!_teamsMap)_teamsMap={};if(!_teamsMap[cid])_teamsMap[cid]={};if(!_teamsMap[cid][clientKey])_teamsMap[cid][clientKey]={};_teamsMap[cid][clientKey][profileKey]=checked;
   saveLocal();
-  // Los teams viven en su PROPIO documento at/teams (aislado, ningún otro flujo lo toca → no se pisa).
-  if(db&&_cloudSynced){
-    var ref=db.collection("at").doc("teams");
-    db.runTransaction(function(tx){
-      return tx.get(ref).then(function(doc){
-        var map=(doc.exists&&doc.data().byId)||{};
-        if(!map[cid])map[cid]={};
-        if(!map[cid][clientKey])map[cid][clientKey]={};
-        map[cid][clientKey][profileKey]=checked;
-        tx.set(ref,{byId:map});
-      });
-    }).catch(function(e){console.warn("toggleTeam tx:",e);toast("⚠️ No se guardó la asignación","error");});
-  }
+  _teamsDirty=true;var b=document.getElementById("teams-save-btn");if(b){b.textContent="💾 Guardar cambios *";b.style.background="#e67e22";}
 }
-// Guarda TODOS los teams actuales en at/teams (usado por el enrolamiento masivo/migración).
+// Guarda TODAS las asignaciones de golpe en at/teams (botón Guardar). Transacción para no pisar lo de otro admin.
 function saveTeams(){
-  if(!db||!_cloudSynced)return;
-  var map={};(state.collaborators||[]).forEach(function(c){if(c.teams&&Object.keys(c.teams).length)map[c.id]=c.teams;});
-  db.collection("at").doc("teams").set({byId:map}).catch(function(e){console.warn("saveTeams:",e);});
+  if(!db||!_cloudSynced){toast("Sin conexión — reintenta","error");return;}
+  var b=document.getElementById("teams-save-btn");if(b){b.disabled=true;b.textContent="Guardando…";}
+  var local={};(state.collaborators||[]).forEach(function(c){if(c.teams&&Object.keys(c.teams).length)local[c.id]=c.teams;});
+  var ref=db.collection("at").doc("teams");
+  db.runTransaction(function(tx){return tx.get(ref).then(function(doc){tx.set(ref,{byId:local});});})
+    .then(function(){_teamsDirty=false;_teamsMap=local;if(b){b.disabled=false;b.textContent="✅ Guardado";b.style.background="#27ae60";}toast("✅ Asignaciones guardadas");})
+    .catch(function(e){console.warn("saveTeams:",e);if(b){b.disabled=false;b.textContent="💾 Guardar cambios *";}toast("⚠️ No se pudo guardar: "+(e&&e.message||e),"error");});
 }
 var _teamsMap=null; // caché de la fuente de verdad (at/teams); se reaplica en cada refresco de colaboradores
-function _applyTeamsMap(){if(!_teamsMap)return;(state.collaborators||[]).forEach(function(c){if(_teamsMap[c.id]!==undefined)c.teams=_teamsMap[c.id];});}
+function _applyTeamsMap(){if(!_teamsMap||_teamsDirty)return;(state.collaborators||[]).forEach(function(c){if(_teamsMap[c.id]!==undefined)c.teams=_teamsMap[c.id];});}
 function startTeamsSync(){
   if(!db)return;
   db.collection("at").doc("teams").onSnapshot(function(snap){

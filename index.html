@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809040; // subir en CADA despliegue
+var APP_BUILD=20260809041; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1429,19 +1429,58 @@ function guardarFormatoClaro(){
     });
   });
 }
-// Email HTML del formato Claro (fiel al documento).
+// HTML CALCADO al formato oficial Claro (ancho fijo 720px, tablas → no se deforma en PDF).
 function _claroEmailHTML(p,b){
-  var cf=b.claro||{};
-  var det=(cf.detalle||"").split(/\n/).filter(function(l){return l.trim();}).map(function(l){return'<div style="border-bottom:1px solid #000;padding:3px 4px;font-size:12px;">'+escH(l)+'</div>';}).join("");
-  function sig(nom,tel,url){return'<div style="display:inline-block;width:46%;vertical-align:top;margin:0 1%;font-size:12px;"><div><b>Nombre:</b> '+escH(nom||"—")+'</div><div><b>Teléfono:</b> '+escH(tel||"—")+'</div><div style="margin-top:4px;">'+((url)?'<img src="'+escH(url)+'" style="max-height:60px;max-width:100%;border-bottom:1px solid #333;">':'<div style="height:60px;border-bottom:1px solid #333;"></div>')+'</div></div>';}
-  return'<div style="font-family:Arial,sans-serif;color:#000;max-width:680px;margin:0 auto;border:2px solid #e2001a;border-radius:10px;padding:16px;">'+
-    '<div style="text-align:center;"><span style="display:inline-block;background:#e2001a;color:#fff;font-style:italic;font-weight:bold;border-radius:20px;padding:6px 16px;font-size:18px;">Claro</span> <span style="font-style:italic;font-weight:bold;font-size:17px;">BITÁCORA DE TRABAJO</span></div>'+
-    '<p style="font-size:13px;line-height:1.8;margin-top:12px;"><b>N°:</b> '+escH(cf.num||"—")+' &nbsp; <b>Fecha:</b> '+escH(cf.fecha||"—")+' &nbsp; <b>OT:</b> '+escH(cf.ot||"—")+(cf.cats&&cf.cats.length?' &nbsp; <b>Cat.:</b> '+escH(cf.cats.join(", ")):"")+'<br>'+
-      '<b>Proyecto:</b> '+escH(cf.proj||"")+'<br><b>Empresa:</b> '+escH(cf.empresa||"")+'<br><b>Central:</b> '+escH(cf.central||"—")+' &nbsp; <b>Sala:</b> '+escH(cf.sala||"—")+' &nbsp; <b>Sitio:</b> '+escH(cf.sitio||"—")+'</p>'+
-    '<div style="font-weight:bold;font-size:13px;margin:8px 0 4px;">Trabajos realizados:</div>'+det+
-    '<div style="margin-top:20px;font-weight:bold;font-size:12px;">Responsables del Proyecto</div>'+
-    '<div style="margin-top:6px;">'+sig(cf.supNombre,cf.supTel,cf.supSig)+sig(cf.colNombre,cf.colTel,cf.colSig)+'</div>'+
-    '<div style="font-size:10px;color:#777;margin-top:6px;">Supervisor Claro &nbsp;·&nbsp; Supervisor Contratista/Proveedor</div>'+
+  var cf=b.claro||{},cats=cf.cats||[];
+  function mark(c){return cats.indexOf(c)>=0?"X":"";}
+  var box="border:1px solid #000;padding:3px 6px;font-size:12px;";
+  var catcell="border:1px solid #000;width:42px;height:18px;text-align:center;font-size:10px;font-weight:bold;";
+  // Categorías (2 filas de encabezado + marca)
+  var r1=["FO","CU","HFC","LAN","MOVIL"],r2=["TX","MSAN","PI","OC","IMP"];
+  var catTable='<table style="border-collapse:collapse;"><tr>'+r1.map(function(c){return'<td style="'+catcell+'">'+c+'</td>';}).join("")+'</tr>'+
+    '<tr>'+r1.map(function(c){return'<td style="'+catcell+'height:20px;">'+mark(c)+'</td>';}).join("")+'</tr>'+
+    '<tr>'+r2.map(function(c){return'<td style="'+catcell+'">'+c+'</td>';}).join("")+'</tr>'+
+    '<tr>'+r2.map(function(c){return'<td style="'+catcell+'height:20px;">'+mark(c)+'</td>';}).join("")+'</tr></table>';
+  // Detalle de trabajos (una línea con borde inferior por actividad) + relleno para parecer el form
+  var lines=(cf.detalle||"").split(/\n/).map(function(l){return l.trim();}).filter(Boolean);
+  while(lines.length<12)lines.push("");
+  var body=lines.map(function(l){return'<div style="border-bottom:1px solid #000;min-height:20px;padding:2px 6px;font-size:12px;">'+escH(l)+'</div>';}).join("");
+  // Firma
+  function sig(rol,nom,tel,url){return'<td style="width:50%;vertical-align:top;padding:0 10px;">'+
+    '<div style="font-weight:bold;font-size:12px;margin-bottom:6px;">'+rol+'</div>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:12px;"><tr><td style="width:60px;">Nombre:</td><td style="'+box+'">'+escH(nom||"")+'</td></tr>'+
+    '<tr><td style="padding-top:5px;">Teléfono:</td><td style="'+box+'margin-top:5px;">'+escH(tel||"")+'</td></tr></table>'+
+    '<div style="margin-top:5px;font-size:12px;">Firma:</div><div style="'+box+'height:56px;text-align:center;">'+((url)?'<img src="'+escH(url)+'" style="max-height:52px;max-width:100%;">':'')+'</div>'+
+  '</td>';}
+  return'<div style="width:720px;font-family:Arial,Helvetica,sans-serif;color:#000;">'+
+    // Encabezado
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:16px;"><tr>'+
+      '<td style="width:110px;"><div style="width:92px;height:92px;border-radius:50%;background:#e2001a;color:#fff;text-align:center;line-height:92px;font-style:italic;font-weight:bold;font-size:24px;">Claro</div></td>'+
+      '<td style="font-family:Georgia,serif;font-style:italic;font-weight:bold;font-size:24px;">BITACORA DE TRABAJO</td>'+
+      '<td style="width:90px;text-align:right;color:#e2001a;font-style:italic;font-weight:bold;font-size:20px;">N° '+escH(cf.num||"")+'</td>'+
+    '</tr></table>'+
+    // Fecha/OT + categorías
+    '<table style="width:100%;border-collapse:collapse;margin-bottom:14px;"><tr>'+
+      '<td style="vertical-align:top;">'+
+        '<table style="border-collapse:collapse;font-size:13px;"><tr><td style="font-weight:bold;padding-right:8px;">FECHA:</td><td style="'+box+'width:240px;">'+escH(cf.fecha||"")+'</td></tr>'+
+        '<tr><td style="font-weight:bold;padding:6px 8px 0 0;">OT:</td><td style="'+box+'margin-top:6px;">'+escH(cf.ot||"")+'</td></tr></table>'+
+      '</td>'+
+      '<td style="vertical-align:top;text-align:right;">'+catTable+'</td>'+
+    '</tr></table>'+
+    // Proyecto / empresa
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><tr><td style="font-weight:bold;width:150px;">Nombre del Proyecto:</td><td style="'+box+'">'+escH(cf.proj||"")+'</td></tr></table>'+
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;"><tr><td style="font-weight:bold;width:220px;">Empresa contratista o proveedor:</td><td style="'+box+'">'+escH(cf.empresa||"")+'</td></tr></table>'+
+    // Central/sala/sitio
+    '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:14px;"><tr>'+
+      '<td style="font-weight:bold;width:60px;">Central:</td><td style="'+box+'">'+escH(cf.central||"")+'</td>'+
+      '<td style="font-weight:bold;width:45px;text-align:center;">sala:</td><td style="'+box+'">'+escH(cf.sala||"")+'</td>'+
+      '<td style="font-weight:bold;width:45px;text-align:center;">sitio:</td><td style="'+box+'">'+escH(cf.sitio||"")+'</td>'+
+    '</tr></table>'+
+    // Cuerpo
+    '<div style="font-size:13px;margin:6px 0 4px;padding-left:8px;">El día de hoy se procede a realizar los siguientes trabajos:</div>'+body+
+    // Firmas
+    '<div style="font-weight:bold;font-size:13px;margin-top:22px;margin-bottom:6px;">Responsables del Proyecto</div>'+
+    '<table style="width:100%;border-collapse:collapse;"><tr>'+sig("Supervisor Claro",cf.supNombre,cf.supTel,cf.supSig)+sig("Supervisor Contratista o Proveedor",cf.colNombre,cf.colTel,cf.colSig)+'</tr></table>'+
   '</div>';
 }
 // Cargar librerías para generar PDF en el teléfono (una vez; luego cacheadas por el SW si aplica).

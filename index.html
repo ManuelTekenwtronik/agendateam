@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809035; // subir en CADA despliegue
+var APP_BUILD=20260809036; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -3032,16 +3032,94 @@ function metSetTab(t){_metTab=t;renderMetricas();}
 function renderMetricas(){
   var host=document.getElementById("content");
   if(!_metTab){
-    var h=sectionHead("📊 Métricas","Estadísticas y reportes");
+    var h=sectionHead("📊 Métricas","Estadísticas, reportes y calendario");
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:4px;">'+
       _bigCard("#5a8fe0","📊","Estadísticas","metSetTab('estadisticas')")+
       _bigCard("#9b59b6","📈","Reportes","metSetTab('reportes')")+
+      _bigCard("#16a085","📅","Calendario semanal","metSetTab('calendario')")+
     '</div>';
     host.innerHTML=h;return;
   }
-  if(_metTab==="estadisticas")renderEstadisticas();else renderReportes();
+  if(_metTab==="estadisticas")renderEstadisticas();
+  else if(_metTab==="calendario")renderCalendarioSemanal();
+  else renderReportes();
   var c=document.getElementById("content");
   if(c)c.insertAdjacentHTML("afterbegin",'<div style="margin:0 4px 10px;"><button class="btn btn-sm btn-gray" onclick="metSetTab(\'\')">← Métricas</button></div>');
+}
+// ── CALENDARIO SEMANAL DE ACTIVIDADES POR COLABORADOR ──
+var _calWeekOff=0,_calCollab="";
+var _ACT_PALETTE=["#5a8fe0","#e67e22","#8e44ad","#16a085","#2c82c9","#d68910","#7d3c98","#117864","#c0399b","#1f618d","#ca6f1e","#5b2c6f"];
+function _actColor(name){
+  var cn=canonName(name),k=normActName(cn);
+  if(k==="almuerzo")return"#27ae60"; // Almuerzo siempre verde
+  var h=0;for(var i=0;i<k.length;i++){h=(h*31+k.charCodeAt(i))>>>0;}
+  return _ACT_PALETTE[h%_ACT_PALETTE.length];
+}
+function _weekDays(off){
+  var d=new Date();d.setHours(0,0,0,0);
+  var dow=(d.getDay()+6)%7; // 0=lunes
+  d.setDate(d.getDate()-dow+off*7);
+  var days=[];for(var i=0;i<7;i++){var x=new Date(d);x.setDate(d.getDate()+i);days.push(x);}
+  return days;
+}
+// Barra de jornada (6:00–18:00): tramos con actividad en su color; huecos (horas sin actividad) en ROJO.
+function _dayTimeline(dayActs,dayDate){
+  var winStart=new Date(dayDate);winStart.setHours(6,0,0,0);
+  var winEnd=new Date(dayDate);winEnd.setHours(18,0,0,0);
+  var W=winEnd.getTime()-winStart.getTime();
+  var segs=(dayActs||[]).filter(function(a){return a.startTs;}).map(function(a){
+    var s=Math.max(a.startTs,winStart.getTime()),e=Math.min(a.endTs||Date.now(),winEnd.getTime());
+    return{s:s,e:e,color:_actColor(a.name)};
+  }).filter(function(x){return x.e>x.s;}).sort(function(a,b){return a.s-b.s;});
+  if(!segs.length)return'<div style="font-size:10px;color:#c0392b;">🔴 Sin horario registrado</div>';
+  var parts=[],cursor=winStart.getTime(),idle=0;
+  function pushGap(from,to){if(to>from){var w=(to-from)/W*100;idle+=(to-from);parts.push('<div title="sin actividad" style="width:'+w+'%;background:#e74c3c;"></div>');}}
+  segs.forEach(function(sg){pushGap(cursor,sg.s);var w=(sg.e-sg.s)/W*100;parts.push('<div style="width:'+w+'%;background:'+sg.color+';"></div>');cursor=Math.max(cursor,sg.e);});
+  pushGap(cursor,winEnd.getTime());
+  var idleH=Math.round(idle/360000)/10;
+  return'<div style="display:flex;height:14px;border-radius:6px;overflow:hidden;border:1px solid #ddd;">'+parts.join("")+'</div>'+
+    '<div style="display:flex;justify-content:space-between;font-size:9px;color:#999;margin-top:2px;"><span>6:00</span>'+(idle>0?'<span style="color:#c0392b;font-weight:700;">🔴 '+idleH+'h sin actividad</span>':'<span style="color:#27ae60;font-weight:700;">✓ jornada cubierta</span>')+'<span>18:00</span></div>';
+}
+function calSetWeek(o){_calWeekOff=o;renderMetricas();}
+function calSetCollab(v){_calCollab=v;renderMetricas();}
+function renderCalendarioSemanal(){
+  var host=document.getElementById("content"),admin=isAdmin();
+  var h=sectionHead("📅 Calendario semanal","Actividades por colaborador");
+  // selector de colaborador (admin) y navegación de semana
+  if(admin){
+    var cols=(state.collaborators||[]).slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
+    if(!_calCollab&&cols.length)_calCollab=String(cols[0].id);
+    h+='<div class="field" style="margin-bottom:10px;"><label>Colaborador</label><select onchange="calSetCollab(this.value)">'+
+      cols.map(function(c){return'<option value="'+c.id+'"'+(String(_calCollab)===String(c.id)?" selected":"")+'>'+escH(c.name)+'</option>';}).join("")+'</select></div>';
+  }else _calCollab=String(myUid());
+  var days=_weekDays(_calWeekOff);
+  var wlabel=days[0].getDate()+"/"+(days[0].getMonth()+1)+" – "+days[6].getDate()+"/"+(days[6].getMonth()+1);
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin:0 4px 12px;">'+
+    '<button class="btn btn-sm btn-gray" onclick="calSetWeek('+(_calWeekOff-1)+')">‹ Semana</button>'+
+    '<span style="font-weight:800;font-size:13px;">'+wlabel+(_calWeekOff===0?" (esta semana)":"")+'</span>'+
+    '<button class="btn btn-sm btn-gray" onclick="calSetWeek('+(_calWeekOff+1)+')">Semana ›</button>'+
+  '</div>';
+  var DOW=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+  var acts=(state.activities||[]).filter(function(a){return String(a.collabId)===String(_calCollab);});
+  h+='<div style="padding:4px;">';
+  days.forEach(function(d,i){
+    var key=d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
+    var dayActs=acts.filter(function(a){return a.date===key;});
+    // resumir por actividad canónica (una etiqueta por actividad, mismo color al repetir)
+    var seen={},chips=[];
+    dayActs.forEach(function(a){var cn=canonName(a.name),k=normActName(cn);if(!seen[k]){seen[k]=1;chips.push(cn);}});
+    var cell;
+    if(!chips.length){
+      cell='<div style="background:#fff0f0;border:1.5px solid #ffcccc;color:#c0392b;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:700;">Sin actividad</div>';
+    }else{
+      cell='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">'+chips.map(function(n){var col=_actColor(n);return'<span style="background:'+col+';color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;">'+escH(n.length>22?n.slice(0,22)+"…":n)+'</span>';}).join("")+'</div>'+_dayTimeline(dayActs,d);
+    }
+    h+='<div style="display:flex;gap:10px;align-items:flex-start;border:1px solid #eee;border-radius:12px;padding:10px;margin-bottom:8px;">'+
+       '<div style="min-width:74px;"><div style="font-weight:800;font-size:13px;">'+DOW[i]+'</div><div style="font-size:11px;color:#999;">'+d.getDate()+"/"+(d.getMonth()+1)+'</div></div>'+
+       '<div style="flex:1;">'+cell+'</div></div>';
+  });
+  h+='</div>';
+  host.innerHTML=h;
 }
 function renderEstadisticas(){
   var admin=isAdmin();

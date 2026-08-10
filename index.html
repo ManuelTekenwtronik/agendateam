@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809037; // subir en CADA despliegue
+var APP_BUILD=20260809039; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1279,9 +1279,10 @@ function projBitacorasHTML(p){
         '🗓️ '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br>'+
         '📍 '+escH(b.place||"—")+
       '</div>'+
-      '<div style="display:flex;gap:6px;margin-top:6px;">'+
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">'+
         '<button class="btn btn-sm btn-gray" onclick="projVerBitacora(\''+p.id+'\',\''+b.id+'\')">👁 Ver</button>'+
         (canDl?'<button class="btn btn-sm" style="background:#1abc9c;color:#fff;" onclick="descargarBitacora(\''+p.id+'\',\''+b.id+'\')">⬇ Descargar</button>':'')+
+        '<button class="btn btn-sm" style="background:#e2001a;color:#fff;" onclick="abrirFormatoClaro(\''+p.id+'\',\''+b.id+'\')">'+(b.claro?"📄 Formato Claro ✓":"📄 Formato Claro")+'</button>'+
       '</div>'+
     '</div>';
   }).join("");
@@ -1359,6 +1360,105 @@ function _enviarCorreoBitacora(p,b){
     if(d&&d.ok)toast("✅ Copia enviada a "+to);
     else toast("⚠️ No se envió el correo: "+((d&&d.error)||"error"),"error");
   }).catch(function(e){toast("⚠️ Error al enviar correo: "+(e&&e.message||""),"error");});
+}
+// ── FORMATO OFICIAL CLARO (se genera a partir de la bitácora de la app) ──
+var _claroProjId=null,_claroBitId=null;
+function abrirFormatoClaro(pid,bid){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
+  var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(bid);});if(!b)return;
+  _claroProjId=pid;_claroBitId=bid;
+  var cf=b.claro||{};
+  // Detalle: una línea por actividad con ejecución (descripción + cantidad + unidad).
+  var det=cf.detalle||(b.items||[]).filter(function(it){return _num(it.ejecutadoHoy)>0;}).map(function(it){return"• "+(it.descripcion||"")+" — "+it.ejecutadoHoy+" "+(it.unidad||"");}).join("\n");
+  var st="width:100%;border:1px solid #000;padding:4px 6px;font-size:13px;box-sizing:border-box;";
+  var cats=["FO","CU","HFC","LAN","MOVIL","TX","MSAN","PI","OC","IMP"];
+  var body=''+
+    '<div style="text-align:center;font-family:Georgia,serif;font-weight:bold;font-style:italic;font-size:18px;margin-bottom:4px;">BITÁCORA DE TRABAJO — CLARO</div>'+
+    '<div style="font-size:11px;color:#777;text-align:center;margin-bottom:12px;">Revisa/corrige los datos, llena teléfonos y firma. Se enviará junto con la bitácora de avance.</div>'+
+    '<div class="field"><label>N°</label><input id="cl-num" value="'+escH(cf.num||"")+'" style="'+st+'"></div>'+
+    '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px;">'+cats.map(function(c){var on=cf.cats&&cf.cats.indexOf(c)>=0;return'<label style="font-size:11px;font-weight:700;border:1px solid #999;border-radius:6px;padding:4px 8px;">'+c+' <input type="checkbox" class="cl-cat" value="'+c+'"'+(on?" checked":"")+' style="-webkit-appearance:checkbox;appearance:checkbox;vertical-align:middle;"></label>';}).join("")+'</div>'+
+    '<div class="field"><label>Fecha</label><input id="cl-fecha" type="date" value="'+escH(cf.fecha||b.date||todayKey())+'" style="'+st+'"></div>'+
+    '<div class="field"><label>OT</label><input id="cl-ot" value="'+escH(cf.ot||p.poNumber||"")+'" style="'+st+'"></div>'+
+    '<div class="field"><label>Nombre del Proyecto</label><input id="cl-proj" value="'+escH(cf.proj||p.name||"")+'" style="'+st+'"></div>'+
+    '<div class="field"><label>Empresa contratista o proveedor</label><input id="cl-emp" value="'+escH(cf.empresa||"Sintelsa")+'" style="'+st+'"></div>'+
+    '<div style="display:flex;gap:6px;">'+
+      '<div class="field" style="flex:1;"><label>Central</label><input id="cl-central" value="'+escH(cf.central||"")+'" style="'+st+'"></div>'+
+      '<div class="field" style="flex:1;"><label>Sala</label><input id="cl-sala" value="'+escH(cf.sala||"")+'" style="'+st+'"></div>'+
+      '<div class="field" style="flex:1;"><label>Sitio</label><input id="cl-sitio" value="'+escH(cf.sitio||"")+'" style="'+st+'"></div>'+
+    '</div>'+
+    '<div class="field"><label>Trabajos realizados (editable)</label><textarea id="cl-det" style="'+st+'height:150px;font-family:inherit;">'+escH(det)+'</textarea></div>'+
+    '<div style="font-weight:800;font-size:13px;margin:14px 0 6px;">Responsables del Proyecto</div>'+
+    '<div style="border:1px solid #eee;border-radius:12px;padding:10px;margin-bottom:10px;">'+
+      '<div style="font-weight:700;font-size:12px;margin-bottom:6px;">Supervisor Claro</div>'+
+      '<input id="cl-sup-nom" value="'+escH(cf.supNombre||(b.supervisor&&b.supervisor.name)||"")+'" placeholder="Nombre" style="'+st+'margin-bottom:6px;">'+
+      '<input id="cl-sup-tel" value="'+escH(cf.supTel||"")+'" placeholder="Teléfono" inputmode="tel" style="'+st+'margin-bottom:6px;">'+
+      '<canvas id="claro-sig-sup" width="600" height="180" style="width:100%;height:110px;border:1.5px dashed #cfd3dc;border-radius:10px;background:#fff;touch-action:none;"></canvas>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:4px;" onclick="clearSig(\'claro-sig-sup\')">Borrar firma</button>'+
+    '</div>'+
+    '<div style="border:1px solid #eee;border-radius:12px;padding:10px;">'+
+      '<div style="font-weight:700;font-size:12px;margin-bottom:6px;">Supervisor Contratista o Proveedor (TKTK-SINTELSA)</div>'+
+      '<input id="cl-col-nom" value="'+escH(cf.colNombre||(b.colaborador&&b.colaborador.name)||"")+'" placeholder="Nombre" style="'+st+'margin-bottom:6px;">'+
+      '<input id="cl-col-tel" value="'+escH(cf.colTel||"")+'" placeholder="Teléfono" inputmode="tel" style="'+st+'margin-bottom:6px;">'+
+      '<canvas id="claro-sig-col" width="600" height="180" style="width:100%;height:110px;border:1.5px dashed #cfd3dc;border-radius:10px;background:#fff;touch-action:none;"></canvas>'+
+      '<button class="btn btn-sm btn-gray" style="margin-top:4px;" onclick="clearSig(\'claro-sig-col\')">Borrar firma</button>'+
+    '</div>'+
+    '<button class="btn btn-block" style="background:#e2001a;color:#fff;margin-top:14px;" onclick="guardarFormatoClaro()">✍️ Firmar y enviar (2 bitácoras)</button>';
+  showSheet("Formato Claro — "+(p.name||""),body);
+  initSig("claro-sig-sup");initSig("claro-sig-col");
+}
+function guardarFormatoClaro(){
+  var p=(state.projects||[]).find(function(x){return String(x.id)===String(_claroProjId);});if(!p)return;
+  var b=(p.bitacoras||[]).find(function(x){return String(x.id)===String(_claroBitId);});if(!b)return;
+  var supSig=_sigData("claro-sig-sup"),colSig=_sigData("claro-sig-col");
+  if(!supSig){toast("Falta la firma del supervisor de Claro","error");return;}
+  if(!colSig){toast("Falta la firma del colaborador","error");return;}
+  var cats=[];Array.prototype.forEach.call(document.querySelectorAll(".cl-cat"),function(c){if(c.checked)cats.push(c.value);});
+  var g=function(id){return((document.getElementById(id)||{}).value||"").trim();};
+  toast("⏳ Guardando formato Claro…");
+  uploadDataUrl(supSig,"agendateam/bitacoras",function(supUrl){
+    uploadDataUrl(colSig,"agendateam/bitacoras",function(colUrl){
+      b.claro={
+        num:g("cl-num"),cats:cats,fecha:g("cl-fecha"),ot:g("cl-ot"),proj:g("cl-proj"),empresa:g("cl-emp"),
+        central:g("cl-central"),sala:g("cl-sala"),sitio:g("cl-sitio"),detalle:g("cl-det"),
+        supNombre:g("cl-sup-nom"),supTel:g("cl-sup-tel"),supSig:supUrl||"",
+        colNombre:g("cl-col-nom"),colTel:g("cl-col-tel"),colSig:colUrl||"",ts:Date.now()
+      };
+      p.updatedTs=Date.now();saveLocal();if(db)saveProjects();
+      closeSheet();renderProyectos();toast("✅ Formato Claro firmado");
+      _enviarCorreoDoble(p,b); // correo con las DOS bitácoras
+    });
+  });
+}
+// Email HTML del formato Claro (fiel al documento).
+function _claroEmailHTML(p,b){
+  var cf=b.claro||{};
+  var det=(cf.detalle||"").split(/\n/).filter(function(l){return l.trim();}).map(function(l){return'<div style="border-bottom:1px solid #000;padding:3px 4px;font-size:12px;">'+escH(l)+'</div>';}).join("");
+  function sig(nom,tel,url){return'<div style="display:inline-block;width:46%;vertical-align:top;margin:0 1%;font-size:12px;"><div><b>Nombre:</b> '+escH(nom||"—")+'</div><div><b>Teléfono:</b> '+escH(tel||"—")+'</div><div style="margin-top:4px;">'+((url)?'<img src="'+escH(url)+'" style="max-height:60px;max-width:100%;border-bottom:1px solid #333;">':'<div style="height:60px;border-bottom:1px solid #333;"></div>')+'</div></div>';}
+  return'<div style="font-family:Arial,sans-serif;color:#000;max-width:680px;margin:0 auto;border:2px solid #e2001a;border-radius:10px;padding:16px;">'+
+    '<div style="text-align:center;"><span style="display:inline-block;background:#e2001a;color:#fff;font-style:italic;font-weight:bold;border-radius:20px;padding:6px 16px;font-size:18px;">Claro</span> <span style="font-style:italic;font-weight:bold;font-size:17px;">BITÁCORA DE TRABAJO</span></div>'+
+    '<p style="font-size:13px;line-height:1.8;margin-top:12px;"><b>N°:</b> '+escH(cf.num||"—")+' &nbsp; <b>Fecha:</b> '+escH(cf.fecha||"—")+' &nbsp; <b>OT:</b> '+escH(cf.ot||"—")+(cf.cats&&cf.cats.length?' &nbsp; <b>Cat.:</b> '+escH(cf.cats.join(", ")):"")+'<br>'+
+      '<b>Proyecto:</b> '+escH(cf.proj||"")+'<br><b>Empresa:</b> '+escH(cf.empresa||"")+'<br><b>Central:</b> '+escH(cf.central||"—")+' &nbsp; <b>Sala:</b> '+escH(cf.sala||"—")+' &nbsp; <b>Sitio:</b> '+escH(cf.sitio||"—")+'</p>'+
+    '<div style="font-weight:bold;font-size:13px;margin:8px 0 4px;">Trabajos realizados:</div>'+det+
+    '<div style="margin-top:20px;font-weight:bold;font-size:12px;">Responsables del Proyecto</div>'+
+    '<div style="margin-top:6px;">'+sig(cf.supNombre,cf.supTel,cf.supSig)+sig(cf.colNombre,cf.colTel,cf.colSig)+'</div>'+
+    '<div style="font-size:10px;color:#777;margin-top:6px;">Supervisor Claro &nbsp;·&nbsp; Supervisor Contratista/Proveedor</div>'+
+  '</div>';
+}
+// Correo con LAS DOS bitácoras: avance (app) + formato Claro.
+function _enviarCorreoDoble(p,b){
+  var to=(b.supervisor&&b.supervisor.email||"").trim();
+  if(!to){toast("Guardado (sin correo del supervisor, no se envió)");return;}
+  var cc=(b.colaborador&&b.colaborador.email||"").trim();
+  var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||""};
+  var html=_bitEmailHTML(p,b)+'<hr style="margin:28px 0;border:none;border-top:2px dashed #ccc;">'+_claroEmailHTML(p,b);
+  toast("📧 Enviando las 2 bitácoras…");
+  fetch("/.netlify/functions/mail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+    to:to,cc:cc||undefined,
+    subject:"Bitácoras "+(b.date||"")+" — "+(p.name||"")+" ("+cl.name+")",
+    html:html
+  })}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok)toast("✅ Correo enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");
+  }).catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
 }
 function descargarBitacora(pid,bid){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
@@ -1542,8 +1642,8 @@ function guardarBitacora(){
       p.updatedTs=Date.now();
       saveLocal();if(db)saveProjects();
       var nb=p.bitacoras[p.bitacoras.length-1];
-      closeSheet();renderProyectos();toast("✅ Bitácora guardada");
-      _enviarCorreoBitacora(p,nb); // copia por correo al supervisor del cliente
+      closeSheet();renderProyectos();toast("✅ Bitácora guardada — genera el formato Claro");
+      abrirFormatoClaro(p.id,nb.id); // paso siguiente: llenar/firmar formato Claro y enviar ambas
     });
   });
 }
@@ -2882,6 +2982,11 @@ function actSelChanged(v){
   var nw=document.getElementById("act-new-wrap"),dw=document.getElementById("act-detail-wrap");
   if(nw)nw.style.display=(v==="__new__")?"block":"none";
   if(dw)dw.style.display=(isProject(v)||isHomeOffice(v))?"block":"none";
+  // En BODEGA el detalle es obligatorio: marcarlo visualmente.
+  var det=document.getElementById("act-detail"),lb=document.getElementById("act-detail-lbl");
+  var bodega=/bodega/i.test(v||"");
+  if(det)det.placeholder=bodega?"OBLIGATORIO: detalla la actividad realizada en bodega…":"Ej. instalación, mantenimiento, supervisión…";
+  if(lb)lb.textContent=bodega?"Actividad específica en bodega (obligatorio) *":"Actividad específica en el sitio";
 }
 function iniciarActividad(){
   var sel=document.getElementById("act-select"),v=sel?sel.value:"",name="",project="",special=false;
@@ -2889,6 +2994,8 @@ function iniciarActividad(){
   else if(v&&(isProject(v)||isHomeOffice(v))){
     special=true;
     var det=document.getElementById("act-detail"),detail=(det?det.value:"").trim();
+    // BODEGA: obligatorio detallar la actividad específica realizada.
+    if(/bodega/i.test(v)&&!detail){toast("Detalla qué actividad realizarás en "+v+" (obligatorio)","error");if(det)det.focus();return;}
     name=detail?(v+" — "+detail):v;
     if(isProject(v))project=v; // sólo los proyectos validan ubicación; Home Office no
   }else name=(v||"").trim();
@@ -3000,7 +3107,7 @@ function renderActividades(){
          '<option value="__new__">➕ Nueva actividad…</option>'+
        '</select></div>';
     h+='<div class="field" id="act-new-wrap" style="margin-bottom:10px;display:none;"><label>Nombre de la actividad</label><input id="act-name" placeholder="Escribe la actividad…" autocomplete="off"/></div>';
-    h+='<div class="field" id="act-detail-wrap" style="margin-bottom:10px;display:none;"><label>Actividad específica en el sitio</label><input id="act-detail" placeholder="Ej. instalación, mantenimiento, supervisión…" autocomplete="off"/></div>';
+    h+='<div class="field" id="act-detail-wrap" style="margin-bottom:10px;display:none;"><label id="act-detail-lbl">Actividad específica en el sitio</label><input id="act-detail" placeholder="Ej. instalación, mantenimiento, supervisión…" autocomplete="off"/></div>';
     h+='<button class="btn btn-block" style="background:linear-gradient(135deg,#27ae60,#219150);color:#fff;" onclick="iniciarActividad()">▶️ Iniciar</button>';
   }
   h+='</div>';

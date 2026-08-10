@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bitácora de Trabajo — Claro</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:#e9ecf1;font-family:Arial,Helvetica,sans-serif;color:#000;}
+  .page{width:816px;min-height:1056px;background:#fff;margin:18px auto;padding:38px 42px;position:relative;box-shadow:0 3px 18px rgba(0,0,0,.15);}
+  /* Encabezado */
+  .hdr{display:flex;align-items:center;gap:20px;margin-bottom:26px;}
+  .logo{width:96px;height:96px;border-radius:50%;background:#e2001a;position:relative;flex-shrink:0;}
+  .logo .txt{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) skewX(-6deg);color:#fff;font-weight:800;font-style:italic;font-size:26px;letter-spacing:-.5px;font-family:Arial,Helvetica,sans-serif;}
+  .logo .swoosh{position:absolute;top:26px;right:20px;width:26px;height:26px;border:5px solid #fff;border-left:0;border-bottom:0;transform:rotate(48deg);border-radius:2px;}
+  .title{font-family:Georgia,'Times New Roman',serif;font-weight:bold;font-style:italic;font-size:26px;flex:1;}
+  .nnum{color:#e2001a;font-weight:bold;font-style:italic;font-size:22px;text-align:right;min-width:70px;}
+  /* Tabla de categorías (arriba der) */
+  .cats{position:absolute;top:120px;right:42px;border-collapse:collapse;}
+  .cats td{border:1px solid #000;width:44px;height:20px;text-align:center;font-size:11px;font-weight:bold;}
+  .cats td.chk{height:22px;}
+  /* Campos */
+  .row{display:flex;align-items:flex-end;margin-bottom:14px;gap:8px;}
+  .lbl{font-weight:bold;font-size:13px;white-space:nowrap;}
+  .fld{border:1px solid #000;min-height:22px;flex:1;padding:2px 6px;font-size:13px;}
+  .fld[contenteditable]{outline:none;}
+  .css-box{border:1px solid #000;}
+  /* Cuerpo de trabajos */
+  .intro{font-size:13px;margin:18px 0 4px;padding-left:10px;}
+  .lines{margin-top:4px;}
+  .line{border-bottom:1px solid #000;min-height:22px;padding:2px 6px;font-size:12px;}
+  .line[contenteditable]{outline:none;}
+  /* Firmas */
+  .resp{font-size:13px;margin-top:26px;margin-bottom:4px;}
+  .sigs{display:flex;gap:40px;}
+  .sigcol{flex:1;}
+  .sigcol h4{margin:0 0 8px;font-size:13px;font-weight:bold;}
+  .sigrow{display:flex;align-items:flex-end;gap:8px;margin-bottom:8px;}
+  .sigrow .lbl{width:70px;}
+  .sigrow .fld{flex:1;}
+  .sigfirma{height:54px;}
+  /* Barra de acciones (no imprime) */
+  .toolbar{position:fixed;top:0;left:0;right:0;background:#1a1d2e;color:#fff;padding:10px 16px;display:flex;gap:10px;align-items:center;z-index:50;}
+  .toolbar button{background:#2c82c9;color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700;cursor:pointer;}
+  .toolbar .sp{flex:1;}
+  @media print{
+    .toolbar{display:none;}
+    html,body{background:#fff;}
+    .page{margin:0;box-shadow:none;width:auto;min-height:auto;padding:14mm;}
+    @page{size:letter;margin:0;}
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <b>Bitácora Claro — formato llenable</b>
+  <span class="sp"></span>
+  <button onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+</div>
+
+<div class="page">
+  <!-- Encabezado -->
+  <div class="hdr">
+    <div class="logo"><span class="txt">Claro</span><span class="swoosh"></span></div>
+    <div class="title">BITACORA DE TRABAJO</div>
+    <div class="nnum">N°</div>
+  </div>
+
+  <!-- Tabla categorías arriba a la derecha -->
+  <table class="cats">
+    <tr><td>FO</td><td>CU</td><td>HFC</td><td>LAN</td><td>MOVIL</td></tr>
+    <tr><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td></tr>
+    <tr><td>TX</td><td>MSAN</td><td>PI</td><td>OC</td><td>IMP</td></tr>
+    <tr><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td><td class="chk" contenteditable></td></tr>
+  </table>
+
+  <!-- FECHA / OT -->
+  <div style="max-width:360px;">
+    <div class="row"><span class="lbl" style="width:44px;">FECHA:</span><span class="fld" contenteditable></span></div>
+    <div class="row"><span class="lbl" style="width:44px;">OT:</span><span class="fld" contenteditable></span></div>
+  </div>
+
+  <div style="height:14px;"></div>
+
+  <!-- Nombre del proyecto -->
+  <div class="row"><span class="lbl">Nombre del Proyecto:</span><span class="fld" contenteditable></span></div>
+  <!-- Empresa -->
+  <div class="row"><span class="lbl">Empresa contratista o proveedor:</span><span class="fld" contenteditable></span></div>
+  <!-- Central / sala / sitio -->
+  <div class="row">
+    <span class="lbl">Central:</span><span class="fld" contenteditable></span>
+    <span class="lbl">sala:</span><span class="fld" contenteditable></span>
+    <span class="lbl">sitio:</span><span class="fld" contenteditable></span>
+  </div>
+
+  <!-- Cuerpo -->
+  <div class="intro" contenteditable>El día de hoy se procede a realizar los siguientes trabajos:</div>
+  <div class="lines" id="lines"></div>
+
+  <!-- Firmas -->
+  <div class="resp">Responsables del Proyecto</div>
+  <div class="sigs">
+    <div class="sigcol">
+      <h4>Supervisor Claro</h4>
+      <div class="sigrow"><span class="lbl">Nombre:</span><span class="fld" contenteditable></span></div>
+      <div class="sigrow"><span class="lbl">Teléfono:</span><span class="fld" contenteditable></span></div>
+      <div class="sigrow"><span class="lbl">Firma:</span><span class="fld sigfirma" contenteditable></span></div>
+    </div>
+    <div class="sigcol">
+      <h4>Supervisor Contratista o Proveedor</h4>
+      <div class="sigrow"><span class="lbl">Nombre:</span><span class="fld" contenteditable></span></div>
+      <div class="sigrow"><span class="lbl">Teléfono:</span><span class="fld" contenteditable></span></div>
+      <div class="sigrow"><span class="lbl">Firma:</span><span class="fld sigfirma" contenteditable></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // 20 líneas en blanco para el detalle de trabajos (llenables).
+  var lc=document.getElementById("lines");
+  for(var i=0;i<20;i++){var d=document.createElement("div");d.className="line";d.setAttribute("contenteditable","");lc.appendChild(d);}
+</script>
+</body>
+</html>

@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809036; // subir en CADA despliegue
+var APP_BUILD=20260809037; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -3099,26 +3099,53 @@ function renderCalendarioSemanal(){
     '<span style="font-weight:800;font-size:13px;">'+wlabel+(_calWeekOff===0?" (esta semana)":"")+'</span>'+
     '<button class="btn btn-sm btn-gray" onclick="calSetWeek('+(_calWeekOff+1)+')">Semana ›</button>'+
   '</div>';
-  var DOW=["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"];
+  var DOW=["Lun","Mar","Mié","Jue","Vie","Sáb","Dom"];
   var acts=(state.activities||[]).filter(function(a){return String(a.collabId)===String(_calCollab);});
-  h+='<div style="padding:4px;">';
-  days.forEach(function(d,i){
+  // Cuadrícula: filas = franjas de 30 min (6:00–18:00), columnas = 7 días.
+  var H0=6,H1=18,STEP=30,SLOTS=(H1-H0)*60/STEP; // 24 franjas
+  // Cobertura por día: para cada franja, la actividad que la cubre (o null).
+  function dayCover(d){
     var key=d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());
-    var dayActs=acts.filter(function(a){return a.date===key;});
-    // resumir por actividad canónica (una etiqueta por actividad, mismo color al repetir)
-    var seen={},chips=[];
-    dayActs.forEach(function(a){var cn=canonName(a.name),k=normActName(cn);if(!seen[k]){seen[k]=1;chips.push(cn);}});
-    var cell;
-    if(!chips.length){
-      cell='<div style="background:#fff0f0;border:1.5px solid #ffcccc;color:#c0392b;border-radius:8px;padding:8px 10px;font-size:12px;font-weight:700;">Sin actividad</div>';
-    }else{
-      cell='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px;">'+chips.map(function(n){var col=_actColor(n);return'<span style="background:'+col+';color:#fff;font-size:11px;font-weight:700;padding:4px 9px;border-radius:8px;">'+escH(n.length>22?n.slice(0,22)+"…":n)+'</span>';}).join("")+'</div>'+_dayTimeline(dayActs,d);
+    var da=acts.filter(function(a){return a.date===key;});
+    var arr=[];
+    for(var s=0;s<SLOTS;s++){
+      var t0=new Date(d);t0.setHours(H0,0,0,0);var ss=t0.getTime()+s*STEP*60000,se=ss+STEP*60000;
+      var hit=null;
+      da.forEach(function(a){if(!a.startTs)return;var ae=a.endTs||Date.now();if(a.startTs<se&&ae>ss){if(!hit||a.startTs>hit.startTs)hit=a;}});
+      arr.push(hit);
     }
-    h+='<div style="display:flex;gap:10px;align-items:flex-start;border:1px solid #eee;border-radius:12px;padding:10px;margin-bottom:8px;">'+
-       '<div style="min-width:74px;"><div style="font-weight:800;font-size:13px;">'+DOW[i]+'</div><div style="font-size:11px;color:#999;">'+d.getDate()+"/"+(d.getMonth()+1)+'</div></div>'+
-       '<div style="flex:1;">'+cell+'</div></div>';
-  });
-  h+='</div>';
+    return arr;
+  }
+  var covers=days.map(dayCover);
+  var GB="1px solid #e5e7ef",cw="minmax(46px,1fr)";
+  var h2='<div style="overflow-x:auto;padding:4px;"><div style="min-width:380px;">';
+  // Encabezado de días
+  h2+='<div style="display:grid;grid-template-columns:40px repeat(7,'+cw+');gap:0;">'+
+    '<div></div>'+days.map(function(d,i){return'<div style="text-align:center;font-weight:800;font-size:11px;padding:4px 0;">'+DOW[i]+'<div style="font-size:9px;color:#999;font-weight:600;">'+d.getDate()+'/'+(d.getMonth()+1)+'</div></div>';}).join("")+
+  '</div>';
+  // Filas por franja
+  for(var s=0;s<SLOTS;s++){
+    var hh=H0+Math.floor(s*STEP/60),mm=(s*STEP)%60,onHour=mm===0;
+    var lbl=onHour?(pad2(hh)+":00"):"";
+    h2+='<div style="display:grid;grid-template-columns:40px repeat(7,'+cw+');gap:0;">'+
+      '<div style="font-size:9px;color:#888;text-align:right;padding-right:4px;height:16px;line-height:16px;border-top:'+(onHour?"1px solid #cfd3dc":"1px dotted #eee")+';">'+lbl+'</div>';
+    for(var day=0;day<7;day++){
+      var a=covers[day][s],col,ttl="";
+      if(a){col=_actColor(a.name);ttl=escH(canonName(a.name));}
+      else{col="#fdecec";} // sin actividad = rojo claro
+      h2+='<div title="'+ttl+'" style="height:16px;border-top:'+(onHour?"1px solid #cfd3dc":"1px dotted #eee")+';border-left:'+GB+';background:'+col+';"></div>';
+    }
+    h2+='</div>';
+  }
+  h2+='</div></div>';
+  // Leyenda de actividades de la semana
+  var seen={},leg=[];
+  acts.forEach(function(a){var key=a.date;if(days.some(function(d){return (d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate()))===key;})){var cn=canonName(a.name),k=normActName(cn);if(!seen[k]){seen[k]=1;leg.push(cn);}}});
+  h2+='<div style="display:flex;flex-wrap:wrap;gap:6px;padding:8px 4px;">'+
+    leg.map(function(n){return'<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;"><span style="width:12px;height:12px;border-radius:3px;background:'+_actColor(n)+';display:inline-block;"></span>'+escH(n)+'</span>';}).join("")+
+    '<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#c0392b;"><span style="width:12px;height:12px;border-radius:3px;background:#fdecec;border:1px solid #f5b7b1;display:inline-block;"></span>Sin actividad</span>'+
+  '</div>';
+  h+=h2;
   host.innerHTML=h;
 }
 function renderEstadisticas(){

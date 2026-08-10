@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809034; // subir en CADA despliegue
+var APP_BUILD=20260809035; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1325,6 +1325,41 @@ function _openBitPrint(titulo,inner){
   w.onload=function(){setTimeout(function(){try{w.focus();w.print();}catch(e){}},400);};
   setTimeout(function(){try{w.print();}catch(e){}},1200); // respaldo si onload no dispara
 }
+// Email HTML (estilos inline para compatibilidad con clientes de correo).
+function _bitEmailHTML(p,b){
+  var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||"—"};
+  var td='style="border:1px solid #999;padding:5px 7px;font-size:12px;"',tdn='style="border:1px solid #999;padding:5px 7px;font-size:12px;text-align:right;"',th='style="border:1px solid #999;padding:5px 7px;font-size:12px;background:#eceff4;"';
+  var rows=(b.items||[]).map(function(it){
+    var cant=_num(it.cantidad),acc=_num(it.acumulado),over=cant>0&&acc>cant,pct=cant>0?Math.round(acc/cant*100)+"%":"";
+    return'<tr><td '+td+'>'+escH(it.codigo||"")+'</td><td '+td+'>'+escH(it.descripcion||"")+'</td><td '+td+'>'+escH(it.unidad||"")+'</td>'+
+      '<td style="border:1px solid #999;padding:5px 7px;font-size:12px;text-align:right;background:#eceff4;font-weight:bold;">'+escH(it.cantidad||"")+'</td>'+
+      '<td style="border:1px solid #999;padding:5px 7px;font-size:12px;text-align:right;'+(over?"color:#c00;font-weight:bold;":"")+'">'+escH(it.acumulado!=null?it.acumulado:"")+'</td>'+
+      '<td '+tdn+'>'+escH(it.ejecutadoHoy||"")+'</td><td '+tdn+'>'+pct+'</td></tr>';
+  }).join("");
+  function sig(o,rol){return'<div style="display:inline-block;width:46%;text-align:center;vertical-align:top;margin:0 1%;">'+((o&&o.signUrl)?'<img src="'+escH(o.signUrl)+'" style="max-height:70px;max-width:100%;border-bottom:1px solid #333;">':'<div style="height:70px;border-bottom:1px solid #333;"></div>')+'<div style="font-weight:bold;font-size:12px;margin-top:4px;">'+escH((o&&o.name)||"—")+'</div><div style="font-size:11px;color:#555;">'+escH((o&&o.email)||"")+'</div><div style="font-size:11px;color:#555;">'+rol+'</div></div>';}
+  return'<div style="font-family:Arial,sans-serif;color:#1a1d2e;max-width:680px;margin:0 auto;">'+
+    '<h2 style="font-size:17px;">Bitácora de avance — '+escH(cl.name)+'</h2>'+
+    '<p style="font-size:13px;line-height:1.7;"><b>Proyecto:</b> '+escH(p.name||"")+'<br><b>N° P.O:</b> '+escH(p.poNumber||"—")+'<br><b>Fecha:</b> '+escH((b.date||"")+(b.time?" "+b.time:""))+'<br><b>Lugar:</b> '+escH(b.place||"—")+'<br><b>Elaboró:</b> '+escH(b.createdBy||"—")+'</p>'+
+    '<table style="border-collapse:collapse;width:100%;"><thead><tr><th '+th+'>Código</th><th '+th+'>Descripción</th><th '+th+'>Unidad</th><th '+th+'>Cant.</th><th '+th+'>Acum.</th><th '+th+'>Ejec.</th><th '+th+'>%</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div style="margin-top:26px;">'+sig(b.supervisor,"Supervisor CLARO")+sig(b.colaborador,"Colaborador TKTK-SINTELSA")+'</div>'+
+    '<p style="font-size:11px;color:#999;margin-top:20px;">Enviado automáticamente por AgendaTeam.</p>'+
+  '</div>';
+}
+function _enviarCorreoBitacora(p,b){
+  var to=(b.supervisor&&b.supervisor.email||"").trim();
+  if(!to){toast("Bitácora guardada (sin correo del supervisor, no se envió)");return;}
+  var cc=(b.colaborador&&b.colaborador.email||"").trim();
+  var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||""};
+  toast("📧 Enviando copia al supervisor…");
+  fetch("/.netlify/functions/mail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+    to:to,cc:cc||undefined,
+    subject:"Bitácora "+(b.date||"")+" — "+(p.name||"")+" ("+cl.name+")",
+    html:_bitEmailHTML(p,b)
+  })}).then(function(r){return r.json();}).then(function(d){
+    if(d&&d.ok)toast("✅ Copia enviada a "+to);
+    else toast("⚠️ No se envió el correo: "+((d&&d.error)||"error"),"error");
+  }).catch(function(e){toast("⚠️ Error al enviar correo: "+(e&&e.message||""),"error");});
+}
 function descargarBitacora(pid,bid){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;
   if(!canDownloadBitacora(p.client)){toast("Tu perfil no permite descargar bitácoras","error");return;}
@@ -1506,7 +1541,9 @@ function guardarBitacora(){
       });
       p.updatedTs=Date.now();
       saveLocal();if(db)saveProjects();
+      var nb=p.bitacoras[p.bitacoras.length-1];
       closeSheet();renderProyectos();toast("✅ Bitácora guardada");
+      _enviarCorreoBitacora(p,nb); // copia por correo al supervisor del cliente
     });
   });
 }

@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809041; // subir en CADA despliegue
+var APP_BUILD=20260809042; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1443,7 +1443,7 @@ function _claroEmailHTML(p,b){
     '<tr>'+r2.map(function(c){return'<td style="'+catcell+'height:20px;">'+mark(c)+'</td>';}).join("")+'</tr></table>';
   // Detalle de trabajos (una línea con borde inferior por actividad) + relleno para parecer el form
   var lines=(cf.detalle||"").split(/\n/).map(function(l){return l.trim();}).filter(Boolean);
-  while(lines.length<12)lines.push("");
+  while(lines.length<8)lines.push("");
   var body=lines.map(function(l){return'<div style="border-bottom:1px solid #000;min-height:20px;padding:2px 6px;font-size:12px;">'+escH(l)+'</div>';}).join("");
   // Firma
   function sig(rol,nom,tel,url){return'<td style="width:50%;vertical-align:top;padding:0 10px;">'+
@@ -1493,7 +1493,8 @@ function loadPdfLibs(){
   });
 }
 // Renderiza HTML a PDF (base64, tamaño carta, multipágina). cb(base64) | errcb(e)
-function _htmlToPdfBase64(html,cb,errcb){
+function _htmlToPdfBase64(html,cb,errcb,opts){
+  opts=opts||{};
   loadPdfLibs().then(function(){
     var cont=document.createElement("div");
     cont.style.cssText="position:fixed;left:-9999px;top:0;width:760px;background:#fff;padding:24px;box-sizing:border-box;";
@@ -1504,10 +1505,17 @@ function _htmlToPdfBase64(html,cb,errcb){
         try{
           var jsPDF=window.jspdf.jsPDF,pdf=new jsPDF("p","pt","letter");
           var pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
-          var iw=pw,ih=canvas.height*pw/canvas.width,data=canvas.toDataURL("image/jpeg",0.9);
-          var left=ih,pos=0;
-          pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;
-          while(left>0){pos=left-ih;pdf.addPage();pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;}
+          var data=canvas.toDataURL("image/jpeg",0.92);
+          var iw=pw,ih=canvas.height*pw/canvas.width;
+          if(opts.singlePage){
+            // Ajustar TODO a una sola hoja (contenido y firmas juntos, justificado).
+            if(ih>ph){var s=ph/ih;iw=iw*s;ih=ph;}
+            var x=(pw-iw)/2;pdf.addImage(data,"JPEG",x,0,iw,ih);
+          }else{
+            var left=ih,pos=0;
+            pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;
+            while(left>0){pos=left-ih;pdf.addPage();pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;}
+          }
           var uri=pdf.output("datauristring"),b64=uri.split(",")[1];
           document.body.removeChild(cont);cb(b64);
         }catch(e){document.body.removeChild(cont);errcb(e);}
@@ -1516,26 +1524,31 @@ function _htmlToPdfBase64(html,cb,errcb){
     if(!pend)go();else{var done=0;imgs.forEach(function(im){if(im.complete)chk();else{im.onload=chk;im.onerror=chk;}});function chk(){done++;if(done>=pend)go();}setTimeout(go,3500);var fired=false;var _go=go;go=function(){if(fired)return;fired=true;_go();};}
   }).catch(errcb);
 }
+function _pdfPromise(html,opts){return new Promise(function(res,rej){_htmlToPdfBase64(html,res,rej,opts);});}
 // Correo con LAS DOS bitácoras adjuntas en UN PDF (mantiene el formato). Respaldo: HTML si el PDF falla.
 function _enviarCorreoDoble(p,b){
   var to=(b.supervisor&&b.supervisor.email||"").trim();
   if(!to){toast("Guardado (sin correo del supervisor, no se envió)");return;}
   var cc=(b.colaborador&&b.colaborador.email||"").trim();
   var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||""};
-  var full=_bitEmailHTML(p,b)+'<div style="page-break-before:always;height:24px;"></div>'+_claroEmailHTML(p,b);
   var subject="Bitácoras "+(b.date||"")+" — "+(p.name||"")+" ("+cl.name+")";
-  var bodyMsg='<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1d2e;">Adjunto encontrará las bitácoras de avance y el formato Claro del proyecto <b>'+escH(p.name||"")+'</b> ('+escH(b.date||"")+').<br><br>Enviado automáticamente por AgendaTeam.</div>';
+  var bodyMsg='<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1d2e;">Adjunto encontrará <b>2 documentos</b> del proyecto <b>'+escH(p.name||"")+'</b> ('+escH(b.date||"")+'):<br>1) Bitácora de avance<br>2) Formato Claro<br><br>Enviado automáticamente por AgendaTeam.</div>';
   function send(payload){return fetch("/.netlify/functions/mail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}).then(function(r){return r.json();});}
-  toast("📄 Generando PDF…");
-  _htmlToPdfBase64(full,function(b64){
-    toast("📧 Enviando correo con PDF…");
-    send({to:to,cc:cc||undefined,subject:subject,html:bodyMsg,attachments:[{filename:"Bitacoras_"+(b.date||"")+".pdf",content:b64}]})
-      .then(function(d){if(d&&d.ok)toast("✅ Correo con PDF enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");})
-      .catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
-  },function(err){
-    // Respaldo: si no se pudo generar el PDF, enviar en HTML (como antes).
+  toast("📄 Generando PDFs…");
+  // Dos PDFs por separado: avance (multipágina) y formato Claro (una sola hoja).
+  _pdfPromise(_bitEmailHTML(p,b),{}).then(function(avPdf){
+    return _pdfPromise(_claroEmailHTML(p,b),{singlePage:true}).then(function(clPdf){
+      toast("📧 Enviando correo…");
+      return send({to:to,cc:cc||undefined,subject:subject,html:bodyMsg,attachments:[
+        {filename:"Avance_"+(b.date||"")+".pdf",content:avPdf},
+        {filename:"FormatoClaro_"+(b.date||"")+".pdf",content:clPdf}
+      ]});
+    });
+  }).then(function(d){if(d&&d.ok)toast("✅ Correo con 2 PDFs enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");})
+  .catch(function(err){
+    // Respaldo: HTML si falla la generación de PDF.
     toast("⚠️ PDF no disponible, envío en HTML…","error");
-    send({to:to,cc:cc||undefined,subject:subject,html:full})
+    send({to:to,cc:cc||undefined,subject:subject,html:_bitEmailHTML(p,b)+'<hr>'+_claroEmailHTML(p,b)})
       .then(function(d){if(d&&d.ok)toast("✅ Correo (HTML) enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");})
       .catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
   });

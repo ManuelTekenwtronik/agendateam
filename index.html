@@ -450,7 +450,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809039; // subir en CADA despliegue
+var APP_BUILD=20260809040; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   var ov=document.getElementById("live-overlay");
@@ -1444,21 +1444,62 @@ function _claroEmailHTML(p,b){
     '<div style="font-size:10px;color:#777;margin-top:6px;">Supervisor Claro &nbsp;·&nbsp; Supervisor Contratista/Proveedor</div>'+
   '</div>';
 }
-// Correo con LAS DOS bitácoras: avance (app) + formato Claro.
+// Cargar librerías para generar PDF en el teléfono (una vez; luego cacheadas por el SW si aplica).
+function loadPdfLibs(){
+  return new Promise(function(res,rej){
+    function need(cond,src,after){return new Promise(function(rs,rj){if(cond())return rs();var s=document.createElement("script");s.src=src;s.onload=function(){rs();};s.onerror=function(){rj(new Error("no cargó "+src));};document.head.appendChild(s);});}
+    need(function(){return window.jspdf&&window.jspdf.jsPDF;},"https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js")
+      .then(function(){return need(function(){return window.html2canvas;},"https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js");})
+      .then(res).catch(rej);
+  });
+}
+// Renderiza HTML a PDF (base64, tamaño carta, multipágina). cb(base64) | errcb(e)
+function _htmlToPdfBase64(html,cb,errcb){
+  loadPdfLibs().then(function(){
+    var cont=document.createElement("div");
+    cont.style.cssText="position:fixed;left:-9999px;top:0;width:760px;background:#fff;padding:24px;box-sizing:border-box;";
+    cont.innerHTML=html;document.body.appendChild(cont);
+    var imgs=cont.querySelectorAll("img"),pend=imgs.length;
+    function go(){
+      html2canvas(cont,{useCORS:true,scale:2,backgroundColor:"#fff"}).then(function(canvas){
+        try{
+          var jsPDF=window.jspdf.jsPDF,pdf=new jsPDF("p","pt","letter");
+          var pw=pdf.internal.pageSize.getWidth(),ph=pdf.internal.pageSize.getHeight();
+          var iw=pw,ih=canvas.height*pw/canvas.width,data=canvas.toDataURL("image/jpeg",0.9);
+          var left=ih,pos=0;
+          pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;
+          while(left>0){pos=left-ih;pdf.addPage();pdf.addImage(data,"JPEG",0,pos,iw,ih);left-=ph;}
+          var uri=pdf.output("datauristring"),b64=uri.split(",")[1];
+          document.body.removeChild(cont);cb(b64);
+        }catch(e){document.body.removeChild(cont);errcb(e);}
+      }).catch(function(e){try{document.body.removeChild(cont);}catch(_){}errcb(e);});
+    }
+    if(!pend)go();else{var done=0;imgs.forEach(function(im){if(im.complete)chk();else{im.onload=chk;im.onerror=chk;}});function chk(){done++;if(done>=pend)go();}setTimeout(go,3500);var fired=false;var _go=go;go=function(){if(fired)return;fired=true;_go();};}
+  }).catch(errcb);
+}
+// Correo con LAS DOS bitácoras adjuntas en UN PDF (mantiene el formato). Respaldo: HTML si el PDF falla.
 function _enviarCorreoDoble(p,b){
   var to=(b.supervisor&&b.supervisor.email||"").trim();
   if(!to){toast("Guardado (sin correo del supervisor, no se envió)");return;}
   var cc=(b.colaborador&&b.colaborador.email||"").trim();
   var cl=(TEAM_CLIENTS.filter(function(c){return c.key===p.client;})[0])||{name:p.client||""};
-  var html=_bitEmailHTML(p,b)+'<hr style="margin:28px 0;border:none;border-top:2px dashed #ccc;">'+_claroEmailHTML(p,b);
-  toast("📧 Enviando las 2 bitácoras…");
-  fetch("/.netlify/functions/mail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-    to:to,cc:cc||undefined,
-    subject:"Bitácoras "+(b.date||"")+" — "+(p.name||"")+" ("+cl.name+")",
-    html:html
-  })}).then(function(r){return r.json();}).then(function(d){
-    if(d&&d.ok)toast("✅ Correo enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");
-  }).catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
+  var full=_bitEmailHTML(p,b)+'<div style="page-break-before:always;height:24px;"></div>'+_claroEmailHTML(p,b);
+  var subject="Bitácoras "+(b.date||"")+" — "+(p.name||"")+" ("+cl.name+")";
+  var bodyMsg='<div style="font-family:Arial,sans-serif;font-size:14px;color:#1a1d2e;">Adjunto encontrará las bitácoras de avance y el formato Claro del proyecto <b>'+escH(p.name||"")+'</b> ('+escH(b.date||"")+').<br><br>Enviado automáticamente por AgendaTeam.</div>';
+  function send(payload){return fetch("/.netlify/functions/mail",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}).then(function(r){return r.json();});}
+  toast("📄 Generando PDF…");
+  _htmlToPdfBase64(full,function(b64){
+    toast("📧 Enviando correo con PDF…");
+    send({to:to,cc:cc||undefined,subject:subject,html:bodyMsg,attachments:[{filename:"Bitacoras_"+(b.date||"")+".pdf",content:b64}]})
+      .then(function(d){if(d&&d.ok)toast("✅ Correo con PDF enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");})
+      .catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
+  },function(err){
+    // Respaldo: si no se pudo generar el PDF, enviar en HTML (como antes).
+    toast("⚠️ PDF no disponible, envío en HTML…","error");
+    send({to:to,cc:cc||undefined,subject:subject,html:full})
+      .then(function(d){if(d&&d.ok)toast("✅ Correo (HTML) enviado a "+to);else toast("⚠️ No se envió: "+((d&&d.error)||"error"),"error");})
+      .catch(function(e){toast("⚠️ Error correo: "+(e&&e.message||""),"error");});
+  });
 }
 function descargarBitacora(pid,bid){
   var p=(state.projects||[]).find(function(x){return String(x.id)===String(pid);});if(!p)return;

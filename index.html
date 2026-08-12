@@ -483,7 +483,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260812004; // subir en CADA despliegue
+var APP_BUILD=20260812005; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   // 🚩 heartbeat: cada equipo con sesión deja rastro cada ~10 min → la matriz incluye a TODOS los usuarios
@@ -702,6 +702,7 @@ function init(){
       startMessagesSync();
       startTeamsSync();
       checkVersion();
+      setTimeout(autoCloseAttendance,4000); // al abrir el dispositivo, aplicar salidas automáticas pendientes
       // MIGRACIÓN 1 MiB: subir los mensajes que venían en at/data a at/messages, y luego reescribir at/data SIN mensajes.
       if(d&&d.messages&&Object.keys(d.messages).length){
         _msgSig="";saveMessages(); // primero asegurar el chat en su doc aparte
@@ -2269,6 +2270,7 @@ function aiNotify(ck,sys,userText){
 }
 
 function runAlerts(){
+  autoCloseAttendance(); // aplica salidas automáticas cada ciclo (30s) → reportes/estadísticas reflejan el cierre
   var now=Date.now(),changed=false;
   var _dowA=new Date().getDay(); // 0=dom, 6=sab
   state.tasks.forEach(function(task){
@@ -2839,6 +2841,39 @@ function processAttendancePhoto(kind,f){
   xhr.send(fd);
 }
 function attById(id){return(state.attendance||[]).find(function(x){return String(x.id)===String(id);});}
+// ── AUTO-CIERRE DE ASISTENCIA ──
+// DÍA (ingreso 00:00–17:59): se puede cerrar hasta 23:59; si no, salida asumida = 17:00 (mismo día).
+// NOCHE (ingreso 18:00–23:59): se puede cerrar hasta 07:00 del día siguiente; si no, salida asumida = 03:00 (día siguiente).
+// Se aplica con hora RETROACTIVA, solo cuando ya pasó el límite. Solo de aquí en adelante (no toca ingresos previos a AUTOCLOSE_SINCE).
+var AUTOCLOSE_SINCE=new Date(2026,7,12,0,0,0,0).getTime(); // 2026-08-12 00:00 — regla vigente de aquí en adelante
+function _assumedOut(inTime,now){
+  var d=new Date(inTime),h=d.getHours();
+  if(h>=18){ // NOCHE
+    var dl=new Date(inTime);dl.setDate(dl.getDate()+1);dl.setHours(7,0,0,0);      // límite 07:00 día siguiente
+    if(now>=dl.getTime()){var o=new Date(inTime);o.setDate(o.getDate()+1);o.setHours(3,0,0,0);return o.getTime();} // salida 03:00 día siguiente
+  }else{ // DÍA (00:00–17:59)
+    var dl2=new Date(inTime);dl2.setHours(23,59,0,0);                              // límite 23:59 mismo día
+    if(now>=dl2.getTime()){var o2=new Date(inTime);o2.setHours(17,0,0,0);return o2.getTime();} // salida 17:00 mismo día
+  }
+  return null;
+}
+function autoCloseAttendance(){
+  if(!state.attendance)return false;
+  var now=Date.now(),changed=false;
+  state.attendance.forEach(function(a){
+    if(!a||a.outTime||!a.inTime)return;              // ya cerrado o sin ingreso
+    if(a.inTime<AUTOCLOSE_SINCE)return;              // histórico → no tocar (solo de aquí en adelante)
+    var out=_assumedOut(a.inTime,now);
+    if(out){
+      a.outTime=out;a.outAuto=true;a.outAutoAt=now;  // 🚩 salida automática, marcada para reportes
+      changed=true;
+      diagFlag("att_autoclose",{collab:a.collabName,inH:new Date(a.inTime).getHours(),out:new Date(out).toLocaleString()});
+      console.log("[AUTOCLOSE] "+a.collabName+" ingreso "+new Date(a.inTime).toLocaleString()+" → salida asumida "+new Date(out).toLocaleString());
+    }
+  });
+  if(changed){saveLocal();if(db)saveCloud();}
+  return changed;
+}
 // Reporte de almuerzo: debe tomarse 1h/día (tolerancia ±10 min). Reporta si no tomó, no completó, o excedió.
 function checkLunch(){
   if(!currentUser||currentUser.type!=="collab")return;
@@ -2924,6 +2959,7 @@ function crearAlertaValidacion(rec,kind,reasons){
   try{sendNotif("boss",(lvl==="red"?"🔴":"🟡")+" Asistencia por validar",rec.collabName+" ("+(kind==="in"?"ingreso":"salida")+"): "+txt.join(", "));}catch(e){}
 }
 function renderIngreso(){
+  autoCloseAttendance(); // reflejar salidas automáticas al ver Asistencia
   var isBoss=isAdmin(),cid=myUid(),rec=todayAttendance(cid),tk=todayKey();
   var h=sectionHead("🕐 Ingreso / Salida","Hoy "+tk);
   h+='<div class="card"><div style="font-weight:700;margin-bottom:4px;">Mi jornada de hoy</div>';
@@ -2973,7 +3009,7 @@ function dayArrivalsHTML(dateKey){
       var s=a.inSite,ok=s&&(s.status==="ok"||s.status==="yellow");
       return'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f0f2f7;gap:8px;">'+
         '<div style="min-width:0;"><span style="font-size:11px;color:#bbb;font-weight:800;">'+(i+1)+'.</span> <span style="font-weight:700;font-size:13px;">'+escH(a.collabName)+'</span>'+(a.needsValidation?' '+flagIcon(a.flagLevel):'')+'<div style="font-size:10px;color:'+(ok?"#27ae60":"#e74c3c")+';">'+(ok?"✓ "+escH((s&&s.name)||"autorizado"):"✗ "+escH((s&&s.name)||"no autorizado"))+'</div></div>'+
-        '<div style="text-align:right;white-space:nowrap;"><span style="color:#27ae60;font-weight:800;font-size:15px;">'+fmtTime(a.inTime)+'</span>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+'</div>':'')+'</div>'+
+        '<div style="text-align:right;white-space:nowrap;"><span style="color:#27ae60;font-weight:800;font-size:15px;">'+fmtTime(a.inTime)+'</span>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+(a.outAuto?' 🕐auto':'')+'</div>':'')+'</div>'+
       '</div>';
     }).join("")+'</div>';
   }else h+='<div class="card" style="text-align:center;color:#999;">Nadie marcó ingreso ese día.</div>';
@@ -3458,6 +3494,7 @@ function renderCalendarioSemanal(){
   host.innerHTML=h;
 }
 function renderEstadisticas(){
+  autoCloseAttendance(); // reflejar salidas automáticas en Estadísticas
   var admin=isAdmin();
   var h=sectionHead("📊 Estadísticas","Rendimiento");
   var general,scopeCid;
@@ -4998,12 +5035,13 @@ function attendanceSummaryHTML(dateKey){
     var badge=authorized?'<span style="color:#27ae60;font-weight:700;">✓ Autorizado — '+escH(place)+'</span>':'<span style="color:#e74c3c;font-weight:700;">✗ NO autorizado — '+escH(place)+'</span>';
     return'<div style="display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #f0f2f7;gap:8px;">'+
       '<div style="min-width:0;"><div style="font-weight:700;font-size:13px;">'+escH(a.collabName)+'</div><div style="font-size:11px;margin-top:1px;">'+badge+'</div></div>'+
-      '<div style="text-align:right;white-space:nowrap;"><div style="color:#27ae60;font-weight:800;font-size:15px;">'+(a.inTime?fmtTime(a.inTime):"—")+'</div>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+'</div>':'')+'</div>'+
+      '<div style="text-align:right;white-space:nowrap;"><div style="color:#27ae60;font-weight:800;font-size:15px;">'+(a.inTime?fmtTime(a.inTime):"—")+'</div>'+(a.outTime?'<div style="font-size:10px;color:#e74c3c;">salida '+fmtTime(a.outTime)+(a.outAuto?' 🕐auto':'')+'</div>':'')+'</div>'+
     '</div>';
   }).join("");
   return h+'<div class="card" style="padding:12px;"><div style="display:flex;gap:12px;margin-bottom:8px;font-size:12px;"><span style="color:#27ae60;font-weight:700;">✓ '+ok+' autorizados</span><span style="color:#e74c3c;font-weight:700;">✗ '+bad+' no autorizados</span></div>'+rows+'</div>';
 }
 function renderReportes(){
+  autoCloseAttendance(); // reflejar salidas automáticas en Reportes
   var isBoss=isAdmin();
   var h=sectionHead("📈 Reportes","Productividad por actividad");
   h+=repPeriodBar();

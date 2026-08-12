@@ -442,7 +442,8 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,messages:state.messages,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    tasks:state.tasks,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    // NOTA: messages ya NO viven en at/data (se movieron a at/messages para no reventar el límite de 1 MiB). Ver saveMessages().
   };
   window._pendingSave=true;
   var ref=db.collection("at").doc("data");
@@ -482,7 +483,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260812001; // subir en CADA despliegue
+var APP_BUILD=20260812002; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   // 🚩 heartbeat: cada equipo con sesión deja rastro cada ~10 min → la matriz incluye a TODOS los usuarios
@@ -501,6 +502,42 @@ function checkVersion(){
   }).catch(function(){});
 }
 
+// ── CHAT en documento APARTE at/messages (patrón de projects) ──
+// Los mensajes salieron de at/data para no reventar el límite de 1 MiB de Firestore. Merge por conversación + id.
+var _msgSig="";
+function _msgSignature(){var m=state.messages||{},keys=Object.keys(m),n=0;for(var i=0;i<keys.length;i++){n+=(m[keys[i]]||[]).length;}return keys.length+":"+n;}
+function _mergeMessages(cloud,local){
+  var out={},keys={};
+  Object.keys(cloud||{}).forEach(function(k){keys[k]=1;});
+  Object.keys(local||{}).forEach(function(k){keys[k]=1;});
+  Object.keys(keys).forEach(function(k){
+    var c=(cloud&&cloud[k])||[],l=(local&&local[k])||[],map={},order=[];
+    c.forEach(function(m){if(m&&m.id!=null){if(!(m.id in map))order.push(m.id);map[m.id]=m;}});
+    l.forEach(function(m){if(m&&m.id!=null){if(!(m.id in map))order.push(m.id);map[m.id]=m;}});
+    out[k]=order.map(function(id){return map[id];}).sort(function(a,b){return(a.ts||0)-(b.ts||0);});
+  });
+  return out;
+}
+function saveMessages(){
+  if(!db||!_cloudSynced)return;
+  var sig=_msgSignature();
+  if(sig===_msgSig)return; // sin cambios en el chat → no reescribir (evita writes de ~800KB en cada saveLocal)
+  var ref=db.collection("at").doc("messages");
+  db.runTransaction(function(tx){return tx.get(ref).then(function(doc){
+    var cloud=(doc.exists&&doc.data().data)||{};
+    tx.set(ref,{data:_mergeMessages(cloud,state.messages||{})});
+  });}).then(function(){_msgSig=sig;}).catch(function(e){console.warn("saveMessages:",e);diagFlag("msg_err",{err:(e&&e.message||"?").slice(0,80)});});
+}
+function startMessagesSync(){
+  if(!db)return;
+  db.collection("at").doc("messages").onSnapshot(function(snap){
+    var cloud=(snap.exists&&snap.data().data)||{};
+    state.messages=_mergeMessages(cloud,state.messages||{});
+    _msgSig=_msgSignature();
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+    if(currentUser)render();
+  },function(e){console.warn("msgSync:",e);});
+}
 function startSync(){
   if(!db)return;
   db.collection("at").doc("data").onSnapshot(function(snap){
@@ -526,6 +563,7 @@ function startSync(){
     }
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
     state.projects=localProjects; // los proyectos NO viven en at/data; los mantiene startProjectsSync
+    state.messages=localMessages; // los mensajes NO viven en at/data; los mantiene startMessagesSync (evita reventar 1 MiB)
     // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
     state.attendance=_mergeById(state.attendance,localAttendance);
     state.activities=_mergeById(state.activities,localActivities);
@@ -633,7 +671,7 @@ var pinTarget=null,pinBuffer="";
 function loadLocal(){var def={collaborators:[],tasks:[],messages:{},alerts:[],references:[],referenceFolders:[],attendance:[],activities:[]};try{var r=localStorage.getItem(SK);return r?Object.assign(def,JSON.parse(r)):def;}catch(e){return def;}}
 function saveLocal(){
   try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){window._lsFail=(window._lsFail||0)+1;diagFlag("ls_fail",{where:"saveLocal",err:(e&&e.name)||"?",n:window._lsFail});} // 🚩 cuota llena → no persiste local → al recargar se pierde lo no sincronizado
-  if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(saveCloud,1500);}
+  if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(function(){saveCloud();saveMessages();},1500);}
 }
 
 function init(){
@@ -646,7 +684,7 @@ function init(){
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();startTeamsSync();checkVersion();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();startMessagesSync();startTeamsSync();checkVersion();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -661,8 +699,14 @@ function init(){
       showMainLogin();
       startSync();
       startProjectsSync();
+      startMessagesSync();
       startTeamsSync();
       checkVersion();
+      // MIGRACIÓN 1 MiB: subir los mensajes que venían en at/data a at/messages, y luego reescribir at/data SIN mensajes.
+      if(d&&d.messages&&Object.keys(d.messages).length){
+        _msgSig="";saveMessages(); // primero asegurar el chat en su doc aparte
+        setTimeout(function(){saveCloud();},2500); // luego reescribir at/data pequeño → baja de 1 MiB y desbloquea guardados
+      }
     }).catch(function(){if(!done){done=true;_cloudSynced=true;clearTimeout(t);showMainLogin();}});
   }else{
     showMainLogin();

@@ -483,7 +483,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260812002; // subir en CADA despliegue
+var APP_BUILD=20260812003; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   // 🚩 heartbeat: cada equipo con sesión deja rastro cada ~10 min → la matriz incluye a TODOS los usuarios
@@ -1242,7 +1242,7 @@ function canSeePrices(clientKey){
   if(currentUser&&currentUser.type==="boss")return true;
   var id=currentUser&&currentUser.id;if(!id)return false;
   var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
-  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  var t=(_teamsMap&&_teamsMap[id])||(c&&c.teams)||{}; // fuente de verdad = at/teams (_teamsMap); c.teams de at/data puede estar desactualizado
   function has(ck){var v=t[ck]||{};return v.desarrollo===true||v.facturacion===true;}
   if(clientKey)return has(clientKey);
   return Object.keys(t).some(has);
@@ -3087,7 +3087,7 @@ function userHasTeamProfile(profileKey,clientKey){
   if(currentUser&&currentUser.type==="boss")return true;
   var id=currentUser&&currentUser.id;if(!id)return false;
   var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
-  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  var t=(_teamsMap&&_teamsMap[id])||(c&&c.teams)||{}; // fuente de verdad = at/teams (_teamsMap); c.teams de at/data puede estar desactualizado
   function has(ck){var v=t[ck]||{};return v[profileKey]===true;}
   if(clientKey)return has(clientKey);
   return Object.keys(t).some(has);
@@ -3097,7 +3097,7 @@ function userHasAnyProfile(clientKey){
   if(currentUser&&currentUser.type==="boss")return true;
   var id=currentUser&&currentUser.id;if(!id)return false;
   var c=(state.collaborators||[]).find(function(x){return String(x.id)===String(id);});
-  var t=(c&&c.teams)||(_teamsMap&&_teamsMap[id])||{};
+  var t=(_teamsMap&&_teamsMap[id])||(c&&c.teams)||{}; // fuente de verdad = at/teams (_teamsMap); c.teams de at/data puede estar desactualizado
   var v=t[clientKey]||{};return Object.keys(v).some(function(k){return v[k]===true;});
 }
 // ¿Puede ver este proyecto? Solo si tiene permiso en su cliente.

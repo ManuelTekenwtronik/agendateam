@@ -415,6 +415,26 @@ function startProjectsSync(){
     if(currentUser&&currentTab==="proyectos")renderProyectos();
   },function(e){console.warn("projSync:",e);});
 }
+// ── 🚩 MATRIZ DE BANDERAS DE DIAGNÓSTICO ──
+// Se guarda en el doc APARTE at/diag (saveCloud/onSnapshot de at/data NO lo tocan → no se sobreescribe).
+// Cada fila: quién (user/uid), en qué equipo (dev), con qué versión (build), qué evento y conteos.
+// Append con transacción (tope 1500) → ningún equipo pisa las banderas de otro. Analizar: node backups/diag.js
+// Apagar con DIAG_ON=false cuando se resuelva el problema.
+var DIAG_ON=true;
+var _lastDiagSave=0;
+function _diagDev(){try{var ua=(navigator.userAgent||"");var os=/Android/i.test(ua)?"Android":/iPhone|iPad|iOS/i.test(ua)?"iOS":/Windows/i.test(ua)?"Win":/Mac/i.test(ua)?"Mac":"?";return os+"|"+(navigator.platform||"").slice(0,12);}catch(e){return"?";}}
+function diagFlag(ev,extra){
+  if(!DIAG_ON||!db||!_cloudSynced)return;
+  try{
+    var row=Object.assign({ts:Date.now(),ev:ev,user:(currentUser?((myName&&myName())||"?"):"(sin login)"),uid:(myUid&&myUid())||"?",dev:_diagDev(),build:APP_BUILD},extra||{});
+    var ref=db.collection("at").doc("diag");
+    db.runTransaction(function(tx){return tx.get(ref).then(function(doc){
+      var rows=(doc.exists&&doc.data().rows)||[];
+      rows.push(row);if(rows.length>1500)rows=rows.slice(-1500);
+      tx.set(ref,{rows:rows});
+    });}).catch(function(){});
+  }catch(e){}
+}
 function saveCloud(){
   if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
@@ -430,16 +450,28 @@ function saveCloud(){
   db.runTransaction(function(tx){
     return tx.get(ref).then(function(doc){
       var cloud=doc.exists?doc.data():{};
+      var _cAct=(cloud.activities||[]).length,_lAct=(state.activities||[]).length;   // 🚩 conteos ANTES del merge
+      var _cAtt=(cloud.attendance||[]).length,_lAtt=(state.attendance||[]).length;
       fc.attendance=_mergeById(cloud.attendance,state.attendance);
       fc.activities=_mergeById(cloud.activities,state.activities);
       // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
       // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
       var cloudTeams={},cloudFD={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null){cloudTeams[cc.id]=cc.teams;cloudFD[cc.id]=cc.faceDescriptor;}});
       fc.collaborators=fc.collaborators.map(function(cc){var o=cc;if(cloudTeams[cc.id]!==undefined)o=Object.assign({},o,{teams:cloudTeams[cc.id]});if(cloudFD[cc.id]!==undefined)o=Object.assign({},o,{faceDescriptor:cloudFD[cc.id]});return o;});
+      window._diagSave={cloudAct:_cAct,localAct:_lAct,mergedAct:fc.activities.length,cloudAtt:_cAtt,localAtt:_lAtt,mergedAtt:fc.attendance.length};
       tx.set(ref,fc);
     });
-  }).then(function(){window._pendingSave=false;}).catch(function(e){
-    console.warn("save tx:",e);window._pendingSave=true;
+  }).then(function(){
+    window._pendingSave=false;
+    var s=window._diagSave;window._diagSave=null;
+    if(s){
+      // 🚩 bandera crítica: este equipo traía MENOS que la nube → iba a pisar datos (el merge lo salva, pero lo delata)
+      var stale=(s.localAct<s.cloudAct)||(s.localAtt<s.cloudAtt);
+      var now=Date.now();
+      if(stale||now-_lastDiagSave>20000){_lastDiagSave=now;diagFlag("save",Object.assign({stale:stale},s));}
+    }
+  }).catch(function(e){
+    console.warn("save tx:",e);window._pendingSave=true;diagFlag("save_err",{err:(e&&e.message||"?").slice(0,80)});
   });
 }
 // Reintento automático cuando vuelve la red
@@ -450,14 +482,21 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260809042; // subir en CADA despliegue
+var APP_BUILD=20260812001; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
+  // 🚩 heartbeat: cada equipo con sesión deja rastro cada ~10 min → la matriz incluye a TODOS los usuarios
+  if(currentUser){var _n=Date.now();if(_n-(window._lastBeat||0)>600000){window._lastBeat=_n;diagFlag("alive",{tab:currentTab||"?",localAct:(state.activities||[]).length,localAtt:(state.attendance||[]).length});}}
   var ov=document.getElementById("live-overlay");
   if(ov&&!ov.classList.contains("hidden"))return; // no recargar durante la prueba de vida
   db.collection("at").doc("meta").get().then(function(s){
     var b=(s.exists&&s.data()&&Number(s.data().build))||0;
-    if(b>APP_BUILD){location.reload();return;}           // hay versión más nueva → actualizar
+    if(b>APP_BUILD){
+      // 🚩 antes de recargar: ¿quedaba algo sin guardar? (pending) — sospechoso de perder lo recién creado
+      diagFlag("reload",{from:APP_BUILD,to:b,pending:!!window._pendingSave,localAct:(state.activities||[]).length,localAtt:(state.attendance||[]).length});
+      if(window._pendingSave)saveCloud(); // intento de rescate: vaciar lo pendiente antes de recargar
+      setTimeout(function(){location.reload();},1200); return; // dar tiempo a que la bandera y el save cierren
+    }
     if(APP_BUILD>b)db.collection("at").doc("meta").set({build:APP_BUILD},{merge:true}).catch(function(){}); // publicar la mía
   }).catch(function(){});
 }
@@ -479,6 +518,12 @@ function startSync(){
     // Guardar mensajes locales antes de reemplazar el estado
     var localMessages=state.messages||{};
     var localAttendance=state.attendance||[],localActivities=state.activities||[],localProjects=state.projects||[];
+    // 🚩 bandera crítica: la nube nos devolvió MENOS de lo que teníamos local → otro equipo pisó datos
+    // (el merge de abajo lo recupera, pero ESTO es lo que el usuario ve "desaparecer unos minutos")
+    var _incAct=(d.activities||[]).length,_incAtt=(d.attendance||[]).length;
+    if(_incAct<localActivities.length||_incAtt<localAttendance.length){
+      diagFlag("snap_shrink",{incAct:_incAct,localAct:localActivities.length,incAtt:_incAtt,localAtt:localAttendance.length});
+    }
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
     state.projects=localProjects; // los proyectos NO viven en at/data; los mantiene startProjectsSync
     // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
@@ -509,7 +554,7 @@ function startSync(){
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
     _applyTeamsMap(); // reaplicar teams de at/teams (que at/data no debe pisar)
     // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
-    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){window._lsFail=(window._lsFail||0)+1;diagFlag("ls_fail",{where:"snapshot",err:(e&&e.name)||"?",n:window._lsFail});}
     // No repintar la tabla de Asignación de Team en sync de fondo (los checkboxes ya tienen su estado; evita parpadeo).
     if(currentUser&&currentTab!=="asignteam")render();
   },function(e){console.warn("sync:",e);});
@@ -587,7 +632,7 @@ var pinTarget=null,pinBuffer="";
 
 function loadLocal(){var def={collaborators:[],tasks:[],messages:{},alerts:[],references:[],referenceFolders:[],attendance:[],activities:[]};try{var r=localStorage.getItem(SK);return r?Object.assign(def,JSON.parse(r)):def;}catch(e){return def;}}
 function saveLocal(){
-  try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+  try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){window._lsFail=(window._lsFail||0)+1;diagFlag("ls_fail",{where:"saveLocal",err:(e&&e.name)||"?",n:window._lsFail});} // 🚩 cuota llena → no persiste local → al recargar se pierde lo no sincronizado
   if(db){clearTimeout(window._saveTimer);window._saveTimer=setTimeout(saveCloud,1500);}
 }
 
@@ -3105,6 +3150,7 @@ function iniciarActividad(){
   }
   var ent={id:Date.now(),collabId:cid,collabName:myName(),name:name,project:project||null,date:todayKey(),startTs:Date.now(),endTs:null,startLoc:null,endLoc:null};
   state.activities.push(ent);
+  diagFlag("act_new",{actId:ent.id,name:name,localAct:state.activities.length}); // 🚩 marca el nacimiento de la actividad
   saveLocal();if(db)saveCloud();renderActividades();
   toast("📍 Registrando ubicación…");
   var entId=ent.id;

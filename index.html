@@ -435,6 +435,43 @@ function diagFlag(ev,extra){
     });}).catch(function(){});
   }catch(e){}
 }
+// ── COLECCIONES POR REGISTRO (escalable, SIN contención de escritura) ──
+// Cada registro = su propio documento en Firestore → dos personas guardando a la vez NUNCA chocan.
+// PATRÓN REUTILIZABLE para nuevos bloques del menú: agrega {coll,key} a REC_COLLECTIONS y usa recDelete al borrar; nada más.
+var REC_COLLECTIONS=[{coll:"activities",key:"activities"},{coll:"attendance",key:"attendance"},{coll:"tasks",key:"tasks"}];
+var _recCloud={};   // coll -> {id: JSON} última versión conocida en la nube (dirty-check de escritura)
+var _recPending={}; // coll -> {id: JSON} escrito localmente, aún NO confirmado por snapshot
+function _recInit(coll){if(!_recCloud[coll])_recCloud[coll]={};if(!_recPending[coll])_recPending[coll]={};}
+// Escribe SOLO los registros que difieren de la nube (no hay que instrumentar cada sitio de mutación). Sin transacción → sin contención.
+function syncRecordCollection(coll,arr){
+  if(!db||!_cloudSynced)return;_recInit(coll);
+  (arr||[]).forEach(function(o){
+    if(!o||o.id==null)return;var id=String(o.id);var js;try{js=JSON.stringify(o);}catch(e){return;}
+    if(_recCloud[coll][id]!==js&&_recPending[coll][id]!==js){
+      _recPending[coll][id]=js;
+      db.collection(coll).doc(id).set(o).catch(function(e){diagFlag("rec_err",{coll:coll,id:id,err:(e&&e.message||"?").slice(0,60)});});
+    }
+  });
+}
+function syncAllRecords(){REC_COLLECTIONS.forEach(function(c){syncRecordCollection(c.coll,state[c.key]);});}
+// Borrado explícito: el sincronizador no puede distinguir un borrado de una creación local pendiente, así que los sitios de borrado deben llamarlo.
+function recDelete(coll,id){if(!db||id==null)return;id=String(id);_recInit(coll);delete _recPending[coll][id];delete _recCloud[coll][id];db.collection(coll).doc(id).delete().catch(function(){});}
+function startRecSync(coll,stateKey){
+  if(!db)return;_recInit(coll);
+  db.collection(coll).onSnapshot(function(snap){
+    var cloud={},nc={};snap.forEach(function(dc){var o=dc.data();cloud[String(dc.id)]=o;nc[String(dc.id)]=JSON.stringify(o);});
+    _recCloud[coll]=nc;
+    var pend=_recPending[coll];
+    Object.keys(pend).forEach(function(id){if(nc[id]===pend[id])delete pend[id];}); // confirmados → limpiar
+    var out=[],seen={};
+    Object.keys(cloud).forEach(function(id){out.push(pend[id]!==undefined?JSON.parse(pend[id]):cloud[id]);seen[id]=1;}); // cambio local pendiente gana
+    Object.keys(pend).forEach(function(id){if(!seen[id]){try{out.push(JSON.parse(pend[id]));}catch(e){}}}); // creaciones locales aún no en nube
+    state[stateKey]=out;
+    try{localStorage.setItem(SK,JSON.stringify(state));}catch(e){}
+    if(currentUser)render();
+  },function(e){console.warn("recSync "+coll+":",e);});
+}
+function startAllRecSync(){REC_COLLECTIONS.forEach(function(c){startRecSync(c.coll,c.key);});}
 function saveCloud(){
   if(!db||!_cloudSynced)return; // no escribir hasta recibir datos de Firestore
   var fc={
@@ -442,38 +479,25 @@ function saveCloud(){
       var ph=(c.photo&&!c.photo.startsWith("data:")&&!c.photo.startsWith("blob:"))?c.photo:"";
       return Object.assign({},c,{photo:ph});
     }),
-    tasks:state.tasks,alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
-    // NOTA: messages ya NO viven en at/data (se movieron a at/messages para no reventar el límite de 1 MiB). Ver saveMessages().
+    alerts:state.alerts,references:state.references||[],referenceFolders:state.referenceFolders||[],taskTemplates:state.taskTemplates||[],locations:state.locations||[]
+    // tasks/activities/attendance viven en COLECCIONES por-registro (ver syncAllRecords); messages en at/messages.
   };
   window._pendingSave=true;
   var ref=db.collection("at").doc("data");
-  // Transacción: fusiona asistencia y actividades con lo último de la nube (alta concurrencia en la mañana)
   db.runTransaction(function(tx){
     return tx.get(ref).then(function(doc){
       var cloud=doc.exists?doc.data():{};
-      var _cAct=(cloud.activities||[]).length,_lAct=(state.activities||[]).length;   // 🚩 conteos ANTES del merge
-      var _cAtt=(cloud.attendance||[]).length,_lAtt=(state.attendance||[]).length;
-      fc.attendance=_mergeById(cloud.attendance,state.attendance);
-      fc.activities=_mergeById(cloud.activities,state.activities);
-      // Preservar la asignación de team (teams) de la nube: SOLO toggleTeam la modifica.
-      // Evita que un dispositivo con copia vieja de colaboradores borre los perfiles asignados.
+      // Preservar la asignación de team (teams) y faceDescriptor de la nube (solo toggleTeam/enroll los cambian).
       var cloudTeams={},cloudFD={};(cloud.collaborators||[]).forEach(function(cc){if(cc&&cc.id!=null){cloudTeams[cc.id]=cc.teams;cloudFD[cc.id]=cc.faceDescriptor;}});
       fc.collaborators=fc.collaborators.map(function(cc){var o=cc;if(cloudTeams[cc.id]!==undefined)o=Object.assign({},o,{teams:cloudTeams[cc.id]});if(cloudFD[cc.id]!==undefined)o=Object.assign({},o,{faceDescriptor:cloudFD[cc.id]});return o;});
-      window._diagSave={cloudAct:_cAct,localAct:_lAct,mergedAct:fc.activities.length,cloudAtt:_cAtt,localAtt:_lAtt,mergedAtt:fc.attendance.length};
       tx.set(ref,fc);
     });
   }).then(function(){
     window._pendingSave=false;
-    var s=window._diagSave;window._diagSave=null;
-    if(s){
-      // 🚩 bandera crítica: este equipo traía MENOS que la nube → iba a pisar datos (el merge lo salva, pero lo delata)
-      var stale=(s.localAct<s.cloudAct)||(s.localAtt<s.cloudAtt);
-      var now=Date.now();
-      if(stale||now-_lastDiagSave>20000){_lastDiagSave=now;diagFlag("save",Object.assign({stale:stale},s));}
-    }
   }).catch(function(e){
     console.warn("save tx:",e);window._pendingSave=true;diagFlag("save_err",{err:(e&&e.message||"?").slice(0,80)});
   });
+  syncAllRecords(); // tareas/actividades/asistencia → documentos por registro (sin contención)
 }
 // Reintento automático cuando vuelve la red
 window.addEventListener("online",function(){
@@ -483,7 +507,7 @@ window.addEventListener("online",function(){
 // En el flujo "en caliente", un dispositivo con código viejo en caché pisa datos al guardar
 // (tx.set reemplaza todo el doc). La marca de build vive en un doc aparte (at/meta) que saveCloud
 // NO toca, así que no se pierde. Si un cliente detecta un build mayor, se recarga solo.
-var APP_BUILD=20260812005; // subir en CADA despliegue
+var APP_BUILD=20260816001; // subir en CADA despliegue
 function checkVersion(){
   if(!db)return;
   // 🚩 heartbeat: cada equipo con sesión deja rastro cada ~10 min → la matriz incluye a TODOS los usuarios
@@ -545,50 +569,15 @@ function startSync(){
     var d=snap.data();
     var pm={};
     state.collaborators.forEach(function(c){if(c.photo)pm[c.id]=c.photo;});
-    // Preservar status, historial, requiredEvidence y mensajes locales para evitar que onSnapshot sobreescriba cambios no guardados
-    var localStatuses={},localHistories={},localReqEvidence={};
-    state.tasks.forEach(function(t){
-      localStatuses[t.id]=t.status;
-      localHistories[t.id]=t.history||[];
-      if(t.requiredEvidence)localReqEvidence[t.id]=t.requiredEvidence;
-    });
-    // Guardar mensajes locales antes de reemplazar el estado
-    var localMessages=state.messages||{};
-    var localAttendance=state.attendance||[],localActivities=state.activities||[],localProjects=state.projects||[];
-    // 🚩 bandera crítica: la nube nos devolvió MENOS de lo que teníamos local → otro equipo pisó datos
-    // (el merge de abajo lo recupera, pero ESTO es lo que el usuario ve "desaparecer unos minutos")
-    var _incAct=(d.activities||[]).length,_incAtt=(d.attendance||[]).length;
-    if(_incAct<localActivities.length||_incAtt<localAttendance.length){
-      diagFlag("snap_shrink",{incAct:_incAct,localAct:localActivities.length,incAtt:_incAtt,localAtt:localAttendance.length});
-    }
+    // Colecciones que YA NO viven en at/data: preservarlas del snapshot (las manejan sus propios sync).
+    var localMessages=state.messages||{},localProjects=state.projects||[];
+    var localTasks=state.tasks||[],localActivities=state.activities||[],localAttendance=state.attendance||[];
     state=Object.assign({collaborators:[],tasks:[],messages:{},alerts:[],references:[],taskTemplates:[],locations:[],attendance:[],activities:[]},d);
-    state.projects=localProjects; // los proyectos NO viven en at/data; los mantiene startProjectsSync
-    state.messages=localMessages; // los mensajes NO viven en at/data; los mantiene startMessagesSync (evita reventar 1 MiB)
-    // Conservar asistencia/actividades locales recién creadas que aún no llegaron a la nube (evita perder el ingreso)
-    state.attendance=_mergeById(state.attendance,localAttendance);
-    state.activities=_mergeById(state.activities,localActivities);
-    state.tasks=state.tasks.map(function(t){
-      var ls=localStatuses[t.id];
-      var lh=localHistories[t.id]||[];
-      // Preservar status si hay cambio local pendiente (completada o validación)
-      if(ls&&ls!==t.status&&(ls==="completada"||t.status==="pendiente_validacion"))t.status=ls;
-      // Preservar historial si el local tiene más entradas (aún no sincronizadas con Firestore)
-      if(lh.length>(t.history||[]).length)t.history=lh;
-      // Preservar requiredEvidence local si Firestore aún no tiene la versión actualizada
-      var lre=localReqEvidence[t.id];
-      if(lre&&(!t.requiredEvidence||(lre.photo&&!t.requiredEvidence.photo)||(lre.image&&!t.requiredEvidence.image)||(lre.document&&!t.requiredEvidence.document)))t.requiredEvidence=lre;
-      return t;
-    });
-    // Fusionar mensajes locales que aún no llegaron a Firestore (evita race condition del validador)
-    Object.keys(localMessages).forEach(function(key){
-      var localMsgs=localMessages[key]||[];
-      var remoteMsgs=state.messages[key]||[];
-      var remoteIds={};remoteMsgs.forEach(function(m){remoteIds[m.id]=true;});
-      var pendingLocal=localMsgs.filter(function(m){return!remoteIds[m.id];});
-      if(pendingLocal.length){
-        state.messages[key]=(remoteMsgs.concat(pendingLocal)).sort(function(a,b){return(a.ts||0)-(b.ts||0);});
-      }
-    });
+    state.projects=localProjects;     // at/projects
+    state.messages=localMessages;     // at/messages
+    state.tasks=localTasks;           // colección tasks (doc por registro)
+    state.activities=localActivities; // colección activities (doc por registro)
+    state.attendance=localAttendance; // colección attendance (doc por registro)
     state.collaborators=state.collaborators.map(function(c){return Object.assign({},c,{photo:c.photo||pm[c.id]||""});});
     _applyTeamsMap(); // reaplicar teams de at/teams (que at/data no debe pisar)
     // Solo guardar en localStorage (no disparar saveCloud: acabamos de recibir datos de Firestore)
@@ -684,7 +673,7 @@ function init(){
   initFCM();
   if(db){
     var done=false;
-    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();startMessagesSync();startTeamsSync();checkVersion();}},5000);
+    var t=setTimeout(function(){if(!done){done=true;_cloudSynced=true;showMainLogin();startSync();startProjectsSync();startMessagesSync();startAllRecSync();startTeamsSync();checkVersion();}},5000);
     db.collection("at").doc("data").get().then(function(snap){
       if(done)return;done=true;clearTimeout(t);
       if(snap.exists){
@@ -700,6 +689,7 @@ function init(){
       startSync();
       startProjectsSync();
       startMessagesSync();
+      startAllRecSync();
       startTeamsSync();
       checkVersion();
       setTimeout(autoCloseAttendance,4000); // al abrir el dispositivo, aplicar salidas automáticas pendientes
@@ -4689,7 +4679,7 @@ function saveCollabNote(id){
   saveLocal();render();toast("Nota guardada ✓");
 }
 
-function delT(id){state.tasks=state.tasks.filter(function(t){return t.id!=id;});saveLocal();render();toast("Tarea eliminada","error");}
+function delT(id){state.tasks=state.tasks.filter(function(t){return t.id!=id;});recDelete("tasks",id);saveLocal();render();toast("Tarea eliminada","error");}
 
 // ── BASE DE DATOS DE REFERENCIA ──
 var _refFiles=[];
@@ -6169,6 +6159,7 @@ function askDC(id){
   if(!c)return;
   showConfirm("¿Eliminar a "+c.name+"?","Se eliminarán sus tareas y mensajes.",function(){
     state.collaborators=state.collaborators.filter(function(x){return x.id!==id;});
+    (state.tasks||[]).forEach(function(t){if(t.assignedTo===id)recDelete("tasks",t.id);}); // borrar sus tareas de la colección
     state.tasks=state.tasks.filter(function(t){return t.assignedTo!==id;});
     if(filterCollab===String(id))filterCollab="todas";
     saveLocal();if(db)saveCloud();render();toast(c.name+" eliminado","error");
